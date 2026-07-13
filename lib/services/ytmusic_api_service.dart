@@ -5403,8 +5403,15 @@ class InnerTubeService {
 
       if (contents != null) {
         for (final item in contents) {
-          final track = _parseTrackItem(item);
-          if (track != null) tracks.add(track);
+          var track = _parseTrackItem(item);
+          if (track != null) {
+            track = track.copyWith(
+              album: track.album ?? title,
+              albumId: track.albumId ?? albumId,
+              thumbnailUrl: track.thumbnailUrl ?? thumbnailUrl,
+            );
+            tracks.add(track);
+          }
         }
       }
 

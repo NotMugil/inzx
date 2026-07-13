@@ -89,6 +89,10 @@ class Album extends Equatable {
 
   /// Create from JSON
   factory Album.fromJson(Map<String, dynamic> json) {
+    final albumTitle = json['title'] as String?;
+    final albumId = json['id'] as String?;
+    final albumThumbnailUrl = json['thumbnailUrl'] as String?;
+
     return Album(
       id: json['id'] as String,
       title: json['title'] as String,
@@ -100,7 +104,14 @@ class Album extends Equatable {
       year: json['year'] as String?,
       trackCount: json['trackCount'] as int?,
       tracks: (json['tracks'] as List<dynamic>?)
-          ?.map((t) => Track.fromJson(t as Map<String, dynamic>))
+          ?.map((t) {
+            final track = Track.fromJson(t as Map<String, dynamic>);
+            return track.copyWith(
+              album: track.album ?? albumTitle,
+              albumId: track.albumId ?? albumId,
+              thumbnailUrl: track.thumbnailUrl ?? albumThumbnailUrl,
+            );
+          })
           .toList(),
       totalDuration: json['totalDuration'] != null
           ? Duration(milliseconds: json['totalDuration'] as int)
