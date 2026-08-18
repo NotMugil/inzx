@@ -16,12 +16,10 @@ final musicLocalSourceProvider = Provider<MusicLocalSource>((ref) {
 /// Provides MusicRemoteSource singleton
 final musicRemoteSourceProvider = Provider<MusicRemoteSource>((ref) {
   final innerTube = ref.watch(innerTubeServiceProvider);
-  final ytMusic = ref.watch(youtubeServiceProvider);
   final authService = ref.watch(ytMusicAuthServiceProvider);
 
   return MusicRemoteSource(
     innerTube: innerTube,
-    ytMusic: ytMusic,
     authService: authService,
   );
 });

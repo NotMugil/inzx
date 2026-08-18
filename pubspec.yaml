@@ -38,7 +38,6 @@ dependencies:
   http: ^1.2.2
 
   # Music Player
-  youtube_explode_dart: ^2.3.5 # YouTube stream extraction
   just_audio: ^0.9.42 # Audio playback
   audio_service: ^0.18.15 # Background playback & media controls
   audio_session: ^0.1.21 # Audio focus management

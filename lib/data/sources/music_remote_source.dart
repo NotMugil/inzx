@@ -1,21 +1,17 @@
 import 'package:inzx/core/services/result.dart';
 import 'package:inzx/models/track.dart';
 import 'package:inzx/services/ytmusic_api_service.dart';
-import 'package:inzx/services/youtube_music_service.dart';
 import 'package:inzx/services/ytmusic_auth_service.dart';
 
 /// Remote data source wrapping YouTube Music services
 class MusicRemoteSource {
   final InnerTubeService _innerTube;
-  final YouTubeMusicService _ytMusic;
   final YTMusicAuthService _authService;
 
   MusicRemoteSource({
     required InnerTubeService innerTube,
-    required YouTubeMusicService ytMusic,
     required YTMusicAuthService authService,
   }) : _innerTube = innerTube,
-       _ytMusic = ytMusic,
        _authService = authService;
 
   // ============ Search Operations ============
@@ -35,8 +31,8 @@ class MusicRemoteSource {
   /// Get trending tracks
   Future<Result<List<Track>>> getTrendingTracks() async {
     try {
-      final results = await _ytMusic.getTrendingMusic();
-      return Result.success(results);
+      final results = await _innerTube.search('trending music');
+      return Result.success(results.tracks);
     } on NetworkException catch (e) {
       return Result.failure(e);
     } catch (e) {

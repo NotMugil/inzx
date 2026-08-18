@@ -10,7 +10,6 @@ import 'package:rxdart/rxdart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
 import 'playback/playback.dart';
-import 'youtube_music_service.dart';
 import 'ytmusic_api_service.dart';
 import 'queue_persistence_service.dart';
 import 'lyrics/lyrics_service.dart';
@@ -2330,14 +2329,20 @@ class AudioPlayerService {
       final migrated = prefs.getBool(_durationMigrationKey) ?? false;
       if (migrated) return;
 
-      final ytService = YouTubeMusicService();
-      final fetched = await ytService.getTrack(_currentTrack!.id);
-      if (fetched == null || fetched.duration <= Duration.zero) return;
+      // Get track info via InnerTube player API for duration migration
+      final playerResult = await _ytPlayerUtils.playerResponseForPlayback(
+        _currentTrack!.id,
+        quality: _audioQuality,
+      );
+      if (!playerResult.isSuccess || playerResult.data == null) return;
+      
+      final fetchedDuration = playerResult.data!.videoDetails?.duration ?? Duration.zero;
+      if (fetchedDuration <= Duration.zero) return;
 
-      final didUpdate = _applyDurationToCurrentTrack(fetched.duration);
+      final didUpdate = _applyDurationToCurrentTrack(fetchedDuration);
       if (didUpdate) {
         _updateState(
-          duration: fetched.duration,
+          duration: fetchedDuration,
           currentTrack: _currentTrack,
           queue: _queue,
           queueRevision: _queueRevision,

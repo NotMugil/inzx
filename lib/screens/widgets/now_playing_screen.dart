@@ -1083,7 +1083,6 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
 
   Future<WatchRelatedContent> _loadRelatedContent(Track currentTrack) async {
     final innerTube = ref.read(innerTubeServiceProvider);
-    final ytService = ref.read(youtubeServiceProvider);
     final relatedTabTitle = context.l10n.relatedTab;
 
     final relatedContent = await innerTube.getWatchRelatedContent(
@@ -1115,26 +1114,29 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       );
     }
 
-    final genericTracks = await ytService.getRelatedTracks(
-      currentTrack.id,
-      limit: 20,
-    );
-    final filteredGeneric = genericTracks
-        .where((track) => track.id != currentTrack.id)
-        .take(20)
-        .toList();
+    // Final fallback: search for similar tracks via InnerTube
+    try {
+      final searchQuery = '${currentTrack.artist} ${currentTrack.title}';
+      final searchResults = await innerTube.search(searchQuery);
+      final genericTracks = searchResults.tracks
+          .where((track) => track.id != currentTrack.id)
+          .take(20)
+          .toList();
 
-    if (filteredGeneric.isNotEmpty) {
-      return WatchRelatedContent(
-        shelves: [
-          HomeShelf(
-            id: 'related_generic_${currentTrack.id}',
-            title: relatedTabTitle,
-            type: HomeShelfType.unknown,
-            items: filteredGeneric.map(_trackToShelfItem).toList(),
-          ),
-        ],
-      );
+      if (genericTracks.isNotEmpty) {
+        return WatchRelatedContent(
+          shelves: [
+            HomeShelf(
+              id: 'related_generic_${currentTrack.id}',
+              title: relatedTabTitle,
+              type: HomeShelfType.unknown,
+              items: genericTracks.map(_trackToShelfItem).toList(),
+            ),
+          ],
+        );
+      }
+    } catch (_) {
+      // Search fallback failed, return empty
     }
 
     return WatchRelatedContent.empty;

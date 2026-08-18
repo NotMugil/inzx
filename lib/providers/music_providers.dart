@@ -32,11 +32,6 @@ final audioHandlerInitProvider = FutureProvider<InzxAudioHandler>((ref) async {
   return await initAudioService();
 });
 
-/// Provider for the YouTube music service
-final youtubeServiceProvider = Provider<YouTubeMusicService>((ref) {
-  return YouTubeMusicService();
-});
-
 /// Provider for the audio player service
 /// This is a singleton that gets the InnerTubeService injected
 /// The InnerTubeService is shared so auth updates are reflected automatically
@@ -267,15 +262,15 @@ final searchSuggestionsProvider = FutureProvider.autoDispose<List<String>>((
     throw Exception('Query changed');
   }
 
-  final ytService = ref.read(youtubeServiceProvider);
+  final ytService = ref.read(innerTubeServiceProvider);
   return await ytService.getSearchSuggestions(query);
 });
 
 /// Provider for loading related tracks
 final relatedTracksProvider = FutureProvider.autoDispose
     .family<List<Track>, String>((ref, videoId) async {
-      final ytService = ref.read(youtubeServiceProvider);
-      return await ytService.getRelatedTracks(videoId);
+      final ytService = ref.read(innerTubeServiceProvider);
+      return await ytService.getWatchPlaylist(videoId);
     });
 
 /// Provider for loading a playlist
@@ -283,7 +278,7 @@ final playlistProvider = FutureProvider.autoDispose.family<Playlist?, String>((
   ref,
   playlistId,
 ) async {
-  final ytService = ref.read(youtubeServiceProvider);
+  final ytService = ref.read(innerTubeServiceProvider);
   return await ytService.getPlaylist(playlistId);
 });
 
@@ -292,7 +287,7 @@ final artistProvider = FutureProvider.autoDispose.family<Artist?, String>((
   ref,
   channelId,
 ) async {
-  final ytService = ref.read(youtubeServiceProvider);
+  final ytService = ref.read(innerTubeServiceProvider);
   return await ytService.getArtist(channelId);
 });
 

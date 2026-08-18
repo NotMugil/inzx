@@ -254,8 +254,11 @@ class YTPlayerUtils {
       visitorData = _poToken.visitorData;
     }
 
-    // Use playback-specific clients (OuterTune: separate metadata vs playback)
-    final playbackClients = InnerTubeClient.playbackClients;
+    // Metrolist-style content-aware fallback:
+    // Start with default clients, detect content type on first failure,
+    // then switch to content-specific client list
+    List<InnerTubeClient> playbackClients = InnerTubeClient.defaultClients;
+    bool contentAwareSwitchDone = false;
     PlaybackResult? lastError;
 
     for (final client in playbackClients) {
@@ -312,7 +315,29 @@ class YTPlayerUtils {
       _clientFailures[client.name] = failures + 1;
       lastError = result;
 
-      // If bot detection and we don't have valid tokens, try generating (but don't clear existing)
+      // Metrolist-style: detect content type from failure and switch client list
+      if (!contentAwareSwitchDone && result.data == null) {
+        contentAwareSwitchDone = true;
+        // Check if the error indicates a specific content type
+        final isExplicit = result.error?.contains('age') == true ||
+            result.error?.contains('Sign in') == true;
+        final isLive = result.error?.contains('live') == true;
+        if (isExplicit || isLive) {
+          final newClients = InnerTubeClient.getClientsForContent(
+            isExplicit: isExplicit,
+            isLive: isLive,
+          );
+          // Add any new clients not already in the list
+          for (final c in newClients) {
+            if (!playbackClients.any((existing) => existing.name == c.name && existing.version == c.version)) {
+              playbackClients.add(c);
+            }
+          }
+          if (kDebugMode) {
+            print('YTPlayerUtils: Content-aware switch — added ${newClients.length} fallback clients');
+          }
+        }
+      }
       // OuterTune: tokens are reused per session, not regenerated per track
       if (result.requiresPoToken && !_poToken.hasValidTokens) {
         if (kDebugMode) {
@@ -379,7 +404,7 @@ class YTPlayerUtils {
       visitorData = _poToken.visitorData;
     }
 
-    final playbackClients = InnerTubeClient.playbackClients;
+    final playbackClients = InnerTubeClient.defaultClients;
 
     for (final client in playbackClients) {
       await _applyThrottle(client.name);
