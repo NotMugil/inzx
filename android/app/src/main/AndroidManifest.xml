@@ -50,13 +50,21 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
             
-            <!-- Deep linking intent filter -->
+            <!-- Deep linking intent filters -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <!-- Accepts URIs like: inzx://open/playlist?id=123 -->
+                <!-- Accepts URIs like: inzx://open/song?id=123 -->
                 <data android:scheme="inzx" android:host="open" />
+            </intent-filter>
+
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <!-- Accepts GitHub redirect pages -->
+                <data android:scheme="https" android:host="nirmaleeswar30.github.io" android:pathPrefix="/Inzx/redirect.html" />
             </intent-filter>
         </activity>
         

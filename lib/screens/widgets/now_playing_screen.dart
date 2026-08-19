@@ -2790,6 +2790,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
             decoration: BoxDecoration(
               color: textColor.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(22),
+              border: Border.all(
+                color: accentColor.withValues(alpha: 0.38),
+                width: 1.2,
+              ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,

@@ -2462,7 +2462,7 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(22),
                         child: Image.asset(
-                          'assets/icon/logo.png',
+                          'assets/icon/logo_transparent.png',
                           width: 80,
                           height: 80,
                           fit: BoxFit.cover,

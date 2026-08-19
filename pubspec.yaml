@@ -103,26 +103,21 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: false
-  image_path: "assets/icon/logo.png"
-  # For adaptive icons on Android (displays nicely on different launchers)
-  adaptive_icon_background: "#000000"  # Black background
-  adaptive_icon_foreground: "assets/icon/logo_transparent.png"  # Logo with transparent background
+  image_path: "assets/icon/logo_transparent.png"
+  adaptive_icon_background: "#000000"  # Sleek pitch black dark theme background
+  adaptive_icon_foreground: "assets/icon/logo_transparent.png"
   
 # Flutter Native Splash configuration
 flutter_native_splash:
   color: "#000000"  # Black background for splash screen
-  image: "assets/splash/logo_splash.png"  # Splash-specific image with extra padding
+  image: "assets/splash/logo_splash.png"  # Padded logo asset so headphones don't clip
   android: true
   ios: false
-  # Optional: different logo for dark mode
-  # color_dark: "#000000"
-  # image_dark: "assets/splash/logo_dark.png"
   
   # Android specific
   android_12:
     image: "assets/splash/logo_splash.png"
     color: "#000000"
-    # icon_background_color: "#000000"
   
   # Web support (optional)
   web: false

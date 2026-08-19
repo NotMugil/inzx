@@ -1871,6 +1871,44 @@ class InnerTubeService {
     return response;
   }
 
+  /// Get full track details for a specific videoId
+  Future<Track?> getSongDetails(String videoId) async {
+    try {
+      final response = await getPlayer(videoId);
+      if (response == null) return null;
+
+      final videoDetails = response['videoDetails'] as Map<String, dynamic>?;
+      if (videoDetails == null) return null;
+
+      final title = videoDetails['title'] as String? ?? 'Unknown Title';
+      final author = videoDetails['author'] as String? ?? 'Unknown Artist';
+      final lengthSeconds =
+          int.tryParse(videoDetails['lengthSeconds']?.toString() ?? '0') ?? 0;
+
+      String thumbnailUrl = 'https://img.youtube.com/vi/$videoId/hqdefault.jpg';
+      final thumbnails = videoDetails['thumbnail']?['thumbnails'] as List?;
+      if (thumbnails != null && thumbnails.isNotEmpty) {
+        final lastUrl = thumbnails.last['url'] as String?;
+        if (lastUrl != null && lastUrl.isNotEmpty) {
+          thumbnailUrl = lastUrl;
+        }
+      }
+
+      return Track(
+        id: videoId,
+        title: title,
+        artist: author,
+        thumbnailUrl: thumbnailUrl,
+        duration: Duration(seconds: lengthSeconds),
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting song details for $videoId: $e');
+      }
+      return null;
+    }
+  }
+
   // Cache for player.js decryption function
   String? _cachedPlayerJs;
   List<String>? _cachedDecryptionSteps;

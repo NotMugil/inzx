@@ -27,6 +27,8 @@ import 'screens/widgets/whats_new_dialog.dart';
 InzxAudioHandler? audioHandler;
 final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey =
     GlobalKey<ScaffoldMessengerState>();
+final GlobalKey<NavigatorState> rootNavigatorKey =
+    GlobalKey<NavigatorState>();
 VoidCallback? requestAppRestart;
 
 void main() async {
@@ -260,6 +262,7 @@ class _InzxAppState extends ConsumerState<InzxApp> {
     ThemeData darkTheme = InzxTheme.darkWithAccent(darkAccent);
 
     return MaterialApp(
+      navigatorKey: rootNavigatorKey,
       onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: rootScaffoldMessengerKey,

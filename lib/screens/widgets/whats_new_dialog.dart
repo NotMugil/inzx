@@ -67,7 +67,7 @@ class WhatsNewDialog {
                         ClipRRect(
                           borderRadius: BorderRadius.circular(16),
                           child: Image.asset(
-                            'assets/icon/logo.png',
+                            'assets/icon/logo_transparent.png',
                             width: 52,
                             height: 52,
                             fit: BoxFit.cover,
