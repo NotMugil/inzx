@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:inzx/core/services/cache/hive_service.dart';
@@ -6,19 +7,22 @@ import 'package:inzx/data/entities/lyrics_entity.dart';
 import 'package:inzx/data/repositories/music_repository.dart'
     show CacheAnalytics;
 import 'lyrics_models.dart';
+import 'betterlyrics_provider.dart';
 import 'lrclib_provider.dart';
 import 'genius_provider.dart';
 
 /// Provider names enum for type safety
-enum ProviderName { lrclib, genius }
+enum ProviderName { betterLyrics, lrclib, genius }
 
 /// All available provider names in order
-const providerNames = [ProviderName.lrclib, ProviderName.genius];
+const providerNames = [ProviderName.betterLyrics, ProviderName.lrclib, ProviderName.genius];
 
 /// Extension to get display name
 extension ProviderNameExt on ProviderName {
   String get displayName {
     switch (this) {
+      case ProviderName.betterLyrics:
+        return 'BetterLyrics';
       case ProviderName.lrclib:
         return 'LRCLib';
       case ProviderName.genius:
@@ -33,6 +37,7 @@ class LyricsWarmupService {
   static final LyricsWarmupService instance = LyricsWarmupService._();
   LyricsWarmupService._();
 
+  final BetterLyricsProvider _betterLyrics = BetterLyricsProvider();
   final LRCLibProvider _lrclib = LRCLibProvider();
   final GeniusProvider _genius = GeniusProvider();
   final Set<String> _inFlight = <String>{};
@@ -58,7 +63,10 @@ class LyricsWarmupService {
         durationSeconds: durationSeconds,
       );
 
-      LyricResult? result = await _lrclib.search(info);
+      LyricResult? result = await _betterLyrics.search(info);
+      if (result == null || !result.hasLyrics) {
+        result = await _lrclib.search(info);
+      }
       if (result == null || !result.hasLyrics) {
         result = await _genius.search(info);
       }
@@ -103,8 +111,19 @@ class LyricsWarmupService {
       provider: result.source,
       cachedAt: DateTime.now(),
       ttlDays: 7,
+      wordSyncData: _serializeWordData(result.lines),
     );
     HiveService.lyricsBox.put(videoId, entity);
+  }
+
+  /// Serialize word-level timing to JSON for cache storage
+  static String? _serializeWordData(List<LyricLine>? lines) {
+    if (lines == null || lines.isEmpty) return null;
+    final hasAnyWords = lines.any((l) => l.hasWordSync);
+    if (!hasAnyWords) return null;
+    return jsonEncode(
+      lines.map((l) => l.words?.map((w) => w.toJson()).toList()).toList(),
+    );
   }
 
   String? _linesToLrc(List<LyricLine>? lines) {
@@ -165,6 +184,7 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
 
   LyricsNotifier()
     : _providers = {
+        ProviderName.betterLyrics: BetterLyricsProvider(),
         ProviderName.lrclib: LRCLibProvider(),
         ProviderName.genius: GeniusProvider(),
       },
@@ -218,7 +238,19 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
       hasManuallySwitched: false,
     );
 
-    // LRCLib is the primary source. If it succeeds, skip network fallback.
+    // BetterLyrics is the primary source (best quality word-level sync).
+    await _fetchFromProvider(ProviderName.betterLyrics, info);
+    final betterStatus = state.providers[ProviderName.betterLyrics];
+    if ((betterStatus?.data?.hasLyrics ?? false) &&
+        betterStatus?.state == LyricsProviderState.done) {
+      if (!state.hasManuallySwitched) {
+        state = state.copyWith(currentProvider: ProviderName.betterLyrics);
+      }
+      _cacheBestResult(info);
+      return;
+    }
+
+    // LRCLib fallback (synced, community-driven).
     await _fetchFromProvider(ProviderName.lrclib, info);
     final lrcLibStatus = state.providers[ProviderName.lrclib];
     if ((lrcLibStatus?.data?.hasLyrics ?? false) &&
@@ -230,7 +262,7 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
       return;
     }
 
-    // Fallback provider
+    // Genius fallback (plain text).
     await _fetchFromProvider(ProviderName.genius, info);
 
     // Auto-select best provider if not manually switched
@@ -251,6 +283,10 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
         List<LyricLine>? lines;
         if (cached.hasSyncedLyrics) {
           lines = _parseLrcToLines(cached.syncedLyrics!);
+          // Restore word-level timing if available
+          if (cached.hasWordSync && lines.isNotEmpty) {
+            lines = _restoreWordData(lines, cached.wordSyncData!);
+          }
         }
         return LyricResult(
           title: cached.title,
@@ -271,6 +307,7 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
   ProviderName? _providerNameFromSource(String? source) {
     if (source == null) return null;
     final normalized = source.trim().toLowerCase();
+    if (normalized == 'betterlyrics') return ProviderName.betterLyrics;
     if (normalized == 'lrclib') return ProviderName.lrclib;
     if (normalized == 'genius') return ProviderName.genius;
     return null;
@@ -327,6 +364,7 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
           provider: data.source,
           cachedAt: DateTime.now(),
           ttlDays: 7,
+          wordSyncData: _serializeWordData(data.lines),
         );
         HiveService.lyricsBox.put(info.videoId, entity);
         if (kDebugMode) {
@@ -337,6 +375,46 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
       if (kDebugMode) {
         print('LyricsService: Cache write error: $e');
       }
+    }
+  }
+
+  /// Serialize word-level timing to JSON for cache storage
+  static String? _serializeWordData(List<LyricLine>? lines) {
+    if (lines == null || lines.isEmpty) return null;
+    final hasAnyWords = lines.any((l) => l.hasWordSync);
+    if (!hasAnyWords) return null;
+    return jsonEncode(
+      lines.map((l) => l.words?.map((w) => w.toJson()).toList()).toList(),
+    );
+  }
+
+  /// Restore word-level timing from cached JSON into parsed LyricLines
+  static List<LyricLine> _restoreWordData(
+    List<LyricLine> lines,
+    String wordSyncJson,
+  ) {
+    try {
+      final wordData = jsonDecode(wordSyncJson) as List;
+      if (wordData.length != lines.length) return lines;
+
+      return List.generate(lines.length, (i) {
+        final lineWords = wordData[i] as List?;
+        if (lineWords == null || lineWords.isEmpty) return lines[i];
+
+        return LyricLine(
+          timeInMs: lines[i].timeInMs,
+          durationMs: lines[i].durationMs,
+          text: lines[i].text,
+          words: lineWords
+              .map((w) => LyricWord.fromJson(w as Map<String, dynamic>))
+              .toList(),
+        );
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        print('LyricsService: Failed to restore word data: $e');
+      }
+      return lines;
     }
   }
 
@@ -394,6 +472,14 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
 
     // Has plain lyrics
     if (status.data?.hasPlainLyrics ?? false) bias += 1;
+
+    // Word-level sync bonus (BetterLyrics karaoke)
+    if (status.data?.hasWordSync ?? false) bias += 2;
+
+    // Prefer BetterLyrics overall (highest quality)
+    if (name == ProviderName.betterLyrics && (status.data?.hasLyrics ?? false)) {
+      bias += 2;
+    }
 
     // Prefer LRCLib overall if it has any lyrics
     if (name == ProviderName.lrclib && (status.data?.hasLyrics ?? false)) {

@@ -21,13 +21,16 @@ class LyricsEntity extends HiveObject {
   final String? plainLyrics;
 
   @HiveField(5)
-  final String provider; // lrclib, genius, etc.
+  final String provider; // lrclib, genius, betterlyrics, etc.
 
   @HiveField(6)
   final DateTime cachedAt;
 
   @HiveField(7)
   final int ttlDays;
+
+  @HiveField(8)
+  final String? wordSyncData; // JSON-encoded word-level timing for karaoke
 
   LyricsEntity({
     required this.trackId,
@@ -38,6 +41,7 @@ class LyricsEntity extends HiveObject {
     required this.provider,
     required this.cachedAt,
     this.ttlDays = 7,
+    this.wordSyncData,
   });
 
   bool get isExpired {
@@ -48,4 +52,5 @@ class LyricsEntity extends HiveObject {
   bool get hasLyrics => syncedLyrics != null || plainLyrics != null;
   bool get hasSyncedLyrics => syncedLyrics != null && syncedLyrics!.isNotEmpty;
   bool get hasPlainLyrics => plainLyrics != null && plainLyrics!.isNotEmpty;
+  bool get hasWordSync => wordSyncData != null && wordSyncData!.isNotEmpty;
 }

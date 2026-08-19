@@ -1,7 +1,7 @@
 name: inzx
-description: "Inzx - A beautiful offline-first music player with intelligent caching"
+description: "Inzx - A beautiful music player with YouTube Music integration and Jams."
 publish_to: 'none'
-version: 1.5.1
+version: 1.5.2
 
 environment:
   sdk: ^3.10.3
@@ -69,6 +69,7 @@ dependencies:
   package_info_plus: ^8.1.2
   url_launcher: ^6.3.1
   app_links: ^7.2.0
+  xml: ^6.6.1
 
 dev_dependencies:
   flutter_test:
