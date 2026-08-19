@@ -813,21 +813,24 @@ class AudioQualityPicker extends ConsumerWidget {
   ) {
     final isSelected = quality == current;
 
-    return ListTile(
-      leading: Icon(
-        isSelected ? Icons.check_circle : Icons.circle_outlined,
-        color: isSelected
-            ? accentColor
-            : (isDark ? Colors.white38 : Colors.grey),
-      ),
-      title: Text(
-        title,
-        style: TextStyle(
-          color: isDark ? Colors.white : InzxColors.textPrimary,
-          fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+    return Material(
+      color: Colors.transparent,
+      child: ListTile(
+        leading: Icon(
+          isSelected ? Icons.check_circle : Icons.circle_outlined,
+          color: isSelected
+              ? accentColor
+              : (isDark ? Colors.white38 : Colors.grey),
         ),
+        title: Text(
+          title,
+          style: TextStyle(
+            color: isDark ? Colors.white : InzxColors.textPrimary,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
+        onTap: onTap,
       ),
-      onTap: onTap,
     );
   }
 }

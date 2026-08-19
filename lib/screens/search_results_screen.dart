@@ -180,6 +180,8 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                         fontSize: 15,
                       ),
                       decoration: InputDecoration(
+                        filled: false,
+                        fillColor: Colors.transparent,
                         hintText: context.l10n.searchMusicHint,
                         hintStyle: TextStyle(
                           color: isDark

@@ -18,6 +18,12 @@ import 'audio_settings_screen.dart';
 import 'download_settings_screen.dart';
 import 'backup_restore_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'dart:ui';
+import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import '../services/github_release_update_service.dart';
+import '../services/shorebird_update_service.dart';
+import 'widgets/whats_new_dialog.dart';
 
 /// Provider for sync service
 final ytMusicSyncServiceProvider = Provider<YTMusicSyncService>((ref) {
@@ -535,22 +541,26 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
   // ── Reusable card container ────────────────────────────────────────
 
   Widget _sectionCard({required List<Widget> children}) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: _cardColor,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: _isDark
-              ? InzxColors.darkBorder
-              : (_hasAlbumColors
-                    ? _accentColor.withValues(alpha: 0.15)
-                    : InzxColors.border.withValues(alpha: 0.3)),
+    return Material(
+      color: _cardColor,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: _isDark
+                ? InzxColors.darkBorder
+                : (_hasAlbumColors
+                      ? _accentColor.withValues(alpha: 0.15)
+                      : InzxColors.border.withValues(alpha: 0.3)),
+          ),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: children,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: children,
+        ),
       ),
     );
   }
@@ -2071,27 +2081,129 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
       children: [
         _sectionHeader(l10n.appInfo, Iconsax.info_circle),
         const SizedBox(height: 12),
+        // Check for App Updates
         ListTile(
           contentPadding: EdgeInsets.zero,
-          leading: Icon(Iconsax.heart5, color: _accentColor),
+          leading: Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: _accentColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Iconsax.refresh_circle, color: _accentColor, size: 18),
+          ),
+          title: Text(
+            'Check for App Updates',
+            style: TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w600,
+              color: _textPrimary,
+            ),
+          ),
+          subtitle: Text(
+            'Check GitHub & OTA for new versions and updates',
+            style: TextStyle(fontSize: 12, color: _textSecondary),
+          ),
+          trailing: Icon(
+            Icons.arrow_forward_ios_rounded,
+            size: 14,
+            color: _textSecondary,
+          ),
+          onTap: _handleCheckForUpdates,
+        ),
+        Divider(color: _isDark ? Colors.white10 : Colors.black12, height: 16),
+        // What's New & Changelog
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: _accentColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Iconsax.document_text, color: _accentColor, size: 18),
+          ),
+          title: Text(
+            'What\'s New',
+            style: TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w600,
+              color: _textPrimary,
+            ),
+          ),
+          subtitle: Text(
+            'View release notes, changelogs & new features',
+            style: TextStyle(fontSize: 12, color: _textSecondary),
+          ),
+          trailing: Icon(
+            Icons.arrow_forward_ios_rounded,
+            size: 14,
+            color: _textSecondary,
+          ),
+          onTap: () => WhatsNewDialog.show(context),
+        ),
+        Divider(color: _isDark ? Colors.white10 : Colors.black12, height: 16),
+        // App Info Details Popup
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: _accentColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Iconsax.device_message, color: _accentColor, size: 18),
+          ),
+          title: Text(
+            'Version Details',
+            style: TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w600,
+              color: _textPrimary,
+            ),
+          ),
+          subtitle: Text(
+            'App logo, version, patch number & credits',
+            style: TextStyle(fontSize: 12, color: _textSecondary),
+          ),
+          trailing: Icon(
+            Icons.arrow_forward_ios_rounded,
+            size: 14,
+            color: _textSecondary,
+          ),
+          onTap: _showAppInfoPopup,
+        ),
+        Divider(color: _isDark ? Colors.white10 : Colors.black12, height: 16),
+        // Sponsor Inzx
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: Colors.red.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Iconsax.heart5, color: Colors.redAccent, size: 18),
+          ),
           title: Text(
             'Sponsor Inzx',
             style: TextStyle(
-              fontSize: 15,
+              fontSize: 14.5,
               fontWeight: FontWeight.w600,
               color: _textPrimary,
             ),
           ),
           subtitle: Text(
             'Support the development on GitHub',
-            style: TextStyle(
-              fontSize: 13,
-              color: _textSecondary,
-            ),
+            style: TextStyle(fontSize: 12, color: _textSecondary),
           ),
           trailing: Icon(
             Icons.arrow_forward_ios_rounded,
-            size: 16,
+            size: 14,
             color: _textSecondary,
           ),
           onTap: () {
@@ -2132,6 +2244,347 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
                 : '#${snapshot.data!.number}';
             return _debugRow(l10n.nextPatch, label);
           },
+        ),
+      ],
+    );
+  }
+
+  void _handleCheckForUpdates() async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: const [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            ),
+            SizedBox(width: 14),
+            Text('Checking GitHub and OTA for updates...'),
+          ],
+        ),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+
+    // 1. Check Shorebird OTA patch updates first
+    final patchUpdated = await ShorebirdUpdateService.instance.checkForUpdates();
+    if (!mounted) return;
+
+    if (patchUpdated) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      showDialog(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: _cardColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text('OTA Patch Installed!', style: TextStyle(color: _textPrimary)),
+          content: Text(
+            'A new patch has been downloaded and installed. Please restart the app to apply changes.',
+            style: TextStyle(color: _textSecondary),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text('Later', style: TextStyle(color: _textSecondary)),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: _accentColor),
+              onPressed: () => SystemNavigator.pop(),
+              child: const Text('Restart App'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // 2. Check GitHub Releases API for new release build
+    final releaseInfo = await GithubReleaseUpdateService.instance.checkForNewRelease(
+      ignoreReleaseMode: true,
+    );
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+    if (releaseInfo != null) {
+      showDialog(
+        context: context,
+        builder: (dialogContext) => Dialog(
+          backgroundColor: Colors.transparent,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: _isDark
+                      ? const Color(0xFF1E1E1E).withValues(alpha: 0.92)
+                      : Colors.white.withValues(alpha: 0.95),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: _accentColor.withValues(alpha: 0.35),
+                    width: 1.2,
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Iconsax.arrow_circle_down, size: 48, color: _accentColor),
+                    const SizedBox(height: 16),
+                    Text(
+                      'New Update Available!',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: _textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Version ${releaseInfo.latestVersion} is now available on GitHub.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 14, color: _textSecondary),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: () => Navigator.pop(dialogContext),
+                            child: Text('Cancel', style: TextStyle(color: _textSecondary)),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton.icon(
+                            style: FilledButton.styleFrom(backgroundColor: _accentColor),
+                            onPressed: () {
+                              Navigator.pop(dialogContext);
+                              launchUrl(
+                                Uri.parse(releaseInfo.downloadUrl),
+                                mode: LaunchMode.externalApplication,
+                              );
+                            },
+                            icon: const Icon(Icons.download_rounded, size: 18),
+                            label: const Text('Download & Update'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: const [
+              Icon(Icons.check_circle_rounded, color: Colors.greenAccent),
+              SizedBox(width: 10),
+              Text('You are on the latest version!'),
+            ],
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  void _showAppInfoPopup() async {
+    final packageInfo = await PackageInfo.fromPlatform();
+    final updater = ShorebirdUpdater();
+    Patch? currentPatch;
+    try {
+      currentPatch = await updater.readCurrentPatch();
+    } catch (_) {}
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        final patchText = currentPatch != null
+            ? '#${currentPatch.number}'
+            : 'Base Release';
+
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: _isDark
+                      ? const Color(0xFF1E1E1E).withValues(alpha: 0.92)
+                      : Colors.white.withValues(alpha: 0.95),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: _accentColor.withValues(alpha: 0.35),
+                    width: 1.2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _accentColor.withValues(alpha: 0.25),
+                      blurRadius: 30,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // App Logo
+                    Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(22),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _accentColor.withValues(alpha: 0.35),
+                            blurRadius: 20,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(22),
+                        child: Image.asset(
+                          'assets/icon/logo.png',
+                          width: 80,
+                          height: 80,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => Container(
+                            color: _accentColor.withValues(alpha: 0.15),
+                            child: Icon(Iconsax.music5, size: 40, color: _accentColor),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Inzx Music',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        color: _textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'v${packageInfo.version} (Build ${packageInfo.buildNumber})',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: _accentColor,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: _textPrimary.withValues(alpha: 0.04),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: _textPrimary.withValues(alpha: 0.08),
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          _popupInfoRow('App Version', packageInfo.version),
+                          Divider(height: 16, color: _textPrimary.withValues(alpha: 0.08)),
+                          _popupInfoRow('Build Number', packageInfo.buildNumber),
+                          Divider(height: 16, color: _textPrimary.withValues(alpha: 0.08)),
+                          _popupInfoRow('Patch Number', patchText),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              launchUrl(
+                                Uri.parse('https://github.com/nirmaleeswar30/Inzx'),
+                                mode: LaunchMode.externalApplication,
+                              );
+                            },
+                            icon: Icon(Iconsax.code, size: 16, color: _accentColor),
+                            label: Text(
+                              'GitHub',
+                              style: TextStyle(color: _accentColor, fontWeight: FontWeight.bold),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: _accentColor.withValues(alpha: 0.4)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () => Navigator.pop(dialogContext),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: _accentColor,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            child: const Text(
+                              'Close',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _popupInfoRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: _textSecondary,
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: _textPrimary,
+          ),
         ),
       ],
     );

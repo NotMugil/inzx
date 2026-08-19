@@ -1549,12 +1549,72 @@ class InnerTubeService {
         }
       }
 
-      // Get duration
-      final lengthText =
-          renderer['lengthText']?['runs']?[0]?['text'] as String?;
+      // Get duration (checking lengthText, lengthSeconds, fixedColumns, and byline runs)
       Duration duration = Duration.zero;
-      if (lengthText != null) {
-        duration = _parseDuration(lengthText);
+      final lengthTextObj = renderer['lengthText'];
+      String? durationStr;
+      if (lengthTextObj != null) {
+        durationStr = lengthTextObj['simpleText'] as String?;
+        if (durationStr == null || durationStr.isEmpty) {
+          final runs = lengthTextObj['runs'] as List?;
+          if (runs != null && runs.isNotEmpty) {
+            durationStr = runs[0]['text'] as String?;
+          }
+        }
+      }
+
+      if (durationStr == null || durationStr.isEmpty) {
+        final lengthSeconds = renderer['lengthSeconds'];
+        if (lengthSeconds != null) {
+          final secs = int.tryParse(lengthSeconds.toString());
+          if (secs != null && secs > 0) {
+            duration = Duration(seconds: secs);
+          }
+        }
+      }
+
+      if (duration == Duration.zero &&
+          (durationStr == null || durationStr.isEmpty)) {
+        final fixedColumns = renderer['fixedColumns'] as List?;
+        if (fixedColumns != null && fixedColumns.isNotEmpty) {
+          for (final col in fixedColumns) {
+            final textObj = col['fixedColumnRenderer']?['text'] ??
+                col['playlistPanelVideoFixedColumnRenderer']?['text'] ??
+                col['musicResponsiveListItemFixedColumnRenderer']?['text'];
+            if (textObj != null) {
+              final simple = textObj['simpleText'] as String?;
+              final runs = textObj['runs'] as List?;
+              final txt = simple ??
+                  (runs != null && runs.isNotEmpty
+                      ? runs[0]['text'] as String?
+                      : null);
+              if (txt != null &&
+                  RegExp(r'^\d+:\d+(:\d+)?$').hasMatch(txt.trim())) {
+                durationStr = txt.trim();
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      if (duration == Duration.zero &&
+          (durationStr == null || durationStr.isEmpty)) {
+        if (artistRuns != null) {
+          for (final run in artistRuns) {
+            final txt = (run['text'] as String?)?.trim();
+            if (txt != null && RegExp(r'^\d+:\d+(:\d+)?$').hasMatch(txt)) {
+              durationStr = txt;
+              break;
+            }
+          }
+        }
+      }
+
+      if (duration == Duration.zero &&
+          durationStr != null &&
+          durationStr.isNotEmpty) {
+        duration = _parseDuration(durationStr);
       }
 
       // Get thumbnail
@@ -5405,10 +5465,24 @@ class InnerTubeService {
         for (final item in contents) {
           var track = _parseTrackItem(item);
           if (track != null) {
+            final trackArtist =
+                (track.artist.isEmpty || track.artist == 'Unknown Artist')
+                    ? artist
+                    : track.artist;
             track = track.copyWith(
-              album: track.album ?? title,
-              albumId: track.albumId ?? albumId,
-              thumbnailUrl: track.thumbnailUrl ?? thumbnailUrl,
+              artist: trackArtist,
+              album: (track.album == null ||
+                      track.album!.isEmpty ||
+                      track.album == 'Unknown Album')
+                  ? title
+                  : track.album,
+              albumId: (track.albumId == null || track.albumId!.isEmpty)
+                  ? albumId
+                  : track.albumId,
+              thumbnailUrl: (track.thumbnailUrl == null ||
+                      track.thumbnailUrl!.isEmpty)
+                  ? thumbnailUrl
+                  : track.thumbnailUrl,
             );
             tracks.add(track);
           }

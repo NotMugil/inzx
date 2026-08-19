@@ -270,15 +270,9 @@ class OptimizedTrackItem extends ConsumerWidget {
     // Capture notifier BEFORE async operation to avoid "ref after dispose" error
     final recentlyPlayedNotifier = ref.read(recentlyPlayedProvider.notifier);
 
-    Color? accentColor;
-    if (enableDynamicColors) {
-      final trackColors = ref.watch(trackColorsProvider(track.thumbnailUrl));
-      accentColor = trackColors.whenOrNull(
-        data: (colors) => colors.isDefault ? null : colors.accent,
-      );
-    }
-
-    return GestureDetector(
+    return BouncyTouch(
+      style: BouncyStyle.card,
+      customScale: 0.98,
       onTap: () {
         // Open Now Playing screen with Hero animation
         NowPlayingScreen.show(context);
@@ -299,17 +293,6 @@ class OptimizedTrackItem extends ConsumerWidget {
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
-          // Subtle gradient based on album colors
-          gradient: accentColor != null
-              ? LinearGradient(
-                  colors: [
-                    accentColor.withValues(alpha: isDark ? 0.15 : 0.1),
-                    accentColor.withValues(alpha: 0.0),
-                  ],
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                )
-              : null,
         ),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         child: Row(
@@ -346,7 +329,7 @@ class OptimizedTrackItem extends ConsumerWidget {
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
                       color: isCurrentTrack
-                          ? (accentColor ?? colorScheme.primary)
+                          ? colorScheme.primary
                           : (isDark ? Colors.white : InzxColors.textPrimary),
                     ),
                   ),

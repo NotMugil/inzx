@@ -855,8 +855,12 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (ctx) => SafeArea(
-        child: SingleChildScrollView(
+      builder: (ctx) => Material(
+        color: isDark ? Colors.grey[900] : Colors.grey[200],
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        clipBehavior: Clip.antiAlias,
+        child: SafeArea(
+          child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1032,6 +1036,7 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 }

@@ -1288,8 +1288,12 @@ class _ArtistContent extends ConsumerWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (context) => SafeArea(
-        child: SingleChildScrollView(
+      builder: (context) => Material(
+        color: isDark ? Colors.grey[900] : colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        clipBehavior: Clip.antiAlias,
+        child: SafeArea(
+          child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1427,7 +1431,8 @@ class _ArtistContent extends ConsumerWidget {
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 
   String _formatNumber(BuildContext context, int number) {

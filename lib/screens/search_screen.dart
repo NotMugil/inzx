@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:iconsax/iconsax.dart';
+import 'package:marquee/marquee.dart';
 import '../core/l10n/app_localizations_x.dart';
 import '../core/design_system/design_system.dart';
 import '../providers/providers.dart';
@@ -10,7 +13,7 @@ import '../services/search_service.dart';
 import '../services/download_service.dart';
 import '../services/local_music_scanner.dart';
 import 'widgets/playlist_screen.dart';
-import 'widgets/album_screen.dart';
+import 'widgets/album_screen.dart' hide albumColorsProvider;
 import 'widgets/artist_screen.dart';
 import 'widgets/now_playing_screen.dart';
 import 'widgets/track_options_sheet.dart';
@@ -40,21 +43,17 @@ final enhancedSearchProvider =
       }
 
       // Debounce: 300ms delay before searching
-      // This prevents excessive API calls while typing
       await Future.delayed(const Duration(milliseconds: 300));
 
-      // Check if query changed during debounce
       if (ref.read(searchQueryProvider) != query) {
         throw Exception('Query changed');
       }
 
-      // Get local library for merged results
       final downloadedTracks =
           ref.read(downloadedTracksProvider).valueOrNull ?? [];
       final localTracks = ref.read(localTracksProvider);
       final allLocalTracks = [...downloadedTracks, ...localTracks];
 
-      // Delegate search to YouTube Music (they handle intent detection)
       final searchService = ref.read(searchServiceProvider);
       return searchService.search(
         query,
@@ -70,7 +69,6 @@ final searchSuggestionsEnhancedProvider =
 
       if (query.trim().length < 2) return [];
 
-      // Shorter debounce for suggestions
       await Future.delayed(const Duration(milliseconds: 150));
 
       if (ref.read(searchQueryProvider) != query) {
@@ -83,14 +81,7 @@ final searchSuggestionsEnhancedProvider =
 
 // ============ SEARCH SCREEN ============
 
-/// OuterTune-style search screen
-///
-/// Key design principles:
-/// 1. Trust YouTube Music's intent detection and ranking
-/// 2. Clean, grouped display of results by type
-/// 3. Show "Top Result" prominently (YouTube's best guess)
-/// 4. Merge local + online results
-/// 5. Filter chips for type-specific searches
+/// Glassmorphic dynamic Search screen
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
 
@@ -107,6 +98,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(searchQueryProvider.notifier).state = '';
+      ref.read(searchFilterProvider.notifier).state = SearchFilter.all;
       _searchFocusNode.requestFocus();
     });
   }
@@ -120,16 +113,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   void _onSearchChanged(String query) {
-    // Cancel any pending debounce
     _debounceTimer?.cancel();
-
-    // Immediate update for UI responsiveness
     ref.read(searchQueryProvider.notifier).state = query;
   }
 
   void _performSearch(String query) {
+    if (query.trim().isEmpty) return;
     _searchController.text = query;
     ref.read(searchQueryProvider.notifier).state = query;
+    ref.read(searchHistoryProvider.notifier).addSearch(query.trim());
     _searchFocusNode.unfocus();
   }
 
@@ -145,95 +137,161 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final colorScheme = Theme.of(context).colorScheme;
     final query = ref.watch(searchQueryProvider);
 
+    final albumColors = ref.watch(albumColorsProvider);
+    final hasAlbumColors = !albumColors.isDefault;
+    final accentColor = isDark
+        ? (hasAlbumColors ? albumColors.accentLight : colorScheme.primary)
+        : (hasAlbumColors ? albumColors.accent : colorScheme.primary);
+
+    final backgroundColor = isDark
+        ? (hasAlbumColors
+              ? albumColors.backgroundSecondary
+              : InzxColors.darkBackground)
+        : InzxColors.background;
+
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final secondaryTextColor = textColor.withValues(alpha: 0.6);
+
     return Scaffold(
-      backgroundColor: isDark
-          ? InzxColors.darkBackground
-          : InzxColors.background,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildSearchBar(isDark, colorScheme),
-            if (query.isNotEmpty) _buildFilterChips(isDark, colorScheme),
-            Expanded(
-              child: query.isEmpty
-                  ? _buildSuggestionsOrHistory(isDark, colorScheme)
-                  : _buildSearchResults(isDark, colorScheme),
+      backgroundColor: backgroundColor,
+      body: Stack(
+        children: [
+          // Ambient dynamic top gradient
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 220,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    accentColor.withValues(alpha: isDark ? 0.30 : 0.15),
+                    accentColor.withValues(alpha: 0),
+                  ],
+                ),
+              ),
             ),
-          ],
-        ),
+          ),
+          SafeArea(
+            child: Column(
+              children: [
+                _buildSearchBar(isDark, accentColor, textColor, secondaryTextColor),
+                if (query.isNotEmpty)
+                  _buildFilterChips(isDark, accentColor, textColor, secondaryTextColor),
+                Expanded(
+                  child: query.isEmpty
+                      ? _buildSuggestionsOrHistory(isDark, accentColor, textColor, secondaryTextColor)
+                      : _buildSearchResults(isDark, accentColor, textColor, secondaryTextColor, colorScheme),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildSearchBar(bool isDark, ColorScheme colorScheme) {
+  Widget _buildSearchBar(
+    bool isDark,
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
+  ) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 16, 8),
       child: Row(
         children: [
-          IconButton(
-            onPressed: () => Navigator.of(context).pop(),
-            icon: Icon(
-              Icons.arrow_back_rounded,
-              color: isDark ? Colors.white : InzxColors.textPrimary,
+          BouncyTouch(
+            style: BouncyStyle.button,
+            customScale: 0.90,
+            onTap: () => Navigator.of(context).pop(),
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Icon(
+                Icons.arrow_back_rounded,
+                color: textColor,
+                size: 24,
+              ),
             ),
           ),
           Expanded(
-            child: Container(
-              height: 44,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.08)
-                    : Colors.black.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(22),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.search_rounded,
-                    size: 20,
-                    color: isDark ? Colors.white54 : InzxColors.textSecondary,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                child: Container(
+                  height: 46,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.transparent,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: accentColor.withValues(alpha: 0.35),
+                      width: 1.2,
+                    ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextField(
-                      controller: _searchController,
-                      focusNode: _searchFocusNode,
-                      onChanged: _onSearchChanged,
-                      onSubmitted: _performSearch,
-                      cursorColor: isDark ? Colors.white : colorScheme.primary,
-                      style: TextStyle(
-                        color: isDark ? Colors.white : InzxColors.textPrimary,
-                        fontSize: 15,
+                  child: Row(
+                    children: [
+                      Icon(
+                        Iconsax.search_normal,
+                        size: 18,
+                        color: accentColor,
                       ),
-                      decoration: InputDecoration(
-                        hintText: context.l10n.searchMusicHint,
-                        hintStyle: TextStyle(
-                          color: isDark
-                              ? Colors.white54
-                              : InzxColors.textSecondary,
-                          fontSize: 15,
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: TextField(
+                          controller: _searchController,
+                          focusNode: _searchFocusNode,
+                          onChanged: _onSearchChanged,
+                          onSubmitted: _performSearch,
+                          cursorColor: accentColor,
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          decoration: InputDecoration(
+                            filled: false,
+                            fillColor: Colors.transparent,
+                            hintText: context.l10n.searchMusicHint,
+                            hintStyle: TextStyle(
+                              color: secondaryTextColor,
+                              fontSize: 15,
+                            ),
+                            border: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            disabledBorder: InputBorder.none,
+                            errorBorder: InputBorder.none,
+                            isDense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
                         ),
-                        border: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        isDense: true,
-                        contentPadding: EdgeInsets.zero,
                       ),
-                    ),
+                      if (_searchController.text.isNotEmpty)
+                        BouncyTouch(
+                          style: BouncyStyle.button,
+                          customScale: 0.85,
+                          onTap: _clearSearch,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: textColor.withValues(alpha: 0.1),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.close_rounded,
+                              size: 16,
+                              color: textColor,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
-                  if (_searchController.text.isNotEmpty)
-                    GestureDetector(
-                      onTap: _clearSearch,
-                      child: Icon(
-                        Icons.close_rounded,
-                        size: 20,
-                        color: isDark
-                            ? Colors.white54
-                            : InzxColors.textSecondary,
-                      ),
-                    ),
-                ],
+                ),
               ),
             ),
           ),
@@ -242,7 +300,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
   }
 
-  Widget _buildFilterChips(bool isDark, ColorScheme colorScheme) {
+  Widget _buildFilterChips(
+    bool isDark,
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
+  ) {
     final currentFilter = ref.watch(searchFilterProvider);
 
     final filters = [
@@ -254,10 +317,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     ];
 
     return SizedBox(
-      height: 40,
+      height: 42,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
         itemCount: filters.length,
         itemBuilder: (context, index) {
           final (filter, label) = filters[index];
@@ -265,28 +328,38 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
           return Padding(
             padding: const EdgeInsets.only(right: 8),
-            child: FilterChip(
-              label: Text(label),
-              selected: isSelected,
-              onSelected: (_) {
+            child: BouncyTouch(
+              style: BouncyStyle.button,
+              customScale: 0.92,
+              onTap: () {
                 ref.read(searchFilterProvider.notifier).state = filter;
               },
-              backgroundColor: isDark
-                  ? Colors.white.withValues(alpha: 0.08)
-                  : Colors.grey.shade100,
-              selectedColor: colorScheme.primary.withValues(alpha: 0.2),
-              labelStyle: TextStyle(
-                color: isSelected
-                    ? colorScheme.primary
-                    : (isDark ? Colors.white70 : InzxColors.textPrimary),
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                fontSize: 13,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 250),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? accentColor.withValues(alpha: 0.22)
+                      : textColor.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isSelected
+                        ? accentColor.withValues(alpha: 0.60)
+                        : Colors.transparent,
+                    width: 1.0,
+                  ),
+                ),
+                child: Center(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                      color: isSelected ? accentColor : secondaryTextColor,
+                    ),
+                  ),
+                ),
               ),
-              side: BorderSide.none,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 4),
             ),
           );
         },
@@ -294,66 +367,170 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
   }
 
-  Widget _buildSuggestionsOrHistory(bool isDark, ColorScheme colorScheme) {
+  Widget _buildSuggestionsOrHistory(
+    bool isDark,
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
+  ) {
+    final history = ref.watch(searchHistoryProvider);
     final suggestionsAsync = ref.watch(searchSuggestionsEnhancedProvider);
 
-    return suggestionsAsync.when(
-      data: (suggestions) {
-        if (suggestions.isEmpty) {
-          return _buildEmptyState(
-            isDark,
-            context.l10n.searchForMusic,
-            Icons.search_rounded,
-          );
-        }
-        return ListView.builder(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          itemCount: suggestions.length,
-          itemBuilder: (context, index) {
-            return ListTile(
-              leading: Icon(
-                Icons.search_rounded,
-                color: isDark ? Colors.white54 : InzxColors.textSecondary,
-              ),
-              title: Text(
-                suggestions[index],
-                style: TextStyle(
-                  color: isDark ? Colors.white : InzxColors.textPrimary,
-                ),
-              ),
-              trailing: IconButton(
-                onPressed: () {
-                  _searchController.text = suggestions[index];
-                  _searchController.selection = TextSelection.fromPosition(
-                    TextPosition(offset: suggestions[index].length),
-                  );
-                  _onSearchChanged(suggestions[index]);
-                },
-                icon: Icon(
-                  Icons.north_west_rounded,
-                  size: 18,
-                  color: isDark ? Colors.white38 : InzxColors.textSecondary,
-                ),
-              ),
-              onTap: () => _performSearch(suggestions[index]),
+    if (_searchController.text.trim().length >= 2) {
+      return suggestionsAsync.when(
+        data: (suggestions) {
+          if (suggestions.isEmpty) {
+            return _buildEmptyState(
+              context.l10n.searchForMusic,
+              Iconsax.search_normal,
+              textColor,
+              secondaryTextColor,
             );
-          },
-        );
-      },
-      loading: () => _buildEmptyState(
-        isDark,
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            itemCount: suggestions.length,
+            itemBuilder: (context, index) {
+              return ListTile(
+                leading: Icon(
+                  Iconsax.search_normal_1,
+                  size: 18,
+                  color: secondaryTextColor,
+                ),
+                title: Text(
+                  suggestions[index],
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                trailing: IconButton(
+                  onPressed: () {
+                    _searchController.text = suggestions[index];
+                    _searchController.selection = TextSelection.fromPosition(
+                      TextPosition(offset: suggestions[index].length),
+                    );
+                    _onSearchChanged(suggestions[index]);
+                  },
+                  icon: Icon(
+                    Icons.north_west_rounded,
+                    size: 18,
+                    color: secondaryTextColor,
+                  ),
+                ),
+                onTap: () => _performSearch(suggestions[index]),
+              );
+            },
+          );
+        },
+        loading: () => Center(child: CircularProgressIndicator(color: accentColor)),
+        error: (_, _) => _buildEmptyState(
+          context.l10n.searchForMusic,
+          Iconsax.search_normal,
+          textColor,
+          secondaryTextColor,
+        ),
+      );
+    }
+
+    if (history.isEmpty) {
+      return _buildEmptyState(
         context.l10n.searchForMusic,
-        Icons.search_rounded,
-      ),
-      error: (_, _) => _buildEmptyState(
-        isDark,
-        context.l10n.searchForMusic,
-        Icons.search_rounded,
-      ),
+        Iconsax.search_favorite,
+        textColor,
+        secondaryTextColor,
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                context.l10n.recentSearches,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.2,
+                  color: textColor,
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  ref.read(searchHistoryProvider.notifier).clearHistory();
+                },
+                child: Text(
+                  context.l10n.clearAll,
+                  style: TextStyle(color: accentColor, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            itemCount: history.length,
+            itemBuilder: (context, index) {
+              final query = history[index];
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: BouncyTouch(
+                  style: BouncyStyle.card,
+                  customScale: 0.98,
+                  onTap: () => _performSearch(query),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: textColor.withValues(alpha: 0.03),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Iconsax.clock, size: 18, color: secondaryTextColor),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Text(
+                            query,
+                            style: TextStyle(
+                              color: textColor,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.close_rounded, size: 18, color: secondaryTextColor),
+                          onPressed: () {
+                            ref
+                                .read(searchHistoryProvider.notifier)
+                                .removeSearch(query);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildSearchResults(bool isDark, ColorScheme colorScheme) {
+  Widget _buildSearchResults(
+    bool isDark,
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
+    ColorScheme colorScheme,
+  ) {
     final resultsAsync = ref.watch(enhancedSearchProvider);
     final filter = ref.watch(searchFilterProvider);
 
@@ -361,44 +538,50 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       data: (results) {
         if (results.isEmpty) {
           return _buildEmptyState(
-            isDark,
             context.l10n.noResultsFound,
-            Icons.search_off_rounded,
+            Iconsax.search_status,
+            textColor,
+            secondaryTextColor,
           );
         }
 
         return ListView(
-          padding: const EdgeInsets.only(bottom: 100),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
           children: [
             // Local results section (if any)
             if (results.localTracks.isNotEmpty && filter == SearchFilter.all)
               _buildLocalResultsSection(
                 results.localTracks,
-                isDark,
+                accentColor,
+                textColor,
+                secondaryTextColor,
                 colorScheme,
               ),
 
-            // Top Result (YouTube's best guess at intent)
+            // HERO TOP RESULT (YouTube Music Best Result)
             if (results.topResult != null && filter == SearchFilter.all)
-              _buildTopResult(results.topResult!, isDark, colorScheme),
+              _buildTopResult(results.topResult!, accentColor, textColor, secondaryTextColor, colorScheme),
 
             // Songs section
             if ((filter == SearchFilter.all || filter == SearchFilter.songs) &&
                 results.onlineTracks.isNotEmpty)
               _buildSongsSection(
                 results.onlineTracks,
-                isDark,
+                accentColor,
+                textColor,
+                secondaryTextColor,
                 colorScheme,
                 filter,
               ),
 
             // Artists section
-            if ((filter == SearchFilter.all ||
-                    filter == SearchFilter.artists) &&
+            if ((filter == SearchFilter.all || filter == SearchFilter.artists) &&
                 results.onlineArtists.isNotEmpty)
               _buildArtistsSection(
                 results.onlineArtists,
-                isDark,
+                accentColor,
+                textColor,
+                secondaryTextColor,
                 colorScheme,
                 filter,
               ),
@@ -408,50 +591,60 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 results.onlineAlbums.isNotEmpty)
               _buildAlbumsSection(
                 results.onlineAlbums,
-                isDark,
+                accentColor,
+                textColor,
+                secondaryTextColor,
                 colorScheme,
                 filter,
               ),
 
             // Playlists section
-            if ((filter == SearchFilter.all ||
-                    filter == SearchFilter.playlists) &&
+            if ((filter == SearchFilter.all || filter == SearchFilter.playlists) &&
                 results.onlinePlaylists.isNotEmpty)
               _buildPlaylistsSection(
                 results.onlinePlaylists,
-                isDark,
+                accentColor,
+                textColor,
+                secondaryTextColor,
                 colorScheme,
                 filter,
               ),
           ],
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
+      loading: () => Center(child: CircularProgressIndicator(color: accentColor)),
       error: (e, _) {
         if (e.toString().contains('Query changed')) {
-          return const Center(child: CircularProgressIndicator());
+          return Center(child: CircularProgressIndicator(color: accentColor));
         }
         return _buildEmptyState(
-          isDark,
           context.l10n.noResultsFound,
-          Icons.search_off_rounded,
+          Iconsax.search_status,
+          textColor,
+          secondaryTextColor,
         );
       },
     );
   }
 
-  Widget _buildEmptyState(bool isDark, String message, IconData icon) {
+  Widget _buildEmptyState(
+    String message,
+    IconData icon,
+    Color textColor,
+    Color secondaryTextColor,
+  ) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 64, color: isDark ? Colors.white24 : Colors.black12),
+          Icon(icon, size: 56, color: secondaryTextColor.withValues(alpha: 0.5)),
           const SizedBox(height: 16),
           Text(
             message,
             style: TextStyle(
-              fontSize: 16,
-              color: isDark ? Colors.white54 : InzxColors.textSecondary,
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+              color: secondaryTextColor,
             ),
           ),
         ],
@@ -461,71 +654,86 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   Widget _buildLocalResultsSection(
     List<Track> tracks,
-    bool isDark,
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
     ColorScheme colorScheme,
   ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
           child: Row(
             children: [
-              Icon(
-                Icons.download_done_rounded,
-                size: 18,
-                color: colorScheme.primary,
-              ),
+              Icon(Iconsax.folder_connection, size: 20, color: accentColor),
               const SizedBox(width: 8),
               Text(
                 context.l10n.downloadedSection,
                 style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.white : InzxColors.textPrimary,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.3,
+                  color: textColor,
                 ),
               ),
             ],
           ),
         ),
-        ...tracks
-            .take(3)
-            .map((track) => _buildTrackTile(track, isDark, colorScheme)),
-        if (tracks.length > 3)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: TextButton(
-              onPressed: () {
-                // Show all local results
-              },
-              child: Text(context.l10n.showAllLocalResults(tracks.length)),
+        ...tracks.take(3).map(
+              (track) => _buildTrackTile(track, accentColor, textColor, secondaryTextColor, colorScheme),
             ),
-          ),
-        const Divider(height: 24),
+        const SizedBox(height: 16),
       ],
     );
   }
 
+  /// REDESIGNED HERO TOP RESULT CARD
   Widget _buildTopResult(
     TopResult topResult,
-    bool isDark,
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
     ColorScheme colorScheme,
   ) {
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.only(bottom: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            context.l10n.topResult,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : InzxColors.textPrimary,
-            ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: accentColor.withValues(alpha: 0.45),
+                    width: 1.2,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Iconsax.star5, size: 14, color: accentColor),
+                    const SizedBox(width: 6),
+                    Text(
+                      context.l10n.topResult.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.2,
+                        color: accentColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-          _buildTopResultCard(topResult, isDark, colorScheme),
+          const SizedBox(height: 18),
+          _buildTopResultCard(topResult, accentColor, textColor, secondaryTextColor, colorScheme),
         ],
       ),
     );
@@ -533,172 +741,235 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   Widget _buildTopResultCard(
     TopResult topResult,
-    bool isDark,
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
     ColorScheme colorScheme,
   ) {
-    Widget content;
-    VoidCallback? onTap;
+    Widget imageWidget;
+    String title;
+    String subtitle;
+    VoidCallback onTap;
+    IconData actionIcon;
 
     switch (topResult.type) {
       case SearchResultType.artist:
         final artist = topResult.artist!;
+        title = artist.name;
+        subtitle = context.artistSubtitle(artist.formattedSubscribers);
+        actionIcon = Icons.chevron_right_rounded;
         onTap = () => ArtistScreen.open(
           context,
           artistId: artist.id,
           name: artist.name,
           thumbnailUrl: artist.thumbnailUrl,
         );
-        content = Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(40),
-              child: _buildImage(artist.thumbnailUrl, 80, Icons.person_rounded),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    artist.name,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.white : InzxColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    context.artistSubtitle(artist.formattedSubscribers),
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: isDark ? Colors.white54 : InzxColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+        imageWidget = ClipOval(
+          child: _buildImage(artist.thumbnailUrl, 76, Icons.person_rounded),
         );
         break;
+
       case SearchResultType.track:
         final track = topResult.track!;
+        title = track.title;
+        subtitle = context.trackSubtitle(track.artist, track.formattedDuration);
+        actionIcon = Icons.play_arrow_rounded;
         onTap = () async {
           final playerService = ref.read(audioPlayerServiceProvider);
           await playerService.playTrack(track, enableRadio: true);
           ref.read(recentlyPlayedProvider.notifier).addTrack(track);
           if (mounted) NowPlayingScreen.show(context);
         };
-        content = _buildTrackTile(track, isDark, colorScheme, isLarge: true);
+        imageWidget = ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: _buildImage(track.thumbnailUrl, 76, Icons.music_note_rounded),
+        );
         break;
+
       case SearchResultType.album:
         final album = topResult.album!;
+        title = album.title;
+        subtitle = context.l10n.albumByArtist(album.artist);
+        actionIcon = Icons.chevron_right_rounded;
         onTap = () => AlbumScreen.open(
           context,
           albumId: album.id,
           title: album.title,
           thumbnailUrl: album.thumbnailUrl,
         );
-        content = Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: _buildImage(album.thumbnailUrl, 80, Icons.album_rounded),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    album.title,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.white : InzxColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    context.l10n.albumByArtist(album.artist),
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: isDark ? Colors.white54 : InzxColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+        imageWidget = ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: _buildImage(album.thumbnailUrl, 76, Icons.album_rounded),
         );
         break;
+
       case SearchResultType.playlist:
         final playlist = topResult.playlist!;
+        title = playlist.title;
+        subtitle = context.l10n.playlistByAuthor(
+          playlist.author ?? context.l10n.youtubeMusicLabel,
+        );
+        actionIcon = Icons.chevron_right_rounded;
         onTap = () => PlaylistScreen.open(
           context,
           playlistId: playlist.id,
           title: playlist.title,
           thumbnailUrl: playlist.thumbnailUrl,
         );
-        content = Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: _buildImage(
-                playlist.thumbnailUrl,
-                80,
-                Icons.queue_music_rounded,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    playlist.title,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.white : InzxColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    context.l10n.playlistByAuthor(
-                      playlist.author ?? context.l10n.youtubeMusicLabel,
-                    ),
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: isDark ? Colors.white54 : InzxColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+        imageWidget = ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: _buildImage(playlist.thumbnailUrl, 76, Icons.queue_music_rounded),
         );
         break;
     }
 
-    return GestureDetector(
+    return BouncyTouch(
+      style: BouncyStyle.card,
+      customScale: 0.97,
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.05)
-              : Colors.black.withValues(alpha: 0.03),
-          borderRadius: BorderRadius.circular(12),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(22),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  accentColor.withValues(alpha: 0.16),
+                  textColor.withValues(alpha: 0.04),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(
+                color: accentColor.withValues(alpha: 0.35),
+                width: 1.2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: accentColor.withValues(alpha: 0.15),
+                  blurRadius: 24,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                // Artwork with ambient glow
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: accentColor.withValues(alpha: 0.35),
+                        blurRadius: 18,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: SizedBox(
+                    width: 76,
+                    height: 76,
+                    child: imageWidget,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                // Details
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final titleStyle = TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          );
+                          final textPainter = TextPainter(
+                            text: TextSpan(text: title, style: titleStyle),
+                            maxLines: 1,
+                            textDirection: TextDirection.ltr,
+                          )..layout();
+
+                          if (textPainter.width > constraints.maxWidth) {
+                            return SizedBox(
+                              height: 24,
+                              child: Marquee(
+                                text: title,
+                                style: titleStyle,
+                                scrollAxis: Axis.horizontal,
+                                blankSpace: 36.0,
+                                velocity: 28.0,
+                                pauseAfterRound: const Duration(seconds: 2),
+                                startPadding: 0.0,
+                                accelerationDuration: const Duration(seconds: 1),
+                                accelerationCurve: Curves.linear,
+                                decelerationDuration: const Duration(milliseconds: 500),
+                              ),
+                            );
+                          }
+                          return Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: titleStyle,
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: secondaryTextColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Action Circular Button
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: accentColor,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: accentColor.withValues(alpha: 0.40),
+                        blurRadius: 12,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Icon(
+                      actionIcon,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-        child: content,
       ),
     );
   }
 
   Widget _buildSongsSection(
     List<Track> tracks,
-    bool isDark,
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
     ColorScheme colorScheme,
     SearchFilter filter,
   ) {
@@ -711,87 +982,120 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       children: [
         if (filter == SearchFilter.all)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: const EdgeInsets.only(left: 4, top: 18, bottom: 10),
             child: Text(
               context.l10n.songs,
               style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: isDark ? Colors.white : InzxColors.textPrimary,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.3,
+                color: textColor,
               ),
             ),
           ),
         ...displayTracks.map(
-          (track) => _buildTrackTile(track, isDark, colorScheme),
+          (track) => _buildTrackTile(track, accentColor, textColor, secondaryTextColor, colorScheme),
         ),
+        const SizedBox(height: 12),
       ],
     );
   }
 
   Widget _buildTrackTile(
     Track track,
-    bool isDark,
-    ColorScheme colorScheme, {
-    bool isLarge = false,
-  }) {
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
+    ColorScheme colorScheme,
+  ) {
     final playerService = ref.watch(audioPlayerServiceProvider);
     final playbackState = ref.watch(playbackStateProvider);
     final isCurrentTrack =
         playbackState.whenOrNull(data: (s) => s.currentTrack?.id == track.id) ??
         false;
 
-    return ListTile(
-      contentPadding: EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: isLarge ? 8 : 2,
-      ),
-      leading: ClipRRect(
-        borderRadius: BorderRadius.circular(isLarge ? 8 : 6),
-        child: _buildImage(
-          track.thumbnailUrl,
-          isLarge ? 64.0 : 48.0,
-          Icons.music_note_rounded,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: BouncyTouch(
+        style: BouncyStyle.card,
+        customScale: 0.98,
+        onTap: () async {
+          await playerService.playTrack(track, enableRadio: true);
+          ref.read(recentlyPlayedProvider.notifier).addTrack(track);
+          if (mounted) NowPlayingScreen.show(context);
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: isCurrentTrack
+                ? accentColor.withValues(alpha: 0.12)
+                : textColor.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(16),
+            border: isCurrentTrack
+                ? Border.all(color: accentColor.withValues(alpha: 0.40), width: 1.0)
+                : null,
+          ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: _buildImage(track.thumbnailUrl, 48, Icons.music_note_rounded),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      track.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: isCurrentTrack ? FontWeight.bold : FontWeight.w600,
+                        color: isCurrentTrack ? accentColor : textColor,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      context.trackSubtitle(track.artist, track.formattedDuration),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isCurrentTrack
+                            ? accentColor.withValues(alpha: 0.8)
+                            : secondaryTextColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              BouncyTouch(
+                style: BouncyStyle.button,
+                customScale: 0.85,
+                onTap: () => TrackOptionsSheet.show(context, track),
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Icon(
+                    Icons.more_vert_rounded,
+                    color: secondaryTextColor,
+                    size: 20,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      title: Text(
-        track.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: isLarge ? 16 : 14,
-          fontWeight: isCurrentTrack ? FontWeight.w600 : FontWeight.w500,
-          color: isCurrentTrack
-              ? colorScheme.primary
-              : (isDark ? Colors.white : InzxColors.textPrimary),
-        ),
-      ),
-      subtitle: Text(
-        context.trackSubtitle(track.artist, track.formattedDuration),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 12,
-          color: isDark ? Colors.white54 : InzxColors.textSecondary,
-        ),
-      ),
-      trailing: IconButton(
-        onPressed: () => TrackOptionsSheet.show(context, track),
-        icon: Icon(
-          Icons.more_vert_rounded,
-          color: isDark ? Colors.white54 : InzxColors.textSecondary,
-        ),
-      ),
-      onTap: () async {
-        await playerService.playTrack(track, enableRadio: true);
-        ref.read(recentlyPlayedProvider.notifier).addTrack(track);
-        if (mounted) NowPlayingScreen.show(context);
-      },
     );
   }
 
   Widget _buildArtistsSection(
     List<Artist> artists,
-    bool isDark,
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
     ColorScheme colorScheme,
     SearchFilter filter,
   ) {
@@ -804,101 +1108,142 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       children: [
         if (filter == SearchFilter.all)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+            padding: const EdgeInsets.only(left: 4, top: 18, bottom: 10),
             child: Text(
               context.l10n.artists,
               style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: isDark ? Colors.white : InzxColors.textPrimary,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.3,
+                color: textColor,
               ),
             ),
           ),
         if (filter == SearchFilter.artists)
           ...displayArtists.map(
-            (artist) => _buildArtistTile(artist, isDark, colorScheme),
+            (artist) => _buildArtistTile(artist, accentColor, textColor, secondaryTextColor),
           )
         else
           SizedBox(
             height: 160,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
               itemCount: displayArtists.length,
               itemBuilder: (context, index) =>
-                  _buildArtistCard(displayArtists[index], isDark, colorScheme),
+                  _buildArtistCard(displayArtists[index], accentColor, textColor, secondaryTextColor),
             ),
           ),
+        const SizedBox(height: 12),
       ],
     );
   }
 
-  Widget _buildArtistTile(Artist artist, bool isDark, ColorScheme colorScheme) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: _buildImage(artist.thumbnailUrl, 48, Icons.person_rounded),
-      ),
-      title: Text(
-        artist.name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontWeight: FontWeight.w500,
-          color: isDark ? Colors.white : InzxColors.textPrimary,
+  Widget _buildArtistTile(
+    Artist artist,
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: BouncyTouch(
+        style: BouncyStyle.card,
+        customScale: 0.98,
+        onTap: () => ArtistScreen.open(
+          context,
+          artistId: artist.id,
+          name: artist.name,
+          thumbnailUrl: artist.thumbnailUrl,
         ),
-      ),
-      subtitle: Text(
-        context.artistSubtitle(artist.formattedSubscribers),
-        style: TextStyle(
-          fontSize: 12,
-          color: isDark ? Colors.white54 : InzxColors.textSecondary,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: textColor.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            children: [
+              ClipOval(
+                child: _buildImage(artist.thumbnailUrl, 48, Icons.person_rounded),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      artist.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w600,
+                        color: textColor,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      context.artistSubtitle(artist.formattedSubscribers),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: secondaryTextColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: secondaryTextColor, size: 20),
+            ],
+          ),
         ),
-      ),
-      onTap: () => ArtistScreen.open(
-        context,
-        artistId: artist.id,
-        name: artist.name,
-        thumbnailUrl: artist.thumbnailUrl,
       ),
     );
   }
 
-  Widget _buildArtistCard(Artist artist, bool isDark, ColorScheme colorScheme) {
-    return GestureDetector(
-      onTap: () => ArtistScreen.open(
-        context,
-        artistId: artist.id,
-        name: artist.name,
-        thumbnailUrl: artist.thumbnailUrl,
-      ),
-      child: Container(
-        width: 120,
-        margin: const EdgeInsets.only(right: 12),
-        child: Column(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(60),
-              child: _buildImage(
-                artist.thumbnailUrl,
-                100,
-                Icons.person_rounded,
+  Widget _buildArtistCard(
+    Artist artist,
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 12),
+      child: BouncyTouch(
+        style: BouncyStyle.card,
+        customScale: 0.95,
+        onTap: () => ArtistScreen.open(
+          context,
+          artistId: artist.id,
+          name: artist.name,
+          thumbnailUrl: artist.thumbnailUrl,
+        ),
+        child: Container(
+          width: 120,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: textColor.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Column(
+            children: [
+              ClipOval(
+                child: _buildImage(artist.thumbnailUrl, 84, Icons.person_rounded),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              artist.name,
-              maxLines: 2,
-              textAlign: TextAlign.center,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: isDark ? Colors.white : InzxColors.textPrimary,
+              const SizedBox(height: 8),
+              Text(
+                artist.name,
+                maxLines: 2,
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: textColor,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -906,7 +1251,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   Widget _buildAlbumsSection(
     List<Album> albums,
-    bool isDark,
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
     ColorScheme colorScheme,
     SearchFilter filter,
   ) {
@@ -919,108 +1266,155 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       children: [
         if (filter == SearchFilter.all)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+            padding: const EdgeInsets.only(left: 4, top: 18, bottom: 10),
             child: Text(
               context.l10n.albums,
               style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: isDark ? Colors.white : InzxColors.textPrimary,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.3,
+                color: textColor,
               ),
             ),
           ),
         if (filter == SearchFilter.albums)
           ...displayAlbums.map(
-            (album) => _buildAlbumTile(album, isDark, colorScheme),
+            (album) => _buildAlbumTile(album, accentColor, textColor, secondaryTextColor),
           )
         else
           SizedBox(
-            height: 200,
+            height: 195,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
               itemCount: displayAlbums.length,
               itemBuilder: (context, index) =>
-                  _buildAlbumCard(displayAlbums[index], isDark, colorScheme),
+                  _buildAlbumCard(displayAlbums[index], accentColor, textColor, secondaryTextColor),
             ),
           ),
+        const SizedBox(height: 12),
       ],
     );
   }
 
-  Widget _buildAlbumTile(Album album, bool isDark, ColorScheme colorScheme) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: ClipRRect(
-        borderRadius: BorderRadius.circular(6),
-        child: _buildImage(album.thumbnailUrl, 48, Icons.album_rounded),
-      ),
-      title: Text(
-        album.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontWeight: FontWeight.w500,
-          color: isDark ? Colors.white : InzxColors.textPrimary,
+  Widget _buildAlbumTile(
+    Album album,
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: BouncyTouch(
+        style: BouncyStyle.card,
+        customScale: 0.98,
+        onTap: () => AlbumScreen.open(
+          context,
+          albumId: album.id,
+          title: album.title,
+          thumbnailUrl: album.thumbnailUrl,
         ),
-      ),
-      subtitle: Text(
-        context.albumSubtitle(album.artist, album.year),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 12,
-          color: isDark ? Colors.white54 : InzxColors.textSecondary,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: textColor.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: _buildImage(album.thumbnailUrl, 48, Icons.album_rounded),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      album.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w600,
+                        color: textColor,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      context.albumSubtitle(album.artist, album.year),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: secondaryTextColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: secondaryTextColor, size: 20),
+            ],
+          ),
         ),
-      ),
-      onTap: () => AlbumScreen.open(
-        context,
-        albumId: album.id,
-        title: album.title,
-        thumbnailUrl: album.thumbnailUrl,
       ),
     );
   }
 
-  Widget _buildAlbumCard(Album album, bool isDark, ColorScheme colorScheme) {
-    return GestureDetector(
-      onTap: () => AlbumScreen.open(
-        context,
-        albumId: album.id,
-        title: album.title,
-        thumbnailUrl: album.thumbnailUrl,
-      ),
-      child: Container(
-        width: 140,
-        margin: const EdgeInsets.only(right: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: _buildImage(album.thumbnailUrl, 140, Icons.album_rounded),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              album.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: isDark ? Colors.white : InzxColors.textPrimary,
+  Widget _buildAlbumCard(
+    Album album,
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 12),
+      child: BouncyTouch(
+        style: BouncyStyle.card,
+        customScale: 0.95,
+        onTap: () => AlbumScreen.open(
+          context,
+          albumId: album.id,
+          title: album.title,
+          thumbnailUrl: album.thumbnailUrl,
+        ),
+        child: Container(
+          width: 135,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: textColor.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: _buildImage(album.thumbnailUrl, 115, Icons.album_rounded),
               ),
-            ),
-            Text(
-              album.artist,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                color: isDark ? Colors.white54 : InzxColors.textSecondary,
+              const SizedBox(height: 8),
+              Text(
+                album.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: textColor,
+                ),
               ),
-            ),
-          ],
+              Text(
+                album.artist,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: secondaryTextColor,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1028,7 +1422,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   Widget _buildPlaylistsSection(
     List<Playlist> playlists,
-    bool isDark,
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
     ColorScheme colorScheme,
     SearchFilter filter,
   ) {
@@ -1041,64 +1437,93 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       children: [
         if (filter == SearchFilter.all)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+            padding: const EdgeInsets.only(left: 4, top: 18, bottom: 10),
             child: Text(
               context.l10n.playlists,
               style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: isDark ? Colors.white : InzxColors.textPrimary,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.3,
+                color: textColor,
               ),
             ),
           ),
         ...displayPlaylists.map(
-          (playlist) => _buildPlaylistTile(playlist, isDark, colorScheme),
+          (playlist) => _buildPlaylistTile(playlist, accentColor, textColor, secondaryTextColor),
         ),
+        const SizedBox(height: 12),
       ],
     );
   }
 
   Widget _buildPlaylistTile(
     Playlist playlist,
-    bool isDark,
-    ColorScheme colorScheme,
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
   ) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: ClipRRect(
-        borderRadius: BorderRadius.circular(6),
-        child: _buildImage(
-          playlist.thumbnailUrl,
-          48,
-          Icons.queue_music_rounded,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: BouncyTouch(
+        style: BouncyStyle.card,
+        customScale: 0.98,
+        onTap: () => PlaylistScreen.open(
+          context,
+          playlistId: playlist.id,
+          title: playlist.title,
+          thumbnailUrl: playlist.thumbnailUrl,
         ),
-      ),
-      title: Text(
-        playlist.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontWeight: FontWeight.w500,
-          color: isDark ? Colors.white : InzxColors.textPrimary,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: textColor.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: _buildImage(
+                  playlist.thumbnailUrl,
+                  48,
+                  Icons.queue_music_rounded,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      playlist.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w600,
+                        color: textColor,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      context.playlistSubtitle(
+                        playlist.author ?? context.l10n.playlist,
+                        playlist.trackCount,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: secondaryTextColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: secondaryTextColor, size: 20),
+            ],
+          ),
         ),
-      ),
-      subtitle: Text(
-        context.playlistSubtitle(
-          playlist.author ?? context.l10n.playlist,
-          playlist.trackCount,
-        ),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 12,
-          color: isDark ? Colors.white54 : InzxColors.textSecondary,
-        ),
-      ),
-      onTap: () => PlaylistScreen.open(
-        context,
-        playlistId: playlist.id,
-        title: playlist.title,
-        thumbnailUrl: playlist.thumbnailUrl,
       ),
     );
   }

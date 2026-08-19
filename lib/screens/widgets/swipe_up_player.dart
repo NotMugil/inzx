@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../providers/providers.dart';
+import 'mini_player.dart';
 
 /// Swipe-up draggable player sheet
 /// Similar to how YouTube Music and Spotify handle the mini player
@@ -208,94 +209,6 @@ class MiniPlayerBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final track = ref.watch(currentTrackProvider);
-    final isPlaying = ref.watch(isPlayingProvider);
-    final playerService = ref.watch(audioPlayerServiceProvider);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    if (track == null) return const SizedBox.shrink();
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 64,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 10,
-              offset: const Offset(0, -2),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            // Album art
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: SizedBox(
-                width: 44,
-                height: 44,
-                child: track.thumbnailUrl != null
-                    ? CachedNetworkImage(
-                        imageUrl: track.thumbnailUrl!,
-                        fit: BoxFit.cover,
-                      )
-                    : Container(
-                        color: isDark ? Colors.white12 : Colors.grey.shade200,
-                        child: const Icon(Iconsax.music, size: 20),
-                      ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            // Track info
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    track.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: isDark ? Colors.white : Colors.black87,
-                    ),
-                  ),
-                  Text(
-                    track.artist,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isDark ? Colors.white54 : Colors.black45,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Play/pause button
-            IconButton(
-              icon: Icon(
-                isPlaying ? Iconsax.pause : Iconsax.play,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              onPressed: () => playerService.togglePlayPause(),
-            ),
-            // Next button
-            IconButton(
-              icon: Icon(
-                Iconsax.next,
-                color: isDark ? Colors.white70 : Colors.black54,
-              ),
-              onPressed: () => playerService.skipToNext(),
-            ),
-          ],
-        ),
-      ),
-    );
+    return MusicMiniPlayer(onTap: onTap ?? () {});
   }
 }

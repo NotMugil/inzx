@@ -61,15 +61,15 @@ class _JamsPanelState extends ConsumerState<JamsPanel> {
     final session = ref.watch(currentJamSessionProvider).valueOrNull;
     final jamsState = ref.watch(jamsNotifierProvider);
 
-    return Container(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.85,
-      ),
-      decoration: BoxDecoration(
-        color: widget.backgroundColor,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Column(
+    return Material(
+      color: widget.backgroundColor,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      clipBehavior: Clip.antiAlias,
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           // Handle
@@ -130,7 +130,8 @@ class _JamsPanelState extends ConsumerState<JamsPanel> {
           const SizedBox(height: 20),
         ],
       ),
-    );
+    ),
+  );
   }
 
   /// Prompt to sign in with Google

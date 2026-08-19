@@ -33,11 +33,10 @@ class PlaybackSpeedPicker extends ConsumerWidget {
     final playerService = ref.watch(audioPlayerServiceProvider);
     final currentSpeed = ref.watch(playbackSpeedProvider);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+    return Material(
+      color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -99,7 +98,9 @@ class PlaybackSpeedPicker extends ConsumerWidget {
         ? context.l10n.normal
         : context.l10n.speedMultiplier(_formatPlaybackSpeed(speed));
 
-    return ListTile(
+    return Material(
+      color: Colors.transparent,
+      child: ListTile(
       leading: Icon(
         isSelected ? Icons.check_circle : Icons.circle_outlined,
         color: isSelected
@@ -127,7 +128,8 @@ class PlaybackSpeedPicker extends ConsumerWidget {
             )
           : null,
       onTap: onTap,
-    );
+    ),
+  );
   }
 }
 

@@ -6,14 +6,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:marquee/marquee.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../providers/providers.dart';
+import '../../services/deep_link_handler.dart';
 import '../../services/jams/jams_models.dart';
-import '../../services/download_service.dart';
 import '../../models/models.dart';
 import '../../services/audio_player_service.dart' as player;
 import '../../services/lyrics/lyrics_service.dart';
 import '../../services/lyrics/lyrics_models.dart';
-import '../../core/design_system/colors.dart';
+import '../../core/design_system/design_system.dart';
 import '../../core/l10n/app_localizations_x.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart' show AlbumScreen;
@@ -30,12 +31,14 @@ class _NowPlayingProgressBar extends ConsumerWidget {
   final Color textColor;
   final Color secondaryColor;
   final Color accentColor;
+  final bool isCompact;
 
   const _NowPlayingProgressBar({
     required this.duration,
     required this.textColor,
     required this.secondaryColor,
     required this.accentColor,
+    this.isCompact = false,
   });
 
   @override
@@ -44,15 +47,25 @@ class _NowPlayingProgressBar extends ConsumerWidget {
         ref.watch(positionStreamProvider).valueOrNull ?? Duration.zero;
     final playerService = ref.watch(audioPlayerServiceProvider);
 
+    final verticalPadding = isCompact ? 2.0 : 16.0;
+    final horizontalPadding = isCompact ? 16.0 : 24.0;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      padding: EdgeInsets.symmetric(
+        horizontal: horizontalPadding,
+        vertical: verticalPadding,
+      ),
       child: Column(
         children: [
           SliderTheme(
             data: SliderThemeData(
-              trackHeight: 4,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+              trackHeight: isCompact ? 3 : 4,
+              thumbShape: RoundSliderThumbShape(
+                enabledThumbRadius: isCompact ? 4 : 6,
+              ),
+              overlayShape: RoundSliderOverlayShape(
+                overlayRadius: isCompact ? 10 : 14,
+              ),
               activeTrackColor: accentColor,
               inactiveTrackColor: textColor.withValues(alpha: 0.2),
               thumbColor: textColor,
@@ -148,6 +161,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   late TabController _tabController;
   late PageController _pageController;
   late PageController _albumArtPageController; // For swiping album art
+  late PageController _stageViewPageController; // For swiping right panel in Stage View
   final GlobalKey<YTMDrawerState> _drawerKey = GlobalKey<YTMDrawerState>();
   AlbumColors _currentColors = AlbumColors.defaultColors();
   AlbumColors _targetColors = AlbumColors.defaultColors();
@@ -162,6 +176,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   bool _initialColorLoad = true;
   bool _isAlbumSwipeNavigationInProgress = false;
   int? _lastAlbumArtSyncedIndex;
+  Orientation? _lastOrientation;
+  late AnimationController _heartAnimController;
+  late Animation<double> _heartScaleAnimation;
+  late Animation<double> _heartOpacityAnimation;
 
   @override
   void initState() {
@@ -194,8 +212,53 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     // Page controller for swiping content
     _pageController = PageController(initialPage: 0);
 
-    // Album art page controller follows actual queue index
-    _albumArtPageController = PageController(initialPage: 0);
+    // Album art page controller follows actual queue index starting on active index
+    final initialQueueIndex =
+        ref.read(audioPlayerServiceProvider).currentIndex;
+    final startPage = initialQueueIndex >= 0 ? initialQueueIndex : 0;
+    _albumArtPageController = PageController(initialPage: startPage);
+    _lastAlbumArtSyncedIndex = startPage;
+
+    // Stage view page controller starts on Lyrics (index 1)
+    _stageViewPageController = PageController(initialPage: 1);
+
+    // Double tap like heart pop animation controller
+    _heartAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 650),
+    );
+    _heartScaleAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0.2, end: 1.25)
+            .chain(CurveTween(curve: Curves.easeOutBack)),
+        weight: 40,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.25, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeInOut)),
+        weight: 20,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 1.35)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 40,
+      ),
+    ]).animate(_heartAnimController);
+
+    _heartOpacityAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0.0, end: 1.0),
+        weight: 35,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 1.0),
+        weight: 25,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 0.0),
+        weight: 40,
+      ),
+    ]).animate(_heartAnimController);
   }
 
   @override
@@ -204,6 +267,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     _tabController.dispose();
     _pageController.dispose();
     _albumArtPageController.dispose();
+    _stageViewPageController.dispose();
+    _heartAnimController.dispose();
     super.dispose();
   }
 
@@ -215,30 +280,38 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     final currentTrack = ref.watch(currentTrackProvider);
     final currentQueueIndex = playerService.currentIndex;
 
+    final currentOrientation = MediaQuery.of(context).orientation;
+    if (_lastOrientation != null && _lastOrientation != currentOrientation) {
+      _lastOrientation = currentOrientation;
+      _lastAlbumArtSyncedIndex = -1; // Force re-sync of album art controller on orientation change
+      if (currentOrientation == Orientation.landscape && _tabController.index == 0) {
+        _tabController.index = 1; // Default to Lyrics tab when first entering landscape mode
+      }
+    } else {
+      _lastOrientation = currentOrientation;
+    }
+
     if (currentQueueIndex >= 0 &&
         currentQueueIndex != _lastAlbumArtSyncedIndex) {
       _lastAlbumArtSyncedIndex = currentQueueIndex;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !_albumArtPageController.hasClients) return;
         final activePage =
-            (_albumArtPageController.page ?? currentQueueIndex.toDouble())
-                .round();
-        if (activePage == currentQueueIndex) return;
-
-        _isAlbumSwipeNavigationInProgress = true;
-        unawaited(
+            _safeAlbumArtPage(currentQueueIndex.toDouble()).round();
+        if (activePage != currentQueueIndex) {
+          _isAlbumSwipeNavigationInProgress = true;
           _albumArtPageController
               .animateToPage(
                 currentQueueIndex,
-                duration: const Duration(milliseconds: 260),
+                duration: const Duration(milliseconds: 300),
                 curve: Curves.easeOutCubic,
               )
               .whenComplete(() {
                 if (mounted) {
                   _isAlbumSwipeNavigationInProgress = false;
                 }
-              }),
-        );
+              });
+        }
       });
     }
 
@@ -312,6 +385,37 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
         final accentColor = colors.accent;
         final textColor = colors.onBackground;
         final secondaryTextColor = textColor.withValues(alpha: 0.7);
+
+        final isLandscape =
+            MediaQuery.of(context).orientation == Orientation.landscape;
+
+        if (isLandscape) {
+          return Scaffold(
+            backgroundColor: backgroundColor,
+            body: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    colors.backgroundPrimary,
+                    colors.backgroundSecondary,
+                  ],
+                  stops: const [0.0, 1.0],
+                ),
+              ),
+              child: _buildStageView(
+                track,
+                state,
+                playerService,
+                textColor,
+                secondaryTextColor,
+                accentColor,
+                colors.surface,
+              ),
+            ),
+          );
+        }
 
         return Scaffold(
           backgroundColor: backgroundColor,
@@ -406,37 +510,355 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
         _buildAlbumArt(track, accentColor),
 
         Expanded(
-          child: Column(
-            children: [
-              // Current synced lyric line (shown only when synced lyrics are available)
-              _buildSyncedLyricPreview(textColor),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                physics: const NeverScrollableScrollPhysics(),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: IntrinsicHeight(
+                    child: Column(
+                      children: [
+                        // Current synced lyric line (shown only when synced lyrics are available)
+                        _buildSyncedLyricPreview(textColor),
 
-              // Track info
-              _buildTrackInfo(
-                track,
-                textColor,
-                secondaryTextColor,
-                accentColor,
+                        // Track info
+                        _buildTrackInfo(
+                          track,
+                          textColor,
+                          secondaryTextColor,
+                          accentColor,
+                        ),
+
+                        // Progress bar
+                        _NowPlayingProgressBar(
+                          duration: state.duration,
+                          textColor: textColor,
+                          secondaryColor: secondaryTextColor,
+                          accentColor: accentColor,
+                        ),
+
+                        // Controls
+                        _buildControls(state, playerService, textColor, accentColor),
+
+                        const Spacer(),
+
+                        // Bottom tabs
+                        _buildBottomTabs(textColor, accentColor),
+
+                        SizedBox(height: MediaQuery.of(context).padding.bottom),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Stage View (Landscape Mode): Album Art & Controls on left, Live Lyrics / Queue on right
+  Widget _buildStageView(
+    Track track,
+    player.PlaybackState state,
+    player.AudioPlayerService playerService,
+    Color textColor,
+    Color secondaryTextColor,
+    Color accentColor,
+    Color surfaceColor,
+  ) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            // Left Panel: Album Art, Track Info, Progress & Controls (30% width)
+            SizedBox(
+              width: MediaQuery.of(context).size.width * 0.30,
+              child: Column(
+                children: [
+                  // Prominent Large Swipeable Album Art
+                  Expanded(
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(2.0),
+                        child: AspectRatio(
+                          aspectRatio: 1.0,
+                          child: _buildSwipeableAlbumArt(track, accentColor),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 4),
+
+                  // Minimal Track Title & Artist
+                  _buildMinimalTrackInfo(track, textColor, secondaryTextColor),
+
+                  // Compact Progress Bar & Duration
+                  _NowPlayingProgressBar(
+                    duration: state.duration,
+                    textColor: textColor,
+                    secondaryColor: secondaryTextColor,
+                    accentColor: accentColor,
+                    isCompact: true,
+                  ),
+
+                  // Minimal Controls (Previous, Play/Pause, Next)
+                  _buildMinimalControls(
+                    state,
+                    playerService,
+                    textColor,
+                    accentColor,
+                  ),
+                ],
               ),
+            ),
 
-              // Progress bar
-              _NowPlayingProgressBar(
-                duration: state.duration,
-                textColor: textColor,
-                secondaryColor: secondaryTextColor,
-                accentColor: accentColor,
+            const SizedBox(width: 16),
+
+            // Right Panel: Borderless Swipeable PageView (Up Next / Lyrics [default] / Related)
+            Expanded(
+              child: Stack(
+                alignment: Alignment.topCenter,
+                children: [
+                  PageView(
+                    controller: _stageViewPageController,
+                    physics: const BouncingScrollPhysics(),
+                    children: [
+                      _buildQueueContent(
+                        textColor,
+                        secondaryTextColor,
+                        surfaceColor,
+                      ),
+                      _buildLyricsView(ref),
+                      _buildRelatedContent(textColor, secondaryTextColor),
+                    ],
+                  ),
+
+                  // Ultra-minimal floating page indicator dots (Up Next • Lyrics • Related)
+                  Positioned(
+                    top: 4,
+                    child: AnimatedBuilder(
+                      animation: _stageViewPageController,
+                      builder: (context, child) {
+                        final page = _stageViewPageController.hasClients
+                            ? (_stageViewPageController.page ?? 1.0)
+                            : 1.0;
+
+                        return Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: List.generate(3, (index) {
+                            final delta = (index - page).abs().clamp(0.0, 1.0);
+                            final opacity =
+                                (1.0 - (delta * 0.65)).clamp(0.25, 1.0);
+                            final width = 18.0 - (delta * 12.0);
+
+                            return Container(
+                              margin: const EdgeInsets.symmetric(
+                                horizontal: 3,
+                              ),
+                              width: width,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: (index == page.round()
+                                        ? accentColor
+                                        : textColor)
+                                    .withValues(alpha: opacity),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            );
+                          }),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-              // Controls
-              _buildControls(state, playerService, textColor, accentColor),
+  Widget _buildMinimalTrackInfo(
+    Track track,
+    Color textColor,
+    Color secondaryColor,
+  ) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // Title with Marquee auto-scrolling on overflow
+        SizedBox(
+          height: 20,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final textPainter = TextPainter(
+                text: TextSpan(
+                  text: track.title,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: textColor,
+                  ),
+                ),
+                maxLines: 1,
+                textDirection: TextDirection.ltr,
+              )..layout();
 
-              const Spacer(),
+              if (textPainter.width > (constraints.maxWidth - 2)) {
+                return Marquee(
+                  text: track.title,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: textColor,
+                  ),
+                  scrollAxis: Axis.horizontal,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  blankSpace: 48.0,
+                  velocity: 30.0,
+                  pauseAfterRound: const Duration(seconds: 2),
+                  startPadding: 0.0,
+                  accelerationDuration: const Duration(seconds: 1),
+                  accelerationCurve: Curves.linear,
+                  decelerationDuration: const Duration(milliseconds: 500),
+                  decelerationCurve: Curves.easeOut,
+                );
+              }
 
-              // Bottom tabs
-              _buildBottomTabs(textColor, accentColor),
+              return Text(
+                track.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: textColor,
+                ),
+              );
+            },
+          ),
+        ),
 
-              SizedBox(height: MediaQuery.of(context).padding.bottom),
-            ],
+        const SizedBox(height: 2),
+
+        // Artist with Marquee auto-scrolling on overflow
+        SizedBox(
+          height: 18,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final textPainter = TextPainter(
+                text: TextSpan(
+                  text: track.artist,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: secondaryColor,
+                  ),
+                ),
+                maxLines: 1,
+                textDirection: TextDirection.ltr,
+              )..layout();
+
+              if (textPainter.width > (constraints.maxWidth - 2)) {
+                return Marquee(
+                  text: track.artist,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: secondaryColor,
+                  ),
+                  scrollAxis: Axis.horizontal,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  blankSpace: 48.0,
+                  velocity: 30.0,
+                  pauseAfterRound: const Duration(seconds: 2),
+                  startPadding: 0.0,
+                  accelerationDuration: const Duration(seconds: 1),
+                  accelerationCurve: Curves.linear,
+                  decelerationDuration: const Duration(milliseconds: 500),
+                  decelerationCurve: Curves.easeOut,
+                );
+              }
+
+              return InkWell(
+                onTap: () => ArtistScreen.open(
+                  context,
+                  artistId: track.artistId,
+                  name: track.artist,
+                ),
+                child: Text(
+                  track.artist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: secondaryColor,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMinimalControls(
+    player.PlaybackState state,
+    player.AudioPlayerService playerService,
+    Color textColor,
+    Color accentColor,
+  ) {
+    final isInJam = ref.watch(isInJamSessionProvider);
+    final canControl = ref.watch(canControlJamPlaybackProvider);
+    final canSkip = !isInJam || canControl;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        // Previous
+        BouncyTouch(
+          style: BouncyStyle.button,
+          customScale: 0.90,
+          onTap: canSkip ? playerService.skipToPrevious : null,
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Icon(
+              Iconsax.previous,
+              color: canSkip ? textColor : textColor.withValues(alpha: 0.3),
+              size: 28,
+            ),
+          ),
+        ),
+        const SizedBox(width: 16),
+        // Play/Pause
+        AnimatedPlayPauseButton(
+          isPlaying: state.isPlaying,
+          onTap: state.isPlaying ? playerService.pause : playerService.play,
+          size: 48,
+          iconSize: 28,
+          backgroundColor: accentColor,
+        ),
+        const SizedBox(width: 16),
+        // Next
+        BouncyTouch(
+          style: BouncyStyle.button,
+          customScale: 0.90,
+          onTap: canSkip ? playerService.skipToNext : null,
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Icon(
+              Iconsax.next,
+              color: canSkip ? textColor : textColor.withValues(alpha: 0.3),
+              size: 28,
+            ),
           ),
         ),
       ],
@@ -502,15 +924,12 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
             ),
           ),
           // Play/pause button
-          IconButton(
-            onPressed: state.isPlaying
-                ? playerService.pause
-                : playerService.play,
-            icon: Icon(
-              state.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-              color: textColor,
-              size: 32,
-            ),
+          AnimatedPlayPauseButton(
+            isPlaying: state.isPlaying,
+            onTap: state.isPlaying ? playerService.pause : playerService.play,
+            size: 40,
+            iconSize: 24,
+            backgroundColor: accentColor,
           ),
         ],
       ),
@@ -712,60 +1131,24 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                 final track = queue[index];
                 final isCurrent = currentTrack?.id == track.id;
 
-                return RepaintBoundary(
+                return _buildQueueItemTile(
                   key: ValueKey(track.id + index.toString()),
-                  child: SizedBox(
-                    height: 72, // Fixed height for performance
-                    child: ListTile(
-                      leading: ClipRRect(
-                        borderRadius: BorderRadius.circular(4),
-                        child: SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: track.thumbnailUrl != null
-                              ? CachedNetworkImage(
-                                  imageUrl: track.thumbnailUrl!,
-                                  fit: BoxFit.cover,
-                                  memCacheWidth: 96,
-                                  memCacheHeight: 96,
-                                  fadeInDuration: Duration.zero,
-                                  fadeOutDuration: Duration.zero,
-                                )
-                              : Container(color: Colors.grey),
-                        ),
-                      ),
-                      title: Text(
-                        track.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: isCurrent ? textColor : secondaryColor,
-                          fontWeight: isCurrent
-                              ? FontWeight.bold
-                              : FontWeight.normal,
-                        ),
-                      ),
-                      subtitle: Text(
-                        context.trackSubtitle(
-                          track.artist,
-                          _formatDuration(track.duration),
-                        ),
-                        maxLines: 1,
-                        style: TextStyle(color: secondaryColor, fontSize: 12),
-                      ),
-                      trailing: ReorderableDragStartListener(
-                        index: index,
-                        child: Icon(Icons.drag_handle, color: secondaryColor),
-                      ),
-                      onTap: () {
-                        // Play from queue at this index
-                        ref
-                            .read(audioPlayerServiceProvider)
-                            .playQueue(queue, startIndex: index);
-                      },
-                    ),
+                  track: track,
+                  isCurrent: isCurrent,
+                  index: index,
+                  textColor: textColor,
+                  secondaryColor: secondaryColor,
+                  accentColor: ref.watch(albumColorsProvider).accent,
+                  onTap: () {
+                    ref
+                        .read(audioPlayerServiceProvider)
+                        .playQueue(queue, startIndex: index);
+                  },
+                  trailingWidget: ReorderableDragStartListener(
+                    index: index,
+                    child: Icon(Icons.drag_handle, color: secondaryColor),
                   ),
-                ); // Close RepaintBoundary
+                );
               },
             ),
           ),
@@ -787,6 +1170,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     bool canControlPlayback,
   ) {
     final l10n = context.l10n;
+    final currentTrack = ref.watch(currentTrackProvider);
     // Find participant names from session
     String getAddedByName(String oderId) {
       final participant = session?.participants
@@ -873,76 +1257,68 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                   buildDefaultDragHandles: false,
                   itemBuilder: (context, index) {
                     final queueItem = jamQueue[index];
-                    final track = queueItem.track;
+                    final jamTrack = queueItem.track;
+                    final isCurrent = currentTrack?.id == jamTrack.videoId;
+                    final track = Track(
+                      id: jamTrack.videoId,
+                      title: jamTrack.title,
+                      artist: jamTrack.artist,
+                      thumbnailUrl: jamTrack.thumbnailUrl,
+                      duration: Duration(milliseconds: jamTrack.durationMs),
+                    );
                     final addedByName = getAddedByName(queueItem.addedBy);
 
-                    return RepaintBoundary(
-                      key: ValueKey('jam_${track.videoId}_$index'),
-                      child: SizedBox(
-                        height: 72,
-                        child: ListTile(
-                          leading: ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: SizedBox(
-                              width: 48,
-                              height: 48,
-                              child: track.thumbnailUrl != null
-                                  ? CachedNetworkImage(
-                                      imageUrl: track.thumbnailUrl!,
-                                      fit: BoxFit.cover,
-                                      memCacheWidth: 96,
-                                      memCacheHeight: 96,
-                                      fadeInDuration: Duration.zero,
-                                      fadeOutDuration: Duration.zero,
-                                    )
-                                  : Container(color: Colors.grey),
-                            ),
-                          ),
-                          title: Text(
-                            track.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(color: textColor),
-                          ),
-                          subtitle: Text(
-                            context.metadataLine([
-                              track.artist,
-                              l10n.addedByUser(addedByName),
-                            ]),
-                            maxLines: 1,
-                            style: TextStyle(
-                              color: secondaryColor,
-                              fontSize: 12,
-                            ),
-                          ),
-                          trailing: canControlPlayback
-                              ? Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: Icon(
-                                        Iconsax.trash,
-                                        size: 20,
-                                        color: secondaryColor,
-                                      ),
-                                      onPressed: () =>
-                                          _removeFromJamQueue(index),
-                                    ),
-                                    ReorderableDragStartListener(
-                                      index: index,
-                                      child: Icon(
-                                        Icons.drag_handle,
-                                        color: secondaryColor,
-                                      ),
-                                    ),
-                                  ],
-                                )
-                              : null,
-                          onTap: canControlPlayback
-                              ? () => _playFromJamQueue(index)
-                              : null,
+                    return _buildQueueItemTile(
+                      key: ValueKey('jam_${track.id}_$index'),
+                      track: track,
+                      isCurrent: isCurrent,
+                      index: index,
+                      textColor: textColor,
+                      secondaryColor: secondaryColor,
+                      accentColor: ref.watch(albumColorsProvider).accent,
+                      onTap: canControlPlayback
+                          ? () => _playFromJamQueue(index)
+                          : null,
+                      subtitleWidget: Text(
+                        context.metadataLine([
+                          track.artist,
+                          l10n.addedByUser(addedByName),
+                        ]),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isCurrent
+                              ? ref
+                                  .watch(albumColorsProvider)
+                                  .accent
+                                  .withValues(alpha: 0.85)
+                              : secondaryColor,
+                          fontSize: 12,
                         ),
                       ),
+                      trailingWidget: canControlPlayback
+                          ? Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: Icon(
+                                    Iconsax.trash,
+                                    size: 20,
+                                    color: secondaryColor,
+                                  ),
+                                  onPressed: () =>
+                                      _removeFromJamQueue(index),
+                                ),
+                                ReorderableDragStartListener(
+                                  index: index,
+                                  child: Icon(
+                                    Icons.drag_handle,
+                                    color: secondaryColor,
+                                  ),
+                                ),
+                              ],
+                            )
+                          : null,
                     );
                   },
                 ),
@@ -994,6 +1370,153 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       }
       await jamsService.reorderQueue(oldIndex, newIndex);
     }
+  }
+
+  Widget _buildQueueItemTile({
+    required Key key,
+    required Track track,
+    required bool isCurrent,
+    required int index,
+    required Color textColor,
+    required Color secondaryColor,
+    required Color accentColor,
+    required VoidCallback? onTap,
+    Widget? subtitleWidget,
+    Widget? trailingWidget,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final playbackState = ref.watch(playbackStateProvider).valueOrNull;
+    final isPlaying = isCurrent && (playbackState?.isPlaying ?? false);
+
+    return RepaintBoundary(
+      key: key,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            color: Colors.transparent,
+            border: isCurrent
+                ? Border.all(
+                    color: accentColor.withValues(alpha: 0.50),
+                    width: 1.0,
+                  )
+                : null,
+          ),
+          child: BouncyTouch(
+            style: BouncyStyle.card,
+            customScale: 0.98,
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              child: Row(
+                children: [
+                  // Thumbnail with optional Playing Equalizer overlay
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: track.thumbnailUrl != null
+                              ? CachedNetworkImage(
+                                  imageUrl: track.thumbnailUrl!,
+                                  fit: BoxFit.cover,
+                                  memCacheWidth: 96,
+                                  memCacheHeight: 96,
+                                  fadeInDuration: Duration.zero,
+                                  fadeOutDuration: Duration.zero,
+                                )
+                              : Container(color: Colors.grey.shade800),
+                        ),
+                      ),
+                      if (isCurrent)
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            color: Colors.black.withValues(alpha: 0.45),
+                          ),
+                          child: Center(
+                            child: isPlaying
+                                ? _QueuePlayingEqualizerBars(color: accentColor)
+                                : Icon(
+                                    Icons.play_arrow_rounded,
+                                    color: accentColor,
+                                    size: 24,
+                                  ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(width: 12),
+
+                  // Track Info (Title & Subtitle)
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          track.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isCurrent ? accentColor : textColor,
+                            fontWeight: isCurrent
+                                ? FontWeight.bold
+                                : FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        subtitleWidget ??
+                            Builder(
+                              builder: (context) {
+                                final state =
+                                    ref.watch(playbackStateProvider).valueOrNull;
+                                final playerDuration =
+                                    isCurrent ? state?.duration : null;
+                                final formattedDur = (track.duration.inSeconds > 0)
+                                    ? track.formattedDuration
+                                    : (playerDuration != null &&
+                                            playerDuration.inSeconds > 0
+                                        ? _formatDuration(playerDuration)
+                                        : null);
+
+                                return Text(
+                                  context.trackSubtitle(
+                                    track.artist,
+                                    formattedDur,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: isCurrent
+                                        ? accentColor.withValues(alpha: 0.85)
+                                        : secondaryColor,
+                                    fontSize: 12,
+                                  ),
+                                );
+                              },
+                            ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+
+                  // Trailing widget (e.g. drag handle or trash button)
+                  if (trailingWidget != null) trailingWidget,
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   /// Tab content switcher - shows Queue, Lyrics, or Related based on selected tab
@@ -1062,9 +1585,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
         final relatedContent = snapshot.data!;
 
         return ListView(
-          physics: const BouncingScrollPhysics(
-            parent: AlwaysScrollableScrollPhysics(),
-          ),
+          physics: const BouncingScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
           children: [
             for (final shelf in relatedContent.shelves)
@@ -1298,54 +1819,54 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       final item = shelf.items[index];
       final track = index < tracks.length ? tracks[index] : item.toTrack();
       return RepaintBoundary(
-        child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 4,
-            vertical: 2,
-          ),
-          leading: ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: SizedBox(
-              width: 52,
-              height: 52,
-              child: item.thumbnailUrl != null
-                  ? CachedNetworkImage(
-                      imageUrl: item.thumbnailUrl!,
-                      fit: BoxFit.cover,
-                      memCacheWidth: 104,
-                      memCacheHeight: 104,
-                      fadeInDuration: Duration.zero,
-                      fadeOutDuration: Duration.zero,
-                    )
-                  : Container(color: Colors.grey.shade800),
+        child: Material(
+          color: Colors.transparent,
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 4,
+              vertical: 2,
             ),
-          ),
-          title: Text(
-            item.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: textColor,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
+            leading: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: SizedBox(
+                width: 52,
+                height: 52,
+                child: item.thumbnailUrl != null
+                    ? CachedNetworkImage(
+                        imageUrl: item.thumbnailUrl!,
+                        fit: BoxFit.cover,
+                        memCacheWidth: 104,
+                        memCacheHeight: 104,
+                        fadeInDuration: Duration.zero,
+                        fadeOutDuration: Duration.zero,
+                      )
+                    : Container(color: Colors.grey.shade800),
+              ),
             ),
+            title: Text(
+              item.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: textColor,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            subtitle: Text(
+              item.subtitle ?? track?.artist ?? '',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: secondaryColor, fontSize: 12),
+            ),
+            onTap: () {
+              if (track != null) {
+                ref
+                    .read(audioPlayerServiceProvider)
+                    .playTrack(track, enableRadio: false);
+              }
+            },
           ),
-          subtitle: Text(
-            item.subtitle ?? track?.artist ?? '',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: secondaryColor, fontSize: 12),
-          ),
-          onTap: track == null
-              ? null
-              : () {
-                  ref
-                      .read(audioPlayerServiceProvider)
-                      .playQueue(
-                        tracks,
-                        startIndex: math.min(index, tracks.length - 1),
-                      );
-                },
         ),
       );
     });
@@ -1686,13 +2207,18 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          IconButton(
-            onPressed: () {
+          BouncyTouch(
+            style: BouncyStyle.button,
+            customScale: 0.90,
+            onTap: () {
               // Use Navigator.pop for Hero animation on close
               Navigator.of(context).pop();
               widget.onClose?.call();
             },
-            icon: Icon(Icons.keyboard_arrow_down, color: textColor, size: 32),
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Icon(Icons.keyboard_arrow_down, color: textColor, size: 32),
+            ),
           ),
           Column(
             children: [
@@ -1707,14 +2233,19 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
               ),
             ],
           ),
-          IconButton(
-            onPressed: () {
+          BouncyTouch(
+            style: BouncyStyle.button,
+            customScale: 0.90,
+            onTap: () {
               final track = ref.read(currentTrackProvider);
               if (track != null) {
                 TrackOptionsSheet.show(context, track);
               }
             },
-            icon: Icon(Icons.more_vert, color: textColor),
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Icon(Icons.more_vert, color: textColor),
+            ),
           ),
         ],
       ),
@@ -1734,128 +2265,52 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   }
 
   Widget _buildAlbumArt(Track track, Color accentColor) {
-    final playerService = ref.watch(audioPlayerServiceProvider);
-    final queue = playerService.queue;
-    final currentIndex = playerService.currentIndex;
+    final orientation = MediaQuery.of(context).orientation;
+    if (_lastOrientation != orientation) {
+      _lastAlbumArtSyncedIndex = null;
+      _lastOrientation = orientation;
+    }
+
+    final lyricsState = ref.watch(lyricsProvider);
+    final isFetchingLyrics =
+        lyricsState.currentStatus.state == LyricsProviderState.fetching ||
+        lyricsState.currentStatus.state == LyricsProviderState.idle;
+    final hasSyncedLyrics =
+        lyricsState.currentLyrics?.hasSyncedLyrics ?? false;
+
+    // Only expand album art if fetching is complete AND the track does NOT have synced lyrics
+    // (i.e. songs with plain text lyrics or no lyrics at all will expand to fill the space cleanly).
+    final shouldExpand = !isFetchingLyrics && !hasSyncedLyrics;
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final screenWidth = MediaQuery.of(context).size.width;
-        final maxHeight = MediaQuery.of(context).size.height * 0.42;
+        final screenHeight = MediaQuery.of(context).size.height;
+
+        // Expand album art dynamically when synced lyrics preview is not present
+        final maxHeightRatio = shouldExpand ? 0.47 : 0.40;
+        final maxHeight = screenHeight * maxHeightRatio;
 
         // Constrain to max height while staying square
         final artSize = math.min(
-          screenWidth - 54, // horizontal padding * 2
+          screenWidth - (shouldExpand ? 36 : 52),
           maxHeight,
         );
 
-        return SizedBox(
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeOutCubic,
           height: maxHeight,
           child: Align(
             alignment: Alignment.topCenter,
             child: Padding(
-              padding: const EdgeInsets.only(top: 16),
-              child: SizedBox(
+              padding: EdgeInsets.only(top: shouldExpand ? 6 : 12),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 350),
+                curve: Curves.easeOutCubic,
                 width: artSize,
                 height: artSize,
-                child: Stack(
-                  children: [
-                    // Swipeable album art using PageView
-                    PageView.builder(
-                      controller: _albumArtPageController,
-                      clipBehavior: Clip.none,
-                      physics: const BouncingScrollPhysics(),
-                      itemCount: queue.isEmpty ? 1 : queue.length,
-                      onPageChanged: (pageIndex) {
-                        _handleAlbumArtPageChanged(
-                          pageIndex,
-                          playerService,
-                          currentIndex: currentIndex,
-                          queueLength: queue.length,
-                        );
-                      },
-                      itemBuilder: (context, pageIndex) {
-                        final displayTrack =
-                            (queue.isNotEmpty &&
-                                pageIndex >= 0 &&
-                                pageIndex < queue.length)
-                            ? queue[pageIndex]
-                            : track;
-
-                        return AnimatedBuilder(
-                          animation: _albumArtPageController,
-                          builder: (context, child) {
-                            final fallbackPage = currentIndex >= 0
-                                ? currentIndex.toDouble()
-                                : 0.0;
-                            final page = _albumArtPageController.hasClients
-                                ? (_albumArtPageController.page ?? fallbackPage)
-                                : fallbackPage;
-                            final delta = (pageIndex - page).abs().clamp(
-                              0.0,
-                              1.0,
-                            );
-                            final scale = (1.0 - (delta * 0.08)).clamp(
-                              0.92,
-                              1.0,
-                            );
-                            final opacity = (1.0 - (delta * 0.28)).clamp(
-                              0.72,
-                              1.0,
-                            );
-
-                            return Transform.scale(
-                              scale: scale.toDouble(),
-                              child: Opacity(
-                                opacity: opacity.toDouble(),
-                                child: child,
-                              ),
-                            );
-                          },
-                          child: Hero(
-                            tag: pageIndex == currentIndex
-                                ? 'album-art-${track.id}'
-                                : 'album-art-side-${displayTrack.id}-$pageIndex',
-                            child: Container(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(12),
-                                boxShadow: [
-                                  // Ambient glow (YT Music style)
-                                  BoxShadow(
-                                    color: accentColor.withValues(alpha: 0.55),
-                                    blurRadius: 90,
-                                    spreadRadius: 24,
-                                    offset: const Offset(0, 26),
-                                  ),
-                                  BoxShadow(
-                                    color: accentColor.withValues(alpha: 0.25),
-                                    blurRadius: 140,
-                                    spreadRadius: 40,
-                                    offset: const Offset(0, 36),
-                                  ),
-                                  // Depth shadow for contrast
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.35),
-                                    blurRadius: 30,
-                                    spreadRadius: 5,
-                                    offset: const Offset(0, 10),
-                                  ),
-                                ],
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: _buildAlbumArtContent(
-                                  displayTrack,
-                                  accentColor,
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
+                child: _buildSwipeableAlbumArt(track, accentColor),
               ),
             ),
           ),
@@ -1933,78 +2388,304 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     return buildAt(0);
   }
 
+  double _safeAlbumArtPage(double fallback) {
+    if (!_albumArtPageController.hasClients) return fallback;
+    try {
+      if (_albumArtPageController.positions.length == 1) {
+        return _albumArtPageController.page ?? fallback;
+      }
+      for (final pos in _albumArtPageController.positions) {
+        if (pos.viewportDimension > 0) {
+          return pos.pixels / pos.viewportDimension;
+        }
+      }
+    } catch (_) {}
+    return fallback;
+  }
+
+  void _triggerDoubleTapLike(Track track) {
+    final isLiked = ref.read(isTrackLikedProvider(track.id));
+    if (!isLiked) {
+      _toggleLikeTrack(track);
+    }
+    _heartAnimController.forward(from: 0.0);
+  }
+
+  Widget _buildHeartOverlay() {
+    return AnimatedBuilder(
+      animation: _heartAnimController,
+      builder: (context, child) {
+        if (_heartAnimController.isDismissed) return const SizedBox.shrink();
+        return IgnorePointer(
+          child: Center(
+            child: Opacity(
+              opacity: _heartOpacityAnimation.value.clamp(0.0, 1.0),
+              child: Transform.scale(
+                scale: _heartScaleAnimation.value,
+                child: Icon(
+                  Icons.favorite_rounded,
+                  color: Colors.redAccent,
+                  size: 96,
+                  shadows: [
+                    BoxShadow(
+                      color: Colors.redAccent.withValues(alpha: 0.7),
+                      blurRadius: 36,
+                      spreadRadius: 12,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _toggleLikeTrack(Track track) async {
+    final isLiked = ref.read(isTrackLikedProvider(track.id));
+    if (isLiked) {
+      ref.read(likedSongsProvider.notifier).unlike(track.id);
+      ref
+          .read(explicitlyUnlikedIdsProvider.notifier)
+          .update((state) => {...state, track.id});
+    } else {
+      ref.read(likedSongsProvider.notifier).like(track);
+      ref
+          .read(explicitlyUnlikedIdsProvider.notifier)
+          .update((state) => state.where((id) => id != track.id).toSet());
+    }
+
+    final authState = ref.read(ytMusicAuthStateProvider);
+    if (authState.isLoggedIn) {
+      final likeAction = ref.read(ytMusicLikeActionProvider);
+      if (isLiked) {
+        await likeAction.unlike(track.id);
+      } else {
+        await likeAction.like(track.id);
+      }
+      ref.invalidate(ytMusicLikedSongsProvider);
+    }
+  }
+
+  /// Swipeable album art widget for landscape Stage View
+  Widget _buildSwipeableAlbumArt(Track track, Color accentColor) {
+    final playerService = ref.watch(audioPlayerServiceProvider);
+    final queue = playerService.queue;
+    final currentIndex = playerService.currentIndex;
+
+    if (queue.length <= 1) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onDoubleTap: () => _triggerDoubleTapLike(track),
+        onHorizontalDragEnd: (details) {
+          if (details.primaryVelocity != null) {
+            if (details.primaryVelocity! < -200) {
+              playerService.skipToNext();
+            } else if (details.primaryVelocity! > 200) {
+              playerService.skipToPrevious();
+            }
+          }
+        },
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  // Ambient glow (YT Music style)
+                  BoxShadow(
+                    color: accentColor.withValues(alpha: 0.55),
+                    blurRadius: 90,
+                    spreadRadius: 24,
+                    offset: const Offset(0, 26),
+                  ),
+                  BoxShadow(
+                    color: accentColor.withValues(alpha: 0.25),
+                    blurRadius: 140,
+                    spreadRadius: 40,
+                    offset: const Offset(0, 36),
+                  ),
+                  // Depth shadow for contrast
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 30,
+                    spreadRadius: 5,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: _buildAlbumArtContent(track, accentColor),
+              ),
+            ),
+            _buildHeartOverlay(),
+          ],
+        ),
+      );
+    }
+
+    return PageView.builder(
+      controller: _albumArtPageController,
+      clipBehavior: Clip.none,
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
+      itemCount: queue.length,
+      onPageChanged: (pageIndex) {
+        _handleAlbumArtPageChanged(
+          pageIndex,
+          playerService,
+          currentIndex: currentIndex,
+          queueLength: queue.length,
+        );
+      },
+      itemBuilder: (context, pageIndex) {
+        final displayTrack =
+            (pageIndex >= 0 && pageIndex < queue.length)
+            ? queue[pageIndex]
+            : track;
+
+        return AnimatedBuilder(
+          animation: _albumArtPageController,
+          builder: (context, child) {
+            final fallbackPage = currentIndex >= 0
+                ? currentIndex.toDouble()
+                : 0.0;
+            final page = _safeAlbumArtPage(fallbackPage);
+            final delta = (pageIndex - page).abs().clamp(0.0, 1.0);
+            final scale = (1.0 - (delta * 0.10)).clamp(0.90, 1.0);
+            final opacity = (1.0 - (delta * 0.35)).clamp(0.65, 1.0);
+
+            return Transform.scale(
+              scale: scale,
+              child: Opacity(
+                opacity: opacity,
+                child: GestureDetector(
+                  onDoubleTap: () => _triggerDoubleTapLike(displayTrack),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            // Ambient glow (YT Music style)
+                            BoxShadow(
+                              color: accentColor.withValues(alpha: 0.55),
+                              blurRadius: 90,
+                              spreadRadius: 24,
+                              offset: const Offset(0, 26),
+                            ),
+                            BoxShadow(
+                              color: accentColor.withValues(alpha: 0.25),
+                              blurRadius: 140,
+                              spreadRadius: 40,
+                              offset: const Offset(0, 36),
+                            ),
+                            // Depth shadow for contrast
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.35),
+                              blurRadius: 30,
+                              spreadRadius: 5,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: _buildAlbumArtContent(
+                            displayTrack,
+                            accentColor,
+                          ),
+                        ),
+                      ),
+                      _buildHeartOverlay(),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildSyncedLyricPreview(Color textColor) {
     final lyricsState = ref.watch(lyricsProvider);
     final result = lyricsState.currentLyrics;
 
-    if (result == null || !result.hasSyncedLyrics) {
-      return const SizedBox(height: _syncedLyricPreviewHeight);
-    }
-
+    final hasSynced = result != null && result.hasSyncedLyrics;
     final position =
         ref.watch(positionStreamProvider).valueOrNull ?? Duration.zero;
     final positionMs = position.inMilliseconds;
-    final lines = result.lines!;
+    final lines = hasSynced ? result.lines! : const <LyricLine>[];
 
     int currentIdx = -1;
-    for (int i = 0; i < lines.length; i++) {
-      if (lines[i].timeInMs <= positionMs) {
-        currentIdx = i;
-      } else {
-        break;
+    if (hasSynced) {
+      for (int i = 0; i < lines.length; i++) {
+        if (lines[i].timeInMs <= positionMs) {
+          currentIdx = i;
+        } else {
+          break;
+        }
       }
     }
 
-    if (currentIdx < 0) {
-      return const SizedBox(height: _syncedLyricPreviewHeight);
-    }
+    final bool showPreview = hasSynced;
+    final text = (currentIdx >= 0 && currentIdx < lines.length)
+        ? lines[currentIdx].text.trim()
+        : '';
 
-    final text = lines[currentIdx].text.trim();
-    if (text.isEmpty) {
-      return const SizedBox(height: _syncedLyricPreviewHeight);
-    }
-
-    return SizedBox(
-      height: _syncedLyricPreviewHeight,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 6, 24, 6),
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 380),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeOutCubic,
-          transitionBuilder: (child, animation) {
-            final curved = CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeOutCubic,
-            );
-            return SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0, 0.06),
-                end: Offset.zero,
-              ).animate(curved),
-              child: child,
-            );
-          },
-          layoutBuilder: (currentChild, previousChildren) {
-            return currentChild ?? const SizedBox.shrink();
-          },
-          child: Align(
-            key: ValueKey('lyric_$currentIdx'),
-            alignment: Alignment.centerLeft,
-            child: Text(
-              text,
-              maxLines: 3,
-              overflow: TextOverflow.clip,
-              softWrap: true,
-              textAlign: TextAlign.left,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w500,
-                color: textColor.withValues(alpha: 0.95),
-                height: 1.15,
-              ),
-            ),
-          ),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+      height: showPreview ? _syncedLyricPreviewHeight : 0.0,
+      child: ClipRect(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 6, 24, 6),
+          child: text.isEmpty
+              ? const SizedBox.shrink()
+              : AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 380),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeOutCubic,
+                  transitionBuilder: (child, animation) {
+                    final curved = CurvedAnimation(
+                      parent: animation,
+                      curve: Curves.easeOutCubic,
+                    );
+                    return SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0, 0.06),
+                        end: Offset.zero,
+                      ).animate(curved),
+                      child: child,
+                    );
+                  },
+                  layoutBuilder: (currentChild, previousChildren) {
+                    return currentChild ?? const SizedBox.shrink();
+                  },
+                  child: Align(
+                    key: ValueKey('lyric_$currentIdx'),
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      text,
+                      maxLines: 3,
+                      overflow: TextOverflow.clip,
+                      softWrap: true,
+                      textAlign: TextAlign.left,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: textColor.withValues(alpha: 0.90),
+                      ),
+                    ),
+                  ),
+                ),
         ),
       ),
     );
@@ -2014,10 +2695,17 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     Track track,
     Color textColor,
     Color secondaryColor,
-    Color accentColor,
-  ) {
+    Color accentColor, {
+    bool isCompact = false,
+  }) {
+    final titleFontSize = isCompact ? 15.0 : 17.0;
+    final titleHeight = isCompact ? 22.0 : 26.0;
+    final artistFontSize = isCompact ? 12.0 : 14.0;
+    final artistHeight = isCompact ? 18.0 : 22.0;
+    final horizontalPadding = isCompact ? 16.0 : 24.0;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
       child: Row(
         children: [
           Expanded(
@@ -2026,14 +2714,14 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
               children: [
                 // Marquee for long titles
                 SizedBox(
-                  height: 26,
+                  height: titleHeight,
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       final textPainter = TextPainter(
                         text: TextSpan(
                           text: track.title,
                           style: TextStyle(
-                            fontSize: 20,
+                            fontSize: titleFontSize,
                             fontWeight: FontWeight.bold,
                             color: textColor,
                           ),
@@ -2043,11 +2731,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                       )..layout();
 
                       // Only use marquee if text overflows
-                      if (textPainter.width > constraints.maxWidth) {
+                      if (textPainter.width > (constraints.maxWidth - 2)) {
                         return Marquee(
                           text: track.title,
                           style: TextStyle(
-                            fontSize: 20,
+                            fontSize: titleFontSize,
                             fontWeight: FontWeight.bold,
                             color: textColor,
                           ),
@@ -2070,7 +2758,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 20,
+                          fontSize: titleFontSize,
                           fontWeight: FontWeight.bold,
                           color: textColor,
                         ),
@@ -2078,13 +2766,16 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                     },
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 // Marquee for long artist names
                 SizedBox(
-                  height: 22,
+                  height: artistHeight,
                   child: _buildArtistLink(
                     track,
-                    style: TextStyle(fontSize: 16, color: secondaryColor),
+                    style: TextStyle(
+                      fontSize: artistFontSize,
+                      color: secondaryColor,
+                    ),
                     maxLines: 1,
                     enableMarquee: true,
                   ),
@@ -2092,104 +2783,92 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
               ],
             ),
           ),
-          // Download indicator
-          Builder(
-            builder: (context) {
-              final isDownloaded = ref.watch(
-                isTrackDownloadedProvider(track.id),
-              );
-              final progress = ref.watch(
-                trackDownloadProgressProvider(track.id),
-              );
+          const SizedBox(width: 8),
+          // Action Buttons Capsule (Like, Share, Jam)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            decoration: BoxDecoration(
+              color: textColor.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Like button
+                Builder(
+                  builder: (context) {
+                    final isLiked = ref.watch(isTrackLikedProvider(track.id));
+                    return BouncyTouch(
+                      style: BouncyStyle.heartPop,
+                      customScale: 0.85,
+                      onTap: () => _toggleLikeTrack(track),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9.0,
+                          vertical: 7.0,
+                        ),
+                        child: Icon(
+                          isLiked ? Iconsax.heart5 : Iconsax.heart,
+                          color: isLiked
+                              ? Colors.red
+                              : textColor.withValues(alpha: 0.9),
+                          size: 21,
+                        ),
+                      ),
+                    );
+                  },
+                ),
 
-              if (isDownloaded) {
-                return Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: Icon(
-                    Iconsax.tick_circle5,
-                    size: 20,
-                    color: Colors.green,
-                  ),
-                );
-              }
+                const SizedBox(width: 5),
+                Container(
+                  width: 1,
+                  height: 22,
+                  color: textColor.withValues(alpha: 0.15),
+                ),
+                const SizedBox(width: 5),
 
-              if (progress != null) {
-                return Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      value: progress,
-                      strokeWidth: 2,
-                      color: secondaryColor,
+                // Share button
+                BouncyTouch(
+                  style: BouncyStyle.button,
+                  customScale: 0.92,
+                  onTap: () {
+                    final url = DeepLinkHandler.createShareUrl('song', track.id);
+                    SharePlus.instance.share(
+                      ShareParams(
+                        text: context.l10n.shareTrackText(
+                          track.title,
+                          track.artist,
+                          url,
+                        ),
+                      ),
+                    );
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9.0,
+                      vertical: 7.0,
+                    ),
+                    child: Icon(
+                      Icons.share_rounded,
+                      color: textColor.withValues(alpha: 0.9),
+                      size: 20,
                     ),
                   ),
-                );
-              }
-
-              return const SizedBox.shrink();
-            },
-          ),
-          // Like button
-          Builder(
-            builder: (context) {
-              final isLiked = ref.watch(isTrackLikedProvider(track.id));
-              return IconButton(
-                onPressed: () async {
-                  // Use explicit like/unlike based on current state
-                  if (isLiked) {
-                    // Unlike: remove from local state and mark as explicitly unliked
-                    ref.read(likedSongsProvider.notifier).unlike(track.id);
-                    ref
-                        .read(explicitlyUnlikedIdsProvider.notifier)
-                        .update((state) => {...state, track.id});
-                  } else {
-                    // Like: add to local state and remove from explicitly unliked
-                    ref.read(likedSongsProvider.notifier).like(track);
-                    ref
-                        .read(explicitlyUnlikedIdsProvider.notifier)
-                        .update(
-                          (state) =>
-                              state.where((id) => id != track.id).toSet(),
-                        );
-                  }
-
-                  // Also sync to YT Music if logged in
-                  final authState = ref.read(ytMusicAuthStateProvider);
-                  if (authState.isLoggedIn) {
-                    final likeAction = ref.read(ytMusicLikeActionProvider);
-                    if (isLiked) {
-                      await likeAction.unlike(track.id);
-                    } else {
-                      await likeAction.like(track.id);
-                    }
-                    // Refresh liked songs from YT Music
-                    ref.invalidate(ytMusicLikedSongsProvider);
-                  }
-                },
-                icon: Icon(
-                  isLiked ? Iconsax.heart5 : Iconsax.heart,
-                  color: isLiked ? Colors.red : textColor,
-                  size: 26,
                 ),
-              );
-            },
+
+                const SizedBox(width: 5),
+                Container(
+                  width: 1,
+                  height: 22,
+                  color: textColor.withValues(alpha: 0.15),
+                ),
+                const SizedBox(width: 5),
+
+                // Jams button - listen together
+                _buildJamsCompactButton(textColor, accentColor),
+              ],
+            ),
           ),
-          // Add to Playlist button - opens track options sheet
-          IconButton(
-            onPressed: () {
-              showModalBottomSheet(
-                context: context,
-                backgroundColor: Colors.transparent,
-                isScrollControlled: true,
-                builder: (_) => TrackOptionsSheet(track: track),
-              );
-            },
-            icon: Icon(Iconsax.add_square, color: textColor, size: 24),
-          ),
-          // Jams button - listen together
-          _buildJamsButton(textColor, accentColor),
         ],
       ),
     );
@@ -2256,14 +2935,76 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     ArtistScreen.open(context, artistId: track.artistId, name: track.artist);
   }
 
+  /// Micro-compact Jams button for capsule bar
+  Widget _buildJamsCompactButton(Color textColor, Color accentColor) {
+    final isInSession = ref.watch(isInJamSessionProvider);
+    final session = ref.watch(currentJamSessionProvider).valueOrNull;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () {
+            final albumColors = ref.read(albumColorsProvider);
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            final bgColor = isDark
+                ? albumColors.backgroundPrimary
+                : InzxColors.background;
+            final txtColor = isDark
+                ? albumColors.onBackground
+                : InzxColors.textPrimary;
+            JamsPanel.show(
+              context,
+              backgroundColor: bgColor,
+              textColor: txtColor,
+              accentColor: albumColors.accent,
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 9.0,
+              vertical: 7.0,
+            ),
+            child: Icon(
+              Iconsax.profile_2user,
+              color: isInSession ? accentColor : textColor.withValues(alpha: 0.9),
+              size: 21,
+            ),
+          ),
+        ),
+        if (isInSession && session != null)
+          Positioned(
+            right: 2,
+            top: 2,
+            child: Container(
+              width: 6,
+              height: 6,
+              decoration: const BoxDecoration(
+                color: Colors.green,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   /// Jams icon button with active session indicator
-  Widget _buildJamsButton(Color textColor, Color accentColor) {
+  Widget _buildJamsButton(
+    Color textColor,
+    Color accentColor, {
+    double iconSize = 24,
+    BoxConstraints? constraints,
+  }) {
     final isInSession = ref.watch(isInJamSessionProvider);
     final session = ref.watch(currentJamSessionProvider).valueOrNull;
 
     return Stack(
       children: [
         IconButton(
+          constraints: constraints,
+          padding: constraints != null ? EdgeInsets.zero : null,
           onPressed: () {
             final albumColors = ref.read(albumColorsProvider);
             final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -2283,23 +3024,22 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
           },
           icon: Icon(
             Iconsax.profile_2user,
-            color: isInSession ? accentColor : textColor,
-            size: 24,
+            color: isInSession ? accentColor : textColor.withValues(alpha: 0.9),
+            size: iconSize,
           ),
           tooltip: context.l10n.jams,
         ),
         // Active session indicator
         if (isInSession && session != null)
           Positioned(
-            right: 8,
-            top: 8,
+            right: constraints != null ? 4 : 8,
+            top: constraints != null ? 4 : 8,
             child: Container(
               width: 8,
               height: 8,
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: Colors.green,
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.black, width: 1),
               ),
             ),
           ),
@@ -2332,80 +3072,97 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     player.PlaybackState state,
     player.AudioPlayerService playerService,
     Color textColor,
-    Color accentColor,
-  ) {
+    Color accentColor, {
+    bool isCompact = false,
+  }) {
     // Check if in Jam and has control permission
     final isInJam = ref.watch(isInJamSessionProvider);
     final canControl = ref.watch(canControlJamPlaybackProvider);
     final canSkip =
         !isInJam || canControl; // Can skip if not in Jam or has permission
 
+    final playPauseSize = isCompact ? 52.0 : 72.0;
+    final playPauseIconSize = isCompact ? 32.0 : 42.0;
+    final skipIconSize = isCompact ? 28.0 : 36.0;
+    final modeIconSize = isCompact ? 20.0 : 24.0;
+    final horizontalPadding = isCompact ? 12.0 : 24.0;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      padding: EdgeInsets.symmetric(
+        horizontal: horizontalPadding,
+        vertical: isCompact ? 0 : 0,
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           // Shuffle
-          IconButton(
-            onPressed: () => playerService.toggleShuffle(),
-            icon: Icon(
-              Iconsax.shuffle,
-              color: state.shuffleEnabled
-                  ? accentColor
-                  : textColor.withValues(alpha: 0.6),
-              size: 24,
-            ),
-          ),
-          // Previous
-          IconButton(
-            onPressed: canSkip ? playerService.skipToPrevious : null,
-            icon: Icon(
-              Iconsax.previous,
-              color: canSkip ? textColor : textColor.withValues(alpha: 0.3),
-              size: 36,
-            ),
-          ),
-          // Play/Pause - always allowed (sync controller handles it)
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: accentColor,
-              shape: BoxShape.circle,
-            ),
-            child: IconButton(
-              onPressed: state.isPlaying
-                  ? playerService.pause
-                  : playerService.play,
-              icon: Icon(
-                state.isPlaying
-                    ? Icons.pause_rounded
-                    : Icons.play_arrow_rounded,
-                color: Colors.white,
-                size: 42,
+          BouncyTouch(
+            style: BouncyStyle.button,
+            customScale: 0.90,
+            onTap: () => playerService.toggleShuffle(),
+            child: Padding(
+              padding: const EdgeInsets.all(10.0),
+              child: Icon(
+                Iconsax.shuffle,
+                color: state.shuffleEnabled
+                    ? accentColor
+                    : textColor.withValues(alpha: 0.6),
+                size: modeIconSize,
               ),
             ),
           ),
+          // Previous
+          BouncyTouch(
+            style: BouncyStyle.button,
+            customScale: 0.90,
+            onTap: canSkip ? playerService.skipToPrevious : null,
+            child: Padding(
+              padding: const EdgeInsets.all(10.0),
+              child: Icon(
+                Iconsax.previous,
+                color: canSkip ? textColor : textColor.withValues(alpha: 0.3),
+                size: skipIconSize,
+              ),
+            ),
+          ),
+          // Play/Pause - always allowed (sync controller handles it)
+          AnimatedPlayPauseButton(
+            isPlaying: state.isPlaying,
+            onTap: state.isPlaying ? playerService.pause : playerService.play,
+            size: playPauseSize,
+            iconSize: playPauseIconSize,
+            backgroundColor: accentColor,
+          ),
           // Next
-          IconButton(
-            onPressed: canSkip ? playerService.skipToNext : null,
-            icon: Icon(
-              Iconsax.next,
-              color: canSkip ? textColor : textColor.withValues(alpha: 0.3),
-              size: 36,
+          BouncyTouch(
+            style: BouncyStyle.button,
+            customScale: 0.90,
+            onTap: canSkip ? playerService.skipToNext : null,
+            child: Padding(
+              padding: const EdgeInsets.all(10.0),
+              child: Icon(
+                Iconsax.next,
+                color: canSkip ? textColor : textColor.withValues(alpha: 0.3),
+                size: skipIconSize,
+              ),
             ),
           ),
           // Repeat
-          IconButton(
-            onPressed: () => playerService.cycleLoopMode(),
-            icon: Icon(
-              state.loopMode == LoopMode.one
-                  ? Iconsax.repeate_one
-                  : Iconsax.repeate_music,
-              color: state.loopMode != LoopMode.off
-                  ? accentColor
-                  : textColor.withValues(alpha: 0.6),
-              size: 24,
+          BouncyTouch(
+            style: BouncyStyle.button,
+            customScale: 0.90,
+            onTap: () => playerService.cycleLoopMode(),
+            child: Padding(
+              padding: const EdgeInsets.all(10.0),
+              child: Icon(
+                state.loopMode == LoopMode.one
+                    ? Iconsax.repeate_one
+                    : Iconsax.repeate_music,
+                color: state.loopMode != LoopMode.off
+                    ? accentColor
+                    : textColor.withValues(alpha: 0.6),
+                size: modeIconSize,
+              ),
             ),
           ),
         ],
@@ -2460,6 +3217,69 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     return Container(
       color: accentColor.withValues(alpha: 0.2),
       child: Icon(Iconsax.music, color: accentColor, size: 64),
+    );
+  }
+}
+
+/// Animated 3-bar soundwave equalizer for active playing track in Up Next queue
+class _QueuePlayingEqualizerBars extends StatefulWidget {
+  final Color color;
+
+  const _QueuePlayingEqualizerBars({required this.color});
+
+  @override
+  State<_QueuePlayingEqualizerBars> createState() =>
+      __QueuePlayingEqualizerBarsState();
+}
+
+class __QueuePlayingEqualizerBarsState extends State<_QueuePlayingEqualizerBars>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animController;
+
+  @override
+  void initState() {
+    super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animController,
+      builder: (context, child) {
+        final val = _animController.value;
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            _bar(8 + (val * 10)),
+            const SizedBox(width: 2.5),
+            _bar(18 - (val * 10)),
+            const SizedBox(width: 2.5),
+            _bar(6 + (val * 12)),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _bar(double height) {
+    return Container(
+      width: 3,
+      height: height.clamp(4.0, 20.0),
+      decoration: BoxDecoration(
+        color: widget.color,
+        borderRadius: BorderRadius.circular(2),
+      ),
     );
   }
 }

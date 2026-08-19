@@ -181,13 +181,14 @@ class _MusicAppState extends ConsumerState<MusicApp>
 }
 
 /// Modern floating glassmorphic bottom navigation
-class _ModernFloatingNav extends StatefulWidget {
+class _ModernFloatingNav extends ConsumerStatefulWidget {
   final int currentIndex;
   final Function(int) onTap;
   final bool isDark;
   final Color accentColor;
 
   const _ModernFloatingNav({
+    super.key,
     required this.currentIndex,
     required this.onTap,
     required this.isDark,
@@ -195,10 +196,10 @@ class _ModernFloatingNav extends StatefulWidget {
   });
 
   @override
-  State<_ModernFloatingNav> createState() => _ModernFloatingNavState();
+  ConsumerState<_ModernFloatingNav> createState() => _ModernFloatingNavState();
 }
 
-class _ModernFloatingNavState extends State<_ModernFloatingNav>
+class _ModernFloatingNavState extends ConsumerState<_ModernFloatingNav>
     with TickerProviderStateMixin {
   late AnimationController _slideController;
   late AnimationController _bounceController;
@@ -282,6 +283,42 @@ class _ModernFloatingNavState extends State<_ModernFloatingNav>
       (Icons.folder_outlined, Icons.folder_rounded, l10n.folders),
     ];
 
+    final albumColors = ref.watch(albumColorsProvider);
+    final hasAlbumColors = !albumColors.isDefault;
+
+    final List<Color> gradientColors;
+    final Color borderColor;
+
+    if (widget.isDark) {
+      if (hasAlbumColors) {
+        gradientColors = [
+          albumColors.backgroundPrimary.withValues(alpha: 0.90),
+          albumColors.backgroundSecondary.withValues(alpha: 0.85),
+        ];
+        borderColor = albumColors.accent.withValues(alpha: 0.25);
+      } else {
+        gradientColors = [
+          const Color(0xFF1E1E1E).withValues(alpha: 0.90),
+          const Color(0xFF121212).withValues(alpha: 0.85),
+        ];
+        borderColor = Colors.white.withValues(alpha: 0.15);
+      }
+    } else {
+      if (hasAlbumColors) {
+        gradientColors = [
+          albumColors.toLightMode().backgroundPrimary.withValues(alpha: 0.94),
+          albumColors.toLightMode().backgroundSecondary.withValues(alpha: 0.88),
+        ];
+        borderColor = albumColors.accent.withValues(alpha: 0.20);
+      } else {
+        gradientColors = [
+          Colors.white.withValues(alpha: 0.92),
+          Colors.white.withValues(alpha: 0.85),
+        ];
+        borderColor = Colors.white.withValues(alpha: 0.8);
+      }
+    }
+
     return ClipRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
@@ -292,20 +329,10 @@ class _ModernFloatingNavState extends State<_ModernFloatingNav>
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: widget.isDark
-                  ? [
-                      Colors.white.withValues(alpha: 0.12),
-                      Colors.white.withValues(alpha: 0.05),
-                    ]
-                  : [
-                      Colors.white.withValues(alpha: 0.85),
-                      Colors.white.withValues(alpha: 0.65),
-                    ],
+              colors: gradientColors,
             ),
             border: Border.all(
-              color: widget.isDark
-                  ? Colors.white.withValues(alpha: 0.15)
-                  : Colors.white.withValues(alpha: 0.8),
+              color: borderColor,
               width: 1,
             ),
             boxShadow: [

@@ -459,22 +459,30 @@ class DownloadsScreen extends ConsumerWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Iconsax.trash),
-              title: Text(context.l10n.removeDownload),
-              onTap: () {
-                Navigator.pop(context);
-                ref
-                    .read(downloadManagerProvider.notifier)
-                    .removeDownload(task.trackId);
-              },
-            ),
-          ],
+      builder: (context) => Material(
+        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Iconsax.trash, color: Colors.red),
+                title: Text(
+                  context.l10n.removeDownload,
+                  style: const TextStyle(color: Colors.red),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  ref
+                      .read(downloadManagerProvider.notifier)
+                      .removeDownload(task.trackId);
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );

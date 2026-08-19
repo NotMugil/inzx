@@ -48,15 +48,15 @@ class _PlaylistPickerSheetState extends ConsumerState<PlaylistPickerSheet> {
     final playlistsAsync = ref.watch(ytMusicSavedPlaylistsProvider);
     final localPlaylists = ref.watch(localPlaylistsProvider);
 
-    return Container(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.7,
-      ),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: Column(
+    return Material(
+      color: backgroundColor,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      clipBehavior: Clip.antiAlias,
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.7,
+        ),
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           // Handle
@@ -95,7 +95,9 @@ class _PlaylistPickerSheetState extends ConsumerState<PlaylistPickerSheet> {
           const Divider(height: 1),
 
           // Create new playlist button
-          ListTile(
+          Material(
+            color: Colors.transparent,
+            child: ListTile(
             leading: Container(
               width: 48,
               height: 48,
@@ -111,6 +113,7 @@ class _PlaylistPickerSheetState extends ConsumerState<PlaylistPickerSheet> {
             ),
             onTap: () => setState(() => _showCreateNew = !_showCreateNew),
           ),
+        ),
 
           // Create new playlist form
           if (_showCreateNew)
@@ -215,7 +218,9 @@ class _PlaylistPickerSheetState extends ConsumerState<PlaylistPickerSheet> {
                         playlist.tracks?.any((t) => t.id == widget.track.id) ??
                         false;
 
-                    return ListTile(
+                    return Material(
+                      color: Colors.transparent,
+                      child: ListTile(
                       leading: ClipRRect(
                         borderRadius: BorderRadius.circular(8),
                         child: SizedBox(
@@ -267,7 +272,8 @@ class _PlaylistPickerSheetState extends ConsumerState<PlaylistPickerSheet> {
                               playlist,
                               isYtPlaylist: isYtPlaylist,
                             ),
-                    );
+                    ),
+                  );
                   },
                 );
               },
@@ -277,7 +283,8 @@ class _PlaylistPickerSheetState extends ConsumerState<PlaylistPickerSheet> {
           const SizedBox(height: 16),
         ],
       ),
-    );
+    ),
+  );
   }
 
   void _createAndAdd() async {

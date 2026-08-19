@@ -10,11 +10,15 @@ class GithubReleaseInfo {
     required this.latestVersion,
     required this.releaseUrl,
     required this.downloadUrl,
+    this.body,
+    this.releaseName,
   });
 
   final String latestVersion;
   final String releaseUrl;
   final String downloadUrl;
+  final String? body;
+  final String? releaseName;
 }
 
 /// Checks GitHub releases for a newer store-distributed app version.
@@ -43,8 +47,8 @@ class GithubReleaseUpdateService {
     return 'https://github.com/$_repo/releases/latest';
   }
 
-  Future<GithubReleaseInfo?> checkForNewRelease() async {
-    if (!kReleaseMode) return null;
+  Future<GithubReleaseInfo?> checkForNewRelease({bool ignoreReleaseMode = false}) async {
+    if (!kReleaseMode && !ignoreReleaseMode) return null;
 
     try {
       final packageInfo = await PackageInfo.fromPlatform();
@@ -76,6 +80,8 @@ class GithubReleaseUpdateService {
       if (decoded is! Map<String, dynamic>) return null;
 
       final tag = (decoded['tag_name'] as String?)?.trim() ?? '';
+      final releaseName = (decoded['name'] as String?)?.trim();
+      final body = (decoded['body'] as String?)?.trim();
       final htmlUrl = (decoded['html_url'] as String?)?.trim();
       final latestVersion = _normalizeVersion(tag);
       final apkDownloadUrl = _pickInzxApkDownloadUrl(decoded['assets']);
@@ -91,10 +97,54 @@ class GithubReleaseUpdateService {
             ? htmlUrl
             : _fallbackReleaseUrl,
         downloadUrl: apkDownloadUrl ?? _fallbackReleaseUrl,
+        body: body,
+        releaseName: releaseName,
       );
     } catch (e) {
       if (kDebugMode) {
         print('GitHubRelease: Check failed: $e');
+      }
+      return null;
+    }
+  }
+
+  Future<GithubReleaseInfo?> fetchLatestReleaseInfo() async {
+    try {
+      final response = await http
+          .get(
+            Uri.parse(_latestReleaseApi),
+            headers: const {
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'Inzx-App-Update-Checker',
+            },
+          )
+          .timeout(const Duration(seconds: 8));
+
+      if (response.statusCode != 200) return null;
+
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map<String, dynamic>) return null;
+
+      final tag = (decoded['tag_name'] as String?)?.trim() ?? '';
+      final releaseName = (decoded['name'] as String?)?.trim();
+      final body = (decoded['body'] as String?)?.trim();
+      final htmlUrl = (decoded['html_url'] as String?)?.trim();
+      final latestVersion = _normalizeVersion(tag);
+      final apkDownloadUrl = _pickInzxApkDownloadUrl(decoded['assets']);
+
+      return GithubReleaseInfo(
+        latestVersion: latestVersion.isNotEmpty ? latestVersion : '1.0.0',
+        releaseUrl: (htmlUrl != null && htmlUrl.isNotEmpty)
+            ? htmlUrl
+            : _fallbackReleaseUrl,
+        downloadUrl: apkDownloadUrl ?? _fallbackReleaseUrl,
+        body: body,
+        releaseName: releaseName,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        print('GitHubRelease: fetchLatestReleaseInfo failed: $e');
       }
       return null;
     }

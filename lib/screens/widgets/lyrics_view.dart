@@ -43,12 +43,36 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
     final textColor = colors.onBackground;
     final secondaryColor = textColor.withValues(alpha: 0.5);
 
+    final accentColor = isDark ? albumColors.accentLight : albumColors.accent;
+
+    // Reset scroll and line index when switching tracks or lyrics
+    ref.listen(currentTrackProvider, (previous, next) {
+      if (previous?.id != next?.id) {
+        _currentLineIndex = -1;
+        _lineKeys = [];
+        if (_scrollController.hasClients) {
+          _scrollController.jumpTo(0);
+        }
+      }
+    });
+
+    ref.listen(lyricsProvider, (previous, next) {
+      if (previous?.currentLyrics != next.currentLyrics) {
+        _currentLineIndex = -1;
+        _lineKeys = [];
+        if (_scrollController.hasClients) {
+          _scrollController.jumpTo(0);
+        }
+      }
+    });
+
     return _buildLyricsContent(
       context,
       lyricsState,
       isDark,
       textColor,
       secondaryColor,
+      accentColor,
     );
   }
 
@@ -58,6 +82,7 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
     bool isDark,
     Color textColor,
     Color secondaryColor,
+    Color accentColor,
   ) {
     final l10n = context.l10n;
     final status = lyricsState.currentStatus;
@@ -129,6 +154,7 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
         isDark,
         textColor,
         secondaryColor,
+        accentColor,
       );
     }
 
@@ -141,9 +167,14 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
     bool isDark,
     Color textColor,
     Color secondaryColor,
+    Color accentColor,
   ) {
     if (_lineKeys.length != lines.length) {
       _lineKeys = List.generate(lines.length, (_) => GlobalKey());
+      _currentLineIndex = -1;
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0);
+      }
     }
 
     // Find current line based on position
@@ -159,28 +190,44 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
     }
 
     // Auto-scroll to keep current line centered
-    if (currentIdx != _currentLineIndex && currentIdx >= 0) {
+    if ((currentIdx != _currentLineIndex || _currentLineIndex == -1) &&
+        currentIdx >= 0) {
       _currentLineIndex = currentIdx;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients && currentIdx < _lineKeys.length) {
-          final keyContext = _lineKeys[currentIdx].currentContext;
-          if (keyContext != null) {
-            Scrollable.ensureVisible(
-              keyContext,
-              alignment: 0.35,
-              duration: const Duration(milliseconds: 400),
-              curve: Curves.easeOutCubic,
-            );
-          } else {
-            final targetOffset = (currentIdx * 72.0).clamp(
-              0.0,
-              _scrollController.position.maxScrollExtent,
-            );
-            _scrollController.animateTo(
-              targetOffset,
-              duration: const Duration(milliseconds: 400),
-              curve: Curves.easeOutCubic,
-            );
+        if (_scrollController.hasClients) {
+          if (currentIdx < _lineKeys.length) {
+            final keyContext = _lineKeys[currentIdx].currentContext;
+            if (keyContext != null) {
+              Scrollable.ensureVisible(
+                keyContext,
+                alignment: 0.35,
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeOutCubic,
+              );
+            } else {
+              // Jump approximate position first so Flutter mounts the target line
+              final approxOffset = (currentIdx * 56.0).clamp(
+                0.0,
+                _scrollController.position.maxScrollExtent,
+              );
+              _scrollController.jumpTo(approxOffset);
+
+              // On the next frame after mounting, ensure precise alignment
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (_scrollController.hasClients &&
+                    currentIdx < _lineKeys.length) {
+                  final newContext = _lineKeys[currentIdx].currentContext;
+                  if (newContext != null) {
+                    Scrollable.ensureVisible(
+                      newContext,
+                      alignment: 0.35,
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOutCubic,
+                    );
+                  }
+                }
+              });
+            }
           }
         }
       });
@@ -201,6 +248,7 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
       blendMode: BlendMode.dstIn,
       child: ListView.builder(
         controller: _scrollController,
+        cacheExtent: 1500.0,
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 80),
         itemCount: lines.length,
         itemBuilder: (context, index) {
@@ -208,8 +256,10 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
           final isCurrentLine = index == currentIdx;
           final isPastLine = index < currentIdx;
 
-          // User preference: bigger fonts, LEFT aligned
-          final opacity = isCurrentLine ? 1.0 : (isPastLine ? 0.35 : 0.5);
+          // Focused line uses album art accent color
+          final lyricColor = isCurrentLine
+              ? accentColor
+              : textColor.withValues(alpha: isPastLine ? 0.35 : 0.5);
           final fontSize = isCurrentLine ? 28.0 : 22.0; // Bigger fonts
           final fontWeight = isCurrentLine ? FontWeight.bold : FontWeight.w400;
 
@@ -227,7 +277,7 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
                 style: TextStyle(
                   fontSize: fontSize,
                   fontWeight: fontWeight,
-                  color: textColor.withValues(alpha: opacity),
+                  color: lyricColor,
                   height: 1.3,
                 ),
                 child: Text(

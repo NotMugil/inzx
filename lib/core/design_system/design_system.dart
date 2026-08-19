@@ -13,3 +13,4 @@ export 'typography.dart';
 export 'spacing.dart';
 export 'shadows.dart';
 export 'theme.dart';
+export 'animations.dart';

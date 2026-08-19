@@ -148,7 +148,25 @@ class AlbumScreen extends ConsumerWidget {
     dynamic playerService, {
     bool isLoading = false,
   }) {
-    final tracks = album.tracks ?? [];
+    final rawTracks = album.tracks ?? [];
+    final tracks = rawTracks.map((t) {
+      return t.copyWith(
+        artist: (t.artist.isEmpty || t.artist == 'Unknown Artist')
+            ? album.artist
+            : t.artist,
+        album: (t.album == null ||
+                t.album!.isEmpty ||
+                t.album == 'Unknown Album')
+            ? album.title
+            : t.album,
+        albumId: (t.albumId == null || t.albumId!.isEmpty)
+            ? album.id
+            : t.albumId,
+        thumbnailUrl: (t.thumbnailUrl == null || t.thumbnailUrl!.isEmpty)
+            ? album.thumbnailUrl
+            : t.thumbnailUrl,
+      );
+    }).toList();
 
     // Low res for background (performance), High res for foreground
     final lowResThumb = album.thumbnailUrl;
@@ -735,8 +753,12 @@ class AlbumScreen extends ConsumerWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (ctx) => SafeArea(
-        child: SingleChildScrollView(
+      builder: (ctx) => Material(
+        color: isDark ? Colors.grey[900] : Colors.grey[200],
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        clipBehavior: Clip.antiAlias,
+        child: SafeArea(
+          child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -891,6 +913,7 @@ class AlbumScreen extends ConsumerWidget {
           ),
         ),
       ),
+    ),
     );
   }
 }

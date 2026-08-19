@@ -20,6 +20,9 @@ import 'providers/providers.dart';
 import 'providers/repository_providers.dart';
 import 'screens/music_app.dart';
 import 'services/deep_link_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'screens/widgets/whats_new_dialog.dart';
 
 InzxAudioHandler? audioHandler;
 final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey =
@@ -156,6 +159,8 @@ class _InzxAppState extends ConsumerState<InzxApp> {
   }
 
   Future<void> _runUpdateChecks() async {
+    _checkFirstLaunchChangelog();
+
     final didPatchUpdate = await ShorebirdUpdateService.instance
         .checkForUpdates();
     if (!mounted) return;
@@ -170,6 +175,22 @@ class _InzxAppState extends ConsumerState<InzxApp> {
     if (!mounted || releaseInfo == null) return;
 
     _showNewReleaseBanner(releaseInfo);
+  }
+
+  Future<void> _checkFirstLaunchChangelog() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final packageInfo = await PackageInfo.fromPlatform();
+      final currentVersion = packageInfo.version;
+      final lastSeenVersion = prefs.getString('last_seen_changelog_version');
+
+      if (lastSeenVersion != currentVersion) {
+        await prefs.setString('last_seen_changelog_version', currentVersion);
+        final releaseInfo = await GithubReleaseUpdateService.instance.fetchLatestReleaseInfo();
+        if (!mounted) return;
+        WhatsNewDialog.show(context, releaseInfo: releaseInfo, currentVersion: currentVersion);
+      }
+    } catch (_) {}
   }
 
   void _showPatchUpdateBanner() {

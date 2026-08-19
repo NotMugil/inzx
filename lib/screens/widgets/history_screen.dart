@@ -16,42 +16,54 @@ class HistoryView extends ConsumerStatefulWidget {
 }
 
 class _HistoryViewState extends ConsumerState<HistoryView> {
+  Future<void> _refreshHistory() async {
+    ref.invalidate(ytMusicHistorySectionsProvider);
+    ref.invalidate(recentlyPlayedProvider);
+    try {
+      await ref.read(ytMusicHistorySectionsProvider.future);
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colorScheme = Theme.of(context).colorScheme;
-    
+
     // We will rely primarily on the YT Music history sections provider.
     final historyAsync = ref.watch(ytMusicHistorySectionsProvider);
     final playerService = ref.read(audioPlayerServiceProvider);
 
-    return historyAsync.when(
-      loading: () => _buildLoadingState(isDark, colorScheme),
-      error: (e, stack) => _buildErrorState(context.l10n.errorWithMessage(e.toString()), isDark),
-      data: (sections) {
-        if (sections.isEmpty) {
-          // Fallback to local history if empty
-          final localHistory = ref.watch(recentlyPlayedProvider);
-          if (localHistory.isEmpty) {
-            return _buildEmptyState(isDark, colorScheme);
+    return RefreshIndicator(
+      onRefresh: _refreshHistory,
+      child: historyAsync.when(
+        loading: () => _buildLoadingState(isDark, colorScheme),
+        error: (e, stack) => _buildErrorState(context.l10n.errorWithMessage(e.toString()), isDark),
+        data: (sections) {
+          if (sections.isEmpty) {
+            // Fallback to local history if empty
+            final localHistory = ref.watch(recentlyPlayedProvider);
+            if (localHistory.isEmpty) {
+              return _buildEmptyState(isDark, colorScheme);
+            }
+
+            // Create a pseudo-section for local history
+            sections = [
+              HistorySection(
+                title: context.l10n.recentlyPlayed,
+                tracks: localHistory,
+              )
+            ];
           }
-          
-          // Create a pseudo-section for local history
-          sections = [
-            HistorySection(
-              title: context.l10n.recentlyPlayed,
-              tracks: localHistory,
-            )
-          ];
-        }
-        
-        return _buildContent(context, ref, sections, isDark, colorScheme, playerService);
-      },
+
+          return _buildContent(context, ref, sections, isDark, colorScheme, playerService);
+        },
+      ),
     );
   }
 
   Widget _buildLoadingState(bool isDark, ColorScheme colorScheme) {
     return const CustomScrollView(
+      physics: AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
       slivers: [
         SliverFillRemaining(
           child: Center(child: CircularProgressIndicator()),
@@ -61,24 +73,38 @@ class _HistoryViewState extends ConsumerState<HistoryView> {
   }
 
   Widget _buildErrorState(String error, bool isDark) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Iconsax.warning_2, size: 48, color: isDark ? Colors.white54 : Colors.black54),
-          const SizedBox(height: 16),
-          Text(
-            error,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: isDark ? Colors.white70 : Colors.black87),
+    return CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+      slivers: [
+        SliverFillRemaining(
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Iconsax.warning_2, size: 48, color: isDark ? Colors.white54 : Colors.black54),
+                const SizedBox(height: 16),
+                Text(
+                  error,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: isDark ? Colors.white70 : Colors.black87),
+                ),
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  onPressed: _refreshHistory,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(context.l10n.retry),
+                ),
+              ],
+            ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   Widget _buildEmptyState(bool isDark, ColorScheme colorScheme) {
     return CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
       slivers: [
         SliverFillRemaining(
           child: Center(
@@ -111,7 +137,7 @@ class _HistoryViewState extends ConsumerState<HistoryView> {
     final allTracks = sections.expand((s) => s.tracks).toList();
 
     return CustomScrollView(
-      physics: const BouncingScrollPhysics(),
+      physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
       slivers: [
         SliverToBoxAdapter(
           child: Padding(

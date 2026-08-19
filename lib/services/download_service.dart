@@ -785,6 +785,14 @@ class DownloadManagerNotifier extends StateNotifier<DownloadManagerState> {
     _ref.read(downloadedTracksRefreshProvider.notifier).state++;
   }
 
+  /// Remove all downloaded tracks
+  Future<void> removeAllDownloads() async {
+    final trackIds = state.tasks.keys.toList();
+    for (final id in trackIds) {
+      await removeDownload(id);
+    }
+  }
+
   /// Retry a failed download
   void retryDownload(String trackId) {
     if (!state.tasks.containsKey(trackId)) return;
