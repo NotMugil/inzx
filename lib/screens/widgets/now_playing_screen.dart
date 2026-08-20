@@ -900,25 +900,70 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  track.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: textColor,
+                SizedBox(
+                  height: 22,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final textPainter = TextPainter(
+                        text: TextSpan(
+                          text: track.title,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                        ),
+                        maxLines: 1,
+                        textDirection: TextDirection.ltr,
+                      )..layout();
+
+                      if (textPainter.width > (constraints.maxWidth - 2)) {
+                        return Marquee(
+                          text: track.title,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                          scrollAxis: Axis.horizontal,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          blankSpace: 48.0,
+                          velocity: 30.0,
+                          pauseAfterRound: const Duration(seconds: 2),
+                          startPadding: 0.0,
+                          accelerationDuration: const Duration(seconds: 1),
+                          accelerationCurve: Curves.linear,
+                          decelerationDuration:
+                              const Duration(milliseconds: 500),
+                          decelerationCurve: Curves.easeOut,
+                        );
+                      }
+
+                      return Text(
+                        track.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: textColor,
+                        ),
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(height: 2),
-                _buildArtistLink(
-                  track,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: textColor.withValues(alpha: 0.7),
+                SizedBox(
+                  height: 18,
+                  child: _buildArtistLink(
+                    track,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: textColor.withValues(alpha: 0.7),
+                    ),
+                    maxLines: 1,
+                    enableMarquee: true,
                   ),
-                  maxLines: 1,
-                  enableMarquee: false,
                 ),
               ],
             ),

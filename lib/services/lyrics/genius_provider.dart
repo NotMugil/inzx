@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show compute, kDebugMode;
 import 'package:http/http.dart' as http;
 import 'package:html/parser.dart' as html_parser;
+import 'lyrics_cleaner.dart';
 import 'lyrics_models.dart';
 
 /// Genius provider - High quality plain text lyrics
@@ -15,8 +16,32 @@ class GeniusProvider implements LyricsProvider {
   @override
   Future<LyricResult?> search(LyricsSearchInfo info) async {
     try {
-      // Search for song
-      final query = Uri.encodeComponent('${info.artist} ${info.title}');
+      // 1. Try search with raw query
+      var result = await _searchGenius('${info.artist} ${info.title}', info);
+      if (result != null) return result;
+
+      // 2. Try search with cleaned query
+      final cleanTitle = LyricsCleaner.cleanTitle(info.title);
+      final cleanArtist = LyricsCleaner.cleanArtist(info.artist);
+      if (cleanTitle != info.title || cleanArtist != info.artist) {
+        result = await _searchGenius('$cleanArtist $cleanTitle', info);
+        if (result != null) return result;
+      }
+
+      // 3. Try with cleaned title only
+      result = await _searchGenius(cleanTitle, info);
+      return result;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Genius error: $e');
+      }
+      return null;
+    }
+  }
+
+  Future<LyricResult?> _searchGenius(String rawQuery, LyricsSearchInfo info) async {
+    try {
+      final query = Uri.encodeComponent(rawQuery);
       final searchUri = Uri.parse(
         '$_baseUrl/api/search/song?q=$query&page=1&per_page=10',
       );

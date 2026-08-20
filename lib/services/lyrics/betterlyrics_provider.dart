@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:http/http.dart' as http;
+import 'lyrics_cleaner.dart';
 import 'lyrics_models.dart';
 import 'ttml_parser.dart';
 
@@ -18,13 +19,52 @@ class BetterLyricsProvider implements LyricsProvider {
   @override
   Future<LyricResult?> search(LyricsSearchInfo info) async {
     try {
-      // Fetch TTML from API
-      final ttml = await _fetchTTML(
+      // 1. Try exact search first
+      var ttml = await _fetchTTML(
         title: info.title,
         artist: info.artist,
         duration: info.durationSeconds,
         album: info.album,
       );
+
+      // 2. If no result, try with cleaned title & cleaned primary artist
+      if (ttml == null || ttml.isEmpty) {
+        final cleanTitle = LyricsCleaner.cleanTitle(info.title);
+        final cleanArtist = LyricsCleaner.cleanArtist(info.artist);
+
+        if (cleanTitle != info.title || cleanArtist != info.artist) {
+          ttml = await _fetchTTML(
+            title: cleanTitle,
+            artist: cleanArtist,
+            duration: info.durationSeconds,
+          );
+        }
+      }
+
+      // 3. If still no result, try cleaned title & artist WITHOUT duration filter
+      // (Handles duration variations between single, audio, and video cuts)
+      if (ttml == null || ttml.isEmpty) {
+        final cleanTitle = LyricsCleaner.cleanTitle(info.title);
+        final cleanArtist = LyricsCleaner.cleanArtist(info.artist);
+
+        ttml = await _fetchTTML(
+          title: cleanTitle,
+          artist: cleanArtist,
+          duration: 0,
+        );
+      }
+
+      // 4. If still no result, try with cleaned title only
+      if (ttml == null || ttml.isEmpty) {
+        final cleanTitle = LyricsCleaner.cleanTitle(info.title);
+        if (cleanTitle.isNotEmpty) {
+          ttml = await _fetchTTML(
+            title: cleanTitle,
+            artist: '',
+            duration: 0,
+          );
+        }
+      }
 
       if (ttml == null || ttml.isEmpty) {
         if (kDebugMode) {
@@ -38,7 +78,9 @@ class BetterLyricsProvider implements LyricsProvider {
 
       if (lines.isEmpty) {
         if (kDebugMode) {
-          print('BetterLyrics: TTML parsing returned no lines for "${info.title}"');
+          print(
+            'BetterLyrics: TTML parsing returned no lines for "${info.title}"',
+          );
         }
         return null;
       }
@@ -76,9 +118,11 @@ class BetterLyricsProvider implements LyricsProvider {
   }) async {
     final params = <String, String>{
       's': title,
-      'a': artist,
     };
 
+    if (artist.isNotEmpty) {
+      params['a'] = artist;
+    }
     if (duration > 0) {
       params['d'] = duration.toString();
     }

@@ -17,6 +17,8 @@ import 'mini_player.dart';
 import 'now_playing_screen.dart';
 import 'shelf_details_screen.dart';
 
+import 'package:skeletonizer/skeletonizer.dart';
+
 // ============ PROVIDERS ============
 
 /// Artist service provider
@@ -206,10 +208,30 @@ class _ArtistPageScreenState extends ConsumerState<ArtistPageScreen> {
                 ),
               ),
               const SizedBox(height: 40),
-              CircularProgressIndicator(
-                color: isDark ? Colors.white : colorScheme.onSurface,
-              ),
             ],
+          ),
+        ),
+        SliverSkeletonizer(
+          enabled: true,
+          child: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => ListTile(
+                leading: Skeleton.replace(
+                  width: 48,
+                  height: 48,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.grey,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                title: Text(BoneMock.name),
+                subtitle: Text(BoneMock.words(2)),
+                trailing: const Icon(Icons.more_vert),
+              ),
+              childCount: 5,
+            ),
           ),
         ),
       ],

@@ -12,6 +12,7 @@ import '../../services/download_service.dart';
 import 'track_options_sheet.dart';
 import 'mini_player.dart';
 import 'now_playing_screen.dart';
+import 'package:skeletonizer/skeletonizer.dart';
 import '../../services/album_color_extractor.dart';
 
 // Provider for extracting album colors
@@ -498,10 +499,26 @@ class AlbumScreen extends ConsumerWidget {
 
                   // Tracks List
                   if (isLoading)
-                    SliverFillRemaining(
-                      child: Center(
-                        child: CircularProgressIndicator(
-                          color: isDark ? Colors.white : colorScheme.onSurface,
+                    SliverSkeletonizer(
+                      enabled: true,
+                      child: SliverList(
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) => ListTile(
+                            leading: Skeleton.replace(
+                              width: 48,
+                              height: 48,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.grey,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                            ),
+                            title: Text(BoneMock.name),
+                            subtitle: Text(BoneMock.words(2)),
+                            trailing: const Icon(Icons.more_vert),
+                          ),
+                          childCount: 8,
                         ),
                       ),
                     )

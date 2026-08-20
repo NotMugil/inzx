@@ -1452,6 +1452,86 @@ class InnerTubeService {
     return null;
   }
 
+  /// Get official YouTube Music lyrics for a videoId
+  Future<String?> getLyrics(String videoId) async {
+    try {
+      final response = await _request('next', {
+        'videoId': videoId,
+        'isAudioOnly': true,
+      }, authenticated: isAuthenticated);
+
+      if (response == null) return null;
+
+      final lyricsBrowseId = _extractWatchLyricsBrowseId(response);
+      if (lyricsBrowseId == null) return null;
+
+      final lyricsResponse = await _request('browse', {
+        'browseId': lyricsBrowseId,
+      }, authenticated: isAuthenticated);
+
+      if (lyricsResponse == null) return null;
+
+      final sectionList = _navigateJson(lyricsResponse, [
+        'contents',
+        'sectionListRenderer',
+        'contents',
+      ]) as List?;
+
+      if (sectionList == null || sectionList.isEmpty) return null;
+
+      for (final item in sectionList) {
+        final shelf =
+            item['musicDescriptionShelfRenderer'] as Map<String, dynamic>?;
+        if (shelf != null) {
+          final runs =
+              _navigateJson(shelf, ['description', 'runs']) as List?;
+          if (runs != null && runs.isNotEmpty) {
+            final lyricsText =
+                runs.map((r) => r['text'] ?? '').join('').trim();
+            if (lyricsText.isNotEmpty) {
+              return lyricsText;
+            }
+          }
+        }
+      }
+      return null;
+    } catch (e) {
+      if (kDebugMode) {
+        print('InnerTube: Error fetching lyrics for $videoId: $e');
+      }
+      return null;
+    }
+  }
+
+  String? _extractWatchLyricsBrowseId(Map<String, dynamic> response) {
+    final tabs =
+        _navigateJson(response, [
+              'contents',
+              'singleColumnMusicWatchNextResultsRenderer',
+              'tabbedRenderer',
+              'watchNextTabbedResultsRenderer',
+              'tabs',
+            ])
+            as List?;
+
+    if (tabs == null || tabs.isEmpty) return null;
+
+    for (final tab in tabs) {
+      final tabRenderer = tab['tabRenderer'] as Map<String, dynamic>?;
+      if (tabRenderer == null) continue;
+
+      final browseEndpoint =
+          tabRenderer['endpoint']?['browseEndpoint'] as Map<String, dynamic>?;
+      final pageType =
+          browseEndpoint?['browseEndpointContextSupportedConfigs']?['browseEndpointContextMusicConfig']?['pageType']
+              as String?;
+      if (pageType == 'MUSIC_PAGE_TYPE_TRACK_LYRICS') {
+        return browseEndpoint?['browseId'] as String?;
+      }
+    }
+    return null;
+  }
+
   Future<String?> _fetchEnglishRelatedBrowseId(
     String videoId,
     String playlistId,

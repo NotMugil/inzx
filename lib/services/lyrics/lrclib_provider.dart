@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show compute, kDebugMode;
 import 'package:http/http.dart' as http;
+import 'lyrics_cleaner.dart';
 import 'lyrics_models.dart';
 
 /// LRCLib provider - Free synced lyrics database
@@ -16,12 +17,34 @@ class LRCLibProvider implements LyricsProvider {
   @override
   Future<LyricResult?> search(LyricsSearchInfo info) async {
     try {
-      // First try exact match
-      var result = await _searchExact(info);
+      // 1. Try exact match with raw metadata
+      var result = await _searchExact(
+        title: info.title,
+        artist: info.artist,
+        album: info.album,
+        info: info,
+      );
       if (result != null) return result;
 
-      // Try fuzzy search
-      result = await _searchFuzzy(info);
+      // 2. Try exact match with cleaned title & primary artist
+      final cleanTitle = LyricsCleaner.cleanTitle(info.title);
+      final cleanArtist = LyricsCleaner.cleanArtist(info.artist);
+      if (cleanTitle != info.title || cleanArtist != info.artist) {
+        result = await _searchExact(
+          title: cleanTitle,
+          artist: cleanArtist,
+          album: null,
+          info: info,
+        );
+        if (result != null) return result;
+      }
+
+      // 3. Try fuzzy search with cleaned query
+      result = await _searchFuzzy('$cleanArtist $cleanTitle', info);
+      if (result != null) return result;
+
+      // 4. Try fuzzy search with cleaned title only
+      result = await _searchFuzzy(cleanTitle, info);
       return result;
     } catch (e) {
       if (kDebugMode) {
@@ -31,11 +54,16 @@ class LRCLibProvider implements LyricsProvider {
     }
   }
 
-  Future<LyricResult?> _searchExact(LyricsSearchInfo info) async {
+  Future<LyricResult?> _searchExact({
+    required String title,
+    required String artist,
+    String? album,
+    required LyricsSearchInfo info,
+  }) async {
     final params = {
-      'artist_name': info.artist,
-      'track_name': info.title,
-      if (info.album != null) 'album_name': info.album!,
+      'artist_name': artist,
+      'track_name': title,
+      if (album != null && album.isNotEmpty) 'album_name': album,
     };
 
     final uri = Uri.parse(
@@ -53,8 +81,7 @@ class LRCLibProvider implements LyricsProvider {
     return await _findBestMatch(data, info);
   }
 
-  Future<LyricResult?> _searchFuzzy(LyricsSearchInfo info) async {
-    final query = '${info.artist} ${info.title}';
+  Future<LyricResult?> _searchFuzzy(String query, LyricsSearchInfo info) async {
     final uri = Uri.parse(
       '$_baseUrl/api/search',
     ).replace(queryParameters: {'q': query});
@@ -75,42 +102,47 @@ class LRCLibProvider implements LyricsProvider {
     List results,
     LyricsSearchInfo info,
   ) async {
+    final cleanSearchArtist = LyricsCleaner.cleanArtist(info.artist).toLowerCase();
+    final cleanSearchTitle = LyricsCleaner.cleanTitle(info.title).toLowerCase();
+
     // Filter by artist similarity
     final filtered = results.where((item) {
-      final artistName = (item['artistName'] as String).toLowerCase();
-      final searchArtist = info.artist.toLowerCase();
+      final artistName = (item['artistName'] as String? ?? '').toLowerCase();
+      final trackName = (item['trackName'] as String? ?? '').toLowerCase();
 
-      // Check if any part of the artist name matches
-      final searchParts = searchArtist
-          .split(RegExp(r'[&,]'))
-          .map((s) => s.trim());
-      final itemParts = artistName.split(RegExp(r'[&,]')).map((s) => s.trim());
+      // Check artist match
+      if (artistName.contains(cleanSearchArtist) || cleanSearchArtist.contains(artistName)) {
+        return true;
+      }
 
-      return searchParts.any(
-        (sp) => itemParts.any((ip) => ip.contains(sp) || sp.contains(ip)),
-      );
+      // Check title match
+      if (trackName.contains(cleanSearchTitle) || cleanSearchTitle.contains(trackName)) {
+        return true;
+      }
+
+      return false;
     }).toList();
 
     if (filtered.isEmpty) {
-      // If no artist match, use all results but sorted by title similarity
       filtered.addAll(results);
     }
 
     // Sort by duration difference
     filtered.sort((a, b) {
-      final diffA = (a['duration'] as num).abs() - info.durationSeconds;
-      final diffB = (b['duration'] as num).abs() - info.durationSeconds;
-      return diffA.abs().compareTo(diffB.abs());
+      final durA = (a['duration'] as num?)?.toDouble() ?? 0.0;
+      final durB = (b['duration'] as num?)?.toDouble() ?? 0.0;
+      final diffA = (durA - info.durationSeconds).abs();
+      final diffB = (durB - info.durationSeconds).abs();
+      return diffA.compareTo(diffB);
     });
 
     final closest = filtered.first;
 
-    // Check duration is close enough (within 15 seconds)
-    // If track duration is unknown (0) or missing in result, skip this filter.
+    // Check duration is within 30 seconds tolerance (to support music videos with intro/outro)
     final duration = closest['duration'] as num?;
     if (info.durationSeconds > 0 && duration != null) {
       final durationDiff = (duration - info.durationSeconds).abs();
-      if (durationDiff > 15) return null;
+      if (durationDiff > 35) return null;
     }
 
     // Skip instrumental
@@ -128,8 +160,8 @@ class LRCLibProvider implements LyricsProvider {
     }
 
     return LyricResult(
-      title: closest['trackName'] as String,
-      artists: (closest['artistName'] as String)
+      title: closest['trackName'] as String? ?? info.title,
+      artists: (closest['artistName'] as String? ?? info.artist)
           .split(RegExp(r'[&,]'))
           .map((s) => s.trim())
           .toList(),
@@ -141,7 +173,6 @@ class LRCLibProvider implements LyricsProvider {
 }
 
 /// Top-level function for compute() - parses LRC format lyrics
-/// Must be top-level to work with compute()
 List<LyricLine> _parseLrcIsolate(String lrc) {
   final lines = <LyricLine>[];
 

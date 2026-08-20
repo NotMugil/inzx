@@ -12,6 +12,8 @@ import 'artist_screen.dart';
 import 'now_playing_screen.dart';
 import 'mini_player.dart';
 
+import 'package:skeletonizer/skeletonizer.dart';
+
 /// Screen to display all items in a shelf when "More" is tapped
 /// Supports infinite scroll pagination
 class ShelfDetailsScreen extends ConsumerStatefulWidget {
@@ -206,7 +208,28 @@ class _ShelfDetailsScreenState extends ConsumerState<ShelfDetailsScreen> {
 
     // Loading state
     if (_isLoading && _items.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return Skeletonizer(
+        enabled: true,
+        enableSwitchAnimation: true,
+        child: ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: 8,
+          itemBuilder: (context, index) => ListTile(
+            leading: Skeleton.replace(
+              width: 48,
+              height: 48,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.grey,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            title: Text(BoneMock.name),
+            subtitle: Text(BoneMock.words(2)),
+          ),
+        ),
+      );
     }
 
     // Error state

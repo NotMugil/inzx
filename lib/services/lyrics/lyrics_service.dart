@@ -10,12 +10,18 @@ import 'lyrics_models.dart';
 import 'betterlyrics_provider.dart';
 import 'lrclib_provider.dart';
 import 'genius_provider.dart';
+import 'youtube_lyrics_provider.dart';
 
 /// Provider names enum for type safety
-enum ProviderName { betterLyrics, lrclib, genius }
+enum ProviderName { betterLyrics, lrclib, youtubeMusic, genius }
 
 /// All available provider names in order
-const providerNames = [ProviderName.betterLyrics, ProviderName.lrclib, ProviderName.genius];
+const providerNames = [
+  ProviderName.betterLyrics,
+  ProviderName.lrclib,
+  ProviderName.youtubeMusic,
+  ProviderName.genius,
+];
 
 /// Extension to get display name
 extension ProviderNameExt on ProviderName {
@@ -25,6 +31,8 @@ extension ProviderNameExt on ProviderName {
         return 'BetterLyrics';
       case ProviderName.lrclib:
         return 'LRCLib';
+      case ProviderName.youtubeMusic:
+        return 'YouTube Music';
       case ProviderName.genius:
         return 'Genius';
     }
@@ -181,17 +189,21 @@ class LyricsState {
 /// Lyrics service notifier with caching
 class LyricsNotifier extends StateNotifier<LyricsState> {
   final Map<ProviderName, LyricsProvider> _providers;
+  LyricsSearchInfo? _lastSearchInfo;
 
   LyricsNotifier()
     : _providers = {
         ProviderName.betterLyrics: BetterLyricsProvider(),
         ProviderName.lrclib: LRCLibProvider(),
+        ProviderName.youtubeMusic: YouTubeLyricsProvider(),
         ProviderName.genius: GeniusProvider(),
       },
       super(const LyricsState());
 
   /// Fetch lyrics for a track from all providers (with caching)
   Future<void> fetchLyrics(LyricsSearchInfo info) async {
+    _lastSearchInfo = info;
+
     // Ignore duplicate fetches for the same track while it's already loading.
     if (state.videoId == info.videoId) {
       final isAlreadyFetching = state.providers.values.any(
@@ -208,7 +220,7 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
         print('LyricsService: Using cached lyrics for ${info.videoId}');
       }
       final cachedProvider =
-          _providerNameFromSource(cached.source) ?? ProviderName.lrclib;
+          _providerNameFromSource(cached.source) ?? ProviderName.betterLyrics;
       final providers = {
         for (final p in providerNames) p: const ProviderStatus(),
       };
@@ -216,27 +228,31 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
         state: LyricsProviderState.done,
         data: cached,
       );
-      state = LyricsState(
-        videoId: info.videoId,
-        providers: providers,
-        currentProvider: cachedProvider,
-        hasManuallySwitched: false,
-      );
+      if (mounted) {
+        state = LyricsState(
+          videoId: info.videoId,
+          providers: providers,
+          currentProvider: cachedProvider,
+          hasManuallySwitched: false,
+        );
+      }
       return;
     }
 
     CacheAnalytics.instance.recordCacheMiss();
     CacheAnalytics.instance.recordNetworkCall();
     // Reset state for new track
-    state = LyricsState(
-      videoId: info.videoId,
-      providers: {
-        for (final p in providerNames)
-          p: const ProviderStatus(state: LyricsProviderState.fetching),
-      },
-      currentProvider: state.currentProvider,
-      hasManuallySwitched: false,
-    );
+    if (mounted) {
+      state = LyricsState(
+        videoId: info.videoId,
+        providers: {
+          for (final p in providerNames)
+            p: const ProviderStatus(state: LyricsProviderState.idle),
+        },
+        currentProvider: state.currentProvider,
+        hasManuallySwitched: false,
+      );
+    }
 
     // BetterLyrics is the primary source (best quality word-level sync).
     await _fetchFromProvider(ProviderName.betterLyrics, info);
@@ -257,6 +273,18 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
         lrcLibStatus?.state == LyricsProviderState.done) {
       if (!state.hasManuallySwitched) {
         state = state.copyWith(currentProvider: ProviderName.lrclib);
+      }
+      _cacheBestResult(info);
+      return;
+    }
+
+    // YouTube Music & Subtitles fallback (official lyrics / timed captions).
+    await _fetchFromProvider(ProviderName.youtubeMusic, info);
+    final ytStatus = state.providers[ProviderName.youtubeMusic];
+    if ((ytStatus?.data?.hasLyrics ?? false) &&
+        ytStatus?.state == LyricsProviderState.done) {
+      if (!state.hasManuallySwitched) {
+        state = state.copyWith(currentProvider: ProviderName.youtubeMusic);
       }
       _cacheBestResult(info);
       return;
@@ -309,6 +337,7 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
     final normalized = source.trim().toLowerCase();
     if (normalized == 'betterlyrics') return ProviderName.betterLyrics;
     if (normalized == 'lrclib') return ProviderName.lrclib;
+    if (normalized.contains('youtube')) return ProviderName.youtubeMusic;
     if (normalized == 'genius') return ProviderName.genius;
     return null;
   }
@@ -422,15 +451,26 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
     ProviderName name,
     LyricsSearchInfo info,
   ) async {
+    if (!mounted) return;
+    final currentProviders = Map<ProviderName, ProviderStatus>.from(
+      state.providers,
+    );
+    currentProviders[name] = const ProviderStatus(
+      state: LyricsProviderState.fetching,
+    );
+    state = state.copyWith(providers: currentProviders);
+
     try {
       final provider = _providers[name]!;
       final result = await provider.search(info);
 
+      if (!mounted) return;
       _updateProviderStatus(
         name,
         ProviderStatus(state: LyricsProviderState.done, data: result),
       );
     } catch (e) {
+      if (!mounted) return;
       _updateProviderStatus(
         name,
         ProviderStatus(state: LyricsProviderState.error, error: e.toString()),
@@ -439,6 +479,7 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
   }
 
   void _updateProviderStatus(ProviderName name, ProviderStatus status) {
+    if (!mounted) return;
     final newProviders = Map<ProviderName, ProviderStatus>.from(
       state.providers,
     );
@@ -486,6 +527,11 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
       bias += 1;
     }
 
+    // Prefer YouTube Music if synced captions available
+    if (name == ProviderName.youtubeMusic && (status.data?.hasSyncedLyrics ?? false)) {
+      bias += 1;
+    }
+
     // Prefer LRCLib for synced lyrics
     if (name == ProviderName.lrclib &&
         (status.data?.hasSyncedLyrics ?? false)) {
@@ -508,25 +554,59 @@ class LyricsNotifier extends StateNotifier<LyricsState> {
     }
   }
 
-  /// Manually switch to next provider
-  void nextProvider() {
+  /// Manually switch to next provider and fetch lyrics if not yet loaded
+  Future<void> nextProvider() async {
     final currentIdx = providerNames.indexOf(state.currentProvider);
     final nextIdx = (currentIdx + 1) % providerNames.length;
-    state = state.copyWith(
-      currentProvider: providerNames[nextIdx],
-      hasManuallySwitched: true,
-    );
+    final next = providerNames[nextIdx];
+
+    if (mounted) {
+      state = state.copyWith(
+        currentProvider: next,
+        hasManuallySwitched: true,
+      );
+    }
+
+    final status = state.providers[next];
+    final needsFetch =
+        status == null ||
+        status.state == LyricsProviderState.idle ||
+        (status.data == null && status.state != LyricsProviderState.fetching);
+
+    if (needsFetch && _lastSearchInfo != null) {
+      await _fetchFromProvider(next, _lastSearchInfo!);
+      if (mounted) {
+        _cacheBestResult(_lastSearchInfo!);
+      }
+    }
   }
 
-  /// Manually switch to previous provider
-  void previousProvider() {
+  /// Manually switch to previous provider and fetch lyrics if not yet loaded
+  Future<void> previousProvider() async {
     final currentIdx = providerNames.indexOf(state.currentProvider);
     final prevIdx =
         (currentIdx - 1 + providerNames.length) % providerNames.length;
-    state = state.copyWith(
-      currentProvider: providerNames[prevIdx],
-      hasManuallySwitched: true,
-    );
+    final prev = providerNames[prevIdx];
+
+    if (mounted) {
+      state = state.copyWith(
+        currentProvider: prev,
+        hasManuallySwitched: true,
+      );
+    }
+
+    final status = state.providers[prev];
+    final needsFetch =
+        status == null ||
+        status.state == LyricsProviderState.idle ||
+        (status.data == null && status.state != LyricsProviderState.fetching);
+
+    if (needsFetch && _lastSearchInfo != null) {
+      await _fetchFromProvider(prev, _lastSearchInfo!);
+      if (mounted) {
+        _cacheBestResult(_lastSearchInfo!);
+      }
+    }
   }
 
   /// Clear lyrics

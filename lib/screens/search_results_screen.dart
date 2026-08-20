@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:skeletonizer/skeletonizer.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../core/l10n/app_localizations_x.dart';
 import '../core/design_system/design_system.dart';
@@ -368,10 +369,50 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
           ],
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
+      loading: () => Skeletonizer(
+        enabled: true,
+        enableSwitchAnimation: true,
+        child: Column(
+          children: List.generate(8, (index) => ListTile(
+            leading: Skeleton.replace(
+              width: 48,
+              height: 48,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.grey,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            title: Text(BoneMock.name),
+            subtitle: Text(BoneMock.words(2)),
+            trailing: const Icon(Icons.more_vert),
+          )),
+        ),
+      ),
       error: (e, _) {
         if (e.toString().contains('Query changed')) {
-          return const Center(child: CircularProgressIndicator());
+          return Skeletonizer(
+            enabled: true,
+            enableSwitchAnimation: true,
+            child: Column(
+              children: List.generate(8, (index) => ListTile(
+                leading: Skeleton.replace(
+                  width: 48,
+                  height: 48,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.grey,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                title: Text(BoneMock.name),
+                subtitle: Text(BoneMock.words(2)),
+                trailing: const Icon(Icons.more_vert),
+              )),
+            ),
+          );
         }
         return _buildEmptyResults(isDark);
       },

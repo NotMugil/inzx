@@ -12,6 +12,8 @@ import 'track_options_sheet.dart';
 import 'mini_player.dart';
 import 'now_playing_screen.dart';
 
+import 'package:skeletonizer/skeletonizer.dart';
+
 // NOTE: We use ytMusicPlaylistProvider from ytmusic_providers.dart
 // which uses the shared innerTubeServiceProvider singleton.
 // This ensures authentication cookies are preserved.
@@ -623,10 +625,26 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
 
                   // Tracks List (Filtered or Full)
                   if (isLoading)
-                    SliverFillRemaining(
-                      child: Center(
-                        child: CircularProgressIndicator(
-                          color: isDark ? Colors.white : colorScheme.primary,
+                    SliverSkeletonizer(
+                      enabled: true,
+                      child: SliverList(
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) => ListTile(
+                            leading: Skeleton.replace(
+                              width: 48,
+                              height: 48,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.grey,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                            ),
+                            title: Text(BoneMock.name),
+                            subtitle: Text(BoneMock.words(2)),
+                            trailing: const Icon(Icons.more_vert),
+                          ),
+                          childCount: 8,
                         ),
                       ),
                     )

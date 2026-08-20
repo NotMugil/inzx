@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/services.dart';
+import 'package:skeletonizer/skeletonizer.dart';
 import 'colors.dart';
 import 'typography.dart';
 import 'spacing.dart';
@@ -362,6 +363,18 @@ class InzxTheme {
 
       // Splash
       splashFactory: InkRipple.splashFactory,
+
+      // Skeleton loading shimmer config
+      extensions: [
+        const SkeletonizerConfigData(
+          effect: ShimmerEffect(
+            baseColor: Color(0xFFE0E0E0),
+            highlightColor: Color(0xFFF5F5F5),
+            duration: Duration(milliseconds: 1500),
+          ),
+          enableSwitchAnimation: true,
+        ),
+      ],
     );
   }
 
@@ -738,6 +751,18 @@ class InzxTheme {
 
       // Splash
       splashFactory: InkRipple.splashFactory,
+
+      // Skeleton loading shimmer config
+      extensions: [
+        const SkeletonizerConfigData.dark(
+          effect: ShimmerEffect(
+            baseColor: Color(0xFF2A2A2A),
+            highlightColor: Color(0xFF3A3A3A),
+            duration: Duration(milliseconds: 1500),
+          ),
+          enableSwitchAnimation: true,
+        ),
+      ],
     );
   }
 

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:iconsax/iconsax.dart';
+import 'package:skeletonizer/skeletonizer.dart';
 import '../../../../core/design_system/design_system.dart';
 import '../../core/l10n/app_localizations_x.dart';
 import '../../providers/providers.dart';
@@ -600,45 +601,130 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab> {
 
   /// Loading state for shelves
   Widget _buildShelvesLoading(bool isDark) {
-    return Column(
-      children: [
-        // Skeleton for quick picks
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Container(
-            height: 20,
-            width: 150,
-            decoration: BoxDecoration(
-              color: isDark ? Colors.white10 : Colors.grey.shade200,
-              borderRadius: BorderRadius.circular(4),
+    return Skeletonizer(
+      enabled: true,
+      enableSwitchAnimation: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Fake shelf header
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              BoneMock.words(3),
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
           ),
-        ),
-        const SizedBox(height: 16),
-        SizedBox(
-          height: 280,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: 3,
-            itemBuilder: (context, index) {
-              return Container(
-                width: MediaQuery.of(context).size.width - 48,
-                margin: const EdgeInsets.only(right: 12),
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.white10 : Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              );
-            },
+          const SizedBox(height: 12),
+          // Fake horizontal track cards
+          SizedBox(
+            height: 200,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: 4,
+              itemBuilder: (context, index) {
+                return Container(
+                  width: 160,
+                  margin: const EdgeInsets.only(right: 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Skeleton.replace(
+                        width: 160,
+                        height: 160,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.grey,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(BoneMock.name),
+                      Text(BoneMock.words(2), style: const TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                );
+              },
+            ),
           ),
-        ),
-        const SizedBox(height: 24),
-        // Also show fallback shelves while loading
-        _buildForgottenFavorites(isDark, Theme.of(context).colorScheme),
-        const SizedBox(height: 24),
-        _buildMixedForYou(isDark, Theme.of(context).colorScheme),
-      ],
+          const SizedBox(height: 24),
+          // Second fake shelf
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              BoneMock.words(2),
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Fake vertical track list
+          ...List.generate(4, (index) => Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Skeleton.replace(
+                width: 48,
+                height: 48,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+              title: Text(BoneMock.name),
+              subtitle: Text(BoneMock.words(2)),
+              trailing: const Icon(Icons.more_vert),
+            ),
+          )),
+          const SizedBox(height: 24),
+          // Third fake shelf - bigger cards
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              BoneMock.words(3),
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 200,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: 3,
+              itemBuilder: (context, index) {
+                return Container(
+                  width: 160,
+                  margin: const EdgeInsets.only(right: 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Skeleton.replace(
+                        width: 160,
+                        height: 160,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.grey,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(BoneMock.name),
+                      Text(BoneMock.words(2), style: const TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 

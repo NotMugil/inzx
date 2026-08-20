@@ -215,24 +215,32 @@ class _LyricsViewState extends ConsumerState<LyricsView>
 
     // Reset scroll and line index when switching tracks or lyrics
     ref.listen(currentTrackProvider, (previous, next) {
-      if (previous?.id != next?.id) {
-        _currentLineIndex = -1;
-        _lineKeys = [];
-        _isAutoScrollEnabled = true;
-        if (_scrollController.hasClients) {
-          _scrollController.jumpTo(0);
-        }
+      if (previous?.id != next?.id && mounted) {
+        setState(() {
+          _currentLineIndex = -1;
+          _lineKeys = [];
+          _isAutoScrollEnabled = true;
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _scrollController.hasClients) {
+            _scrollController.jumpTo(0);
+          }
+        });
       }
     });
 
     ref.listen(lyricsProvider, (previous, next) {
-      if (previous?.currentLyrics != next.currentLyrics) {
-        _currentLineIndex = -1;
-        _lineKeys = [];
-        _isAutoScrollEnabled = true;
-        if (_scrollController.hasClients) {
-          _scrollController.jumpTo(0);
-        }
+      if (previous?.currentLyrics != next.currentLyrics && mounted) {
+        setState(() {
+          _currentLineIndex = -1;
+          _lineKeys = [];
+          _isAutoScrollEnabled = true;
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _scrollController.hasClients) {
+            _scrollController.jumpTo(0);
+          }
+        });
       }
     });
 

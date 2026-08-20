@@ -7,6 +7,8 @@ import '../../models/models.dart';
 import '../../providers/providers.dart';
 import 'track_options_sheet.dart';
 
+import 'package:skeletonizer/skeletonizer.dart';
+
 /// View to display playback history grouped by sections (Today, Yesterday, etc.)
 class HistoryView extends ConsumerStatefulWidget {
   const HistoryView({super.key});
@@ -62,11 +64,31 @@ class _HistoryViewState extends ConsumerState<HistoryView> {
   }
 
   Widget _buildLoadingState(bool isDark, ColorScheme colorScheme) {
-    return const CustomScrollView(
-      physics: AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+    return CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
       slivers: [
-        SliverFillRemaining(
-          child: Center(child: CircularProgressIndicator()),
+        SliverSkeletonizer(
+          enabled: true,
+          child: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => ListTile(
+                leading: Skeleton.replace(
+                  width: 48,
+                  height: 48,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.grey,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                title: Text(BoneMock.name),
+                subtitle: Text(BoneMock.words(2)),
+                trailing: const Icon(Icons.more_vert),
+              ),
+              childCount: 8,
+            ),
+          ),
         ),
       ],
     );

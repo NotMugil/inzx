@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:skeletonizer/skeletonizer.dart';
 import '../../../../core/design_system/design_system.dart';
 import '../../core/l10n/app_localizations_x.dart';
 import '../../providers/providers.dart';
@@ -277,10 +278,29 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
                     colorScheme,
                     ytLikedSongs.length,
                   ),
-            loading: () => const Center(
+            loading: () => Skeletonizer(
+              enabled: true,
+              enableSwitchAnimation: true,
               child: Padding(
-                padding: EdgeInsets.all(32),
-                child: CircularProgressIndicator(),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  children: List.generate(4, (index) => ListTile(
+                    contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                    leading: Skeleton.replace(
+                      width: 56,
+                      height: 56,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                    title: Text(BoneMock.name),
+                    subtitle: Text(BoneMock.words(2)),
+                    trailing: const Icon(Icons.chevron_right),
+                  )),
+                ),
               ),
             ),
             error: (e, _) => Center(
@@ -801,10 +821,29 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
                       );
                     },
                   ),
-            loading: () => const Center(
+            loading: () => Skeletonizer(
+              enabled: true,
+              enableSwitchAnimation: true,
               child: Padding(
-                padding: EdgeInsets.all(32),
-                child: CircularProgressIndicator(),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  children: List.generate(4, (index) => ListTile(
+                    contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                    leading: Skeleton.replace(
+                      width: 56,
+                      height: 56,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                    title: Text(BoneMock.name),
+                    subtitle: Text(BoneMock.words(2)),
+                    trailing: const Icon(Icons.chevron_right),
+                  )),
+                ),
               ),
             ),
             error: (e, _) => Center(
@@ -1088,10 +1127,28 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
                       );
                     },
                   ),
-            loading: () => const Center(
+            loading: () => Skeletonizer(
+              enabled: true,
+              enableSwitchAnimation: true,
               child: Padding(
-                padding: EdgeInsets.all(32),
-                child: CircularProgressIndicator(),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  children: List.generate(4, (index) => ListTile(
+                    contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                    leading: Skeleton.replace(
+                      width: 60,
+                      height: 60,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                    title: Text(BoneMock.name),
+                    subtitle: Text(BoneMock.words(2)),
+                  )),
+                ),
               ),
             ),
             error: (e, _) => Center(
@@ -1391,7 +1448,31 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
           ],
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
+      loading: () => Skeletonizer(
+        enabled: true,
+        enableSwitchAnimation: true,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            children: List.generate(5, (index) => ListTile(
+              contentPadding: const EdgeInsets.symmetric(vertical: 4),
+              leading: Skeleton.replace(
+                width: 48,
+                height: 48,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+              ),
+              title: Text(BoneMock.name),
+              subtitle: Text(BoneMock.words(2)),
+              trailing: const Icon(Icons.more_vert),
+            )),
+          ),
+        ),
+      ),
       error: (e, _) => Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,

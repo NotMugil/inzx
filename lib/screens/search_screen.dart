@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:skeletonizer/skeletonizer.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:iconsax/iconsax.dart';
@@ -424,7 +425,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             },
           );
         },
-        loading: () => Center(child: CircularProgressIndicator(color: accentColor)),
+        loading: () => Skeletonizer(
+          enabled: true,
+          enableSwitchAnimation: true,
+          child: Column(
+            children: List.generate(6, (index) => ListTile(
+              leading: const Icon(Icons.search),
+              title: Text(BoneMock.words(3)),
+            )),
+          ),
+        ),
         error: (_, _) => _buildEmptyState(
           context.l10n.searchForMusic,
           Iconsax.search_normal,
@@ -612,10 +622,92 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           ],
         );
       },
-      loading: () => Center(child: CircularProgressIndicator(color: accentColor)),
+      loading: () => Skeletonizer(
+        enabled: true,
+        enableSwitchAnimation: true,
+        child: Column(
+          children: [
+            // Fake top result card
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: ListTile(
+                leading: Skeleton.replace(
+                  width: 56,
+                  height: 56,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.grey,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+                title: Text(BoneMock.name),
+                subtitle: Text(BoneMock.words(2)),
+              ),
+            ),
+            // Fake track results
+            ...List.generate(5, (index) => ListTile(
+              leading: Skeleton.replace(
+                width: 48,
+                height: 48,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+              title: Text(BoneMock.name),
+              subtitle: Text(BoneMock.words(2)),
+              trailing: const Icon(Icons.more_vert),
+            )),
+          ],
+        ),
+      ),
       error: (e, _) {
         if (e.toString().contains('Query changed')) {
-          return Center(child: CircularProgressIndicator(color: accentColor));
+          return Skeletonizer(
+            enabled: true,
+            enableSwitchAnimation: true,
+            child: Column(
+              children: [
+                // Fake top result card
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: ListTile(
+                    leading: Skeleton.replace(
+                      width: 56,
+                      height: 56,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                    title: Text(BoneMock.name),
+                    subtitle: Text(BoneMock.words(2)),
+                  ),
+                ),
+                // Fake track results
+                ...List.generate(5, (index) => ListTile(
+                  leading: Skeleton.replace(
+                    width: 48,
+                    height: 48,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.grey,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ),
+                  title: Text(BoneMock.name),
+                  subtitle: Text(BoneMock.words(2)),
+                  trailing: const Icon(Icons.more_vert),
+                )),
+              ],
+            ),
+          );
         }
         return _buildEmptyState(
           context.l10n.noResultsFound,
