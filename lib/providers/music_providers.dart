@@ -149,7 +149,21 @@ class AlbumColorsNotifier extends StateNotifier<AlbumColors> {
   AlbumColorsNotifier() : super(AlbumColors.defaultColors());
 
   Future<void> updateForTrack(Track track) async {
-    final colors = await AlbumColorExtractor.extractFromUrl(track.thumbnailUrl);
+    final url = track.thumbnailUrl;
+    if (url == null || url.isEmpty) {
+      state = AlbumColors.defaultColors();
+      return;
+    }
+
+    // 1. Fast synchronous lookup from RAM / Hive cache (0ms delay)
+    final fastColors = AlbumColorExtractor.getFast(url);
+    if (fastColors != null) {
+      state = fastColors;
+      return;
+    }
+
+    // 2. Async extraction fallback (cache miss)
+    final colors = await AlbumColorExtractor.extractFromUrl(url);
     state = colors;
   }
 

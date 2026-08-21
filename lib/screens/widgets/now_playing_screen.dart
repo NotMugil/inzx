@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:marquee/marquee.dart';
+import 'package:skeletonizer/skeletonizer.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../providers/providers.dart';
 import '../../services/deep_link_handler.dart';
@@ -186,7 +187,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     super.initState();
     _colorAnimController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 350),
     );
     _colorAnimController.addListener(() {
       if (mounted) setState(() {});
@@ -315,9 +316,13 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       });
     }
 
-    // First time opening - trigger color extraction immediately
+    // First time opening - trigger color extraction immediately & adopt existing colors if non-default
     if (_initialColorLoad && currentTrack != null) {
       _initialColorLoad = false;
+      if (!albumColors.isDefault) {
+        _currentColors = albumColors;
+        _targetColors = albumColors;
+      }
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           ref.read(albumColorsProvider.notifier).updateForTrack(currentTrack);
@@ -351,14 +356,23 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
 
     // Animate when new colors arrive (not default)
     if (albumColors != _targetColors && !albumColors.isDefault) {
-      _targetColors = albumColors;
-
-      // Start animation from current to target
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _colorAnimController.forward(from: 0);
-        }
-      });
+      if (_targetColors.isDefault) {
+        // Apply immediately if coming from default fallback
+        _currentColors = albumColors;
+        _targetColors = albumColors;
+      } else {
+        _currentColors = AlbumColors.lerp(
+          _currentColors,
+          _targetColors,
+          _colorAnimController.value,
+        );
+        _targetColors = albumColors;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _colorAnimController.forward(from: 0);
+          }
+        });
+      }
     }
 
     // Calculate animated colors - smooth lerp from current to target
@@ -486,8 +500,48 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
           ),
         );
       },
-      loading: () =>
-          const Scaffold(body: Center(child: CircularProgressIndicator())),
+      loading: () => Scaffold(
+        backgroundColor: isDark ? Colors.black : Theme.of(context).colorScheme.surface,
+        body: SafeArea(
+          child: Skeletonizer(
+            enabled: true,
+            enableSwitchAnimation: true,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              child: Column(
+                children: [
+                  const SizedBox(height: 40),
+                  AspectRatio(
+                    aspectRatio: 1,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.grey,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(BoneMock.name),
+                    subtitle: Text(BoneMock.words(2)),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: const [
+                      Icon(Icons.skip_previous, size: 36),
+                      Icon(Icons.play_circle_fill, size: 64),
+                      Icon(Icons.skip_next, size: 36),
+                    ],
+                  ),
+                  const SizedBox(height: 40),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
       error: (_, _) => const SizedBox.shrink(),
     );
   }
@@ -1605,7 +1659,94 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       future: _relatedContentFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return Skeletonizer(
+            enabled: true,
+            enableSwitchAnimation: true,
+            child: ListView(
+              physics: const NeverScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 8,
+                  ),
+                  child: Text(
+                    BoneMock.words(2),
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: textColor,
+                    ),
+                  ),
+                ),
+                ...List.generate(
+                  4,
+                  (index) => ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                    leading: Skeleton.replace(
+                      width: 48,
+                      height: 48,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                    ),
+                    title: Text(BoneMock.name),
+                    subtitle: Text(BoneMock.words(2)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 8,
+                  ),
+                  child: Text(
+                    BoneMock.words(3),
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: textColor,
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  height: 236,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: 3,
+                    separatorBuilder: (_, _) => const SizedBox(width: 14),
+                    itemBuilder:
+                        (context, index) => SizedBox(
+                          width: 140,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Skeleton.replace(
+                                width: 140,
+                                height: 140,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Text(BoneMock.name),
+                              Text(BoneMock.words(2)),
+                            ],
+                          ),
+                        ),
+                  ),
+                ),
+              ],
+            ),
+          );
         }
 
         if (snapshot.hasError ||
@@ -1820,7 +1961,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
             ..._buildRelatedTrackTiles(shelf, textColor, secondaryColor)
           else
             SizedBox(
-              height: primaryType == HomeShelfItemType.artist ? 200 : 220,
+              height: primaryType == HomeShelfItemType.artist ? 200 : 236,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 physics: const BouncingScrollPhysics(),
@@ -2011,7 +2152,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                 padding: const EdgeInsets.only(top: 2),
                 child: Text(
                   item.subtitle!,
-                  maxLines: 2,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: secondaryColor, fontSize: 12),
                 ),

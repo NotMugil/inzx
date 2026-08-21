@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:typed_data';
-import 'package:flutter/foundation.dart' show compute;
+import 'package:flutter/foundation.dart' show compute, kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
+import '../core/services/cache/hive_service.dart';
+import '../data/entities/color_cache_entity.dart';
 
 /// OuterTune-style album color extractor
 /// Uses image scaling approach like OuterTune for accurate colors
@@ -11,48 +14,132 @@ class AlbumColorExtractor {
   /// Cache of extracted colors by URL
   static final Map<String, AlbumColors> _cache = {};
 
+  /// Synchronously retrieve cached colors if available (in-memory or Hive RAM box)
+  static AlbumColors? getFast(String? imageUrl) {
+    if (imageUrl == null || imageUrl.isEmpty) return null;
+
+    // 1. Check in-memory cache
+    if (_cache.containsKey(imageUrl)) {
+      return _cache[imageUrl]!;
+    }
+
+    // 2. Check Hive cache (instant RAM lookup for opened Hive box)
+    try {
+      final cached = HiveService.colorsBox.get(imageUrl);
+      if (cached != null) {
+        final colors = AlbumColors(
+          accent: Color(cached.accent),
+          accentLight: Color(cached.accentLight),
+          accentDark: Color(cached.accentDark),
+          backgroundPrimary: Color(cached.backgroundPrimary),
+          backgroundSecondary: Color(cached.backgroundSecondary),
+          surface: Color(cached.surface),
+          onBackground: Color(cached.onBackground),
+          onSurface: Color(cached.onSurface),
+          isDefault: false,
+        );
+        _cache[imageUrl] = colors;
+        return colors;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('AlbumColorExtractor: Hive getFast error: $e');
+      }
+    }
+
+    return null;
+  }
+
   /// Extract colors from album art URL using OuterTune's approach
-  /// 1. Download image
-  /// 2. Scale to tiny size (16x16) to get dominant colors
-  /// 3. Sample key regions for color analysis
+  /// 1. Check fast cache (memory + Hive)
+  /// 2. Try loading cached image bytes from disk (DefaultCacheManager)
+  /// 3. Download image bytes if not on disk
+  /// 4. Scale to tiny size (16x16) in isolate to get dominant colors
+  /// 5. Save to memory and Hive caches
   static Future<AlbumColors> extractFromUrl(String? imageUrl) async {
     if (imageUrl == null || imageUrl.isEmpty) {
       return AlbumColors.defaultColors();
     }
 
-    // Check cache
-    if (_cache.containsKey(imageUrl)) {
-      return _cache[imageUrl]!;
+    // Check fast cache first (0ms delay)
+    final fast = getFast(imageUrl);
+    if (fast != null) {
+      return fast;
     }
 
     try {
-      // Download image bytes
-      final response = await http
-          .get(Uri.parse(imageUrl))
-          .timeout(const Duration(seconds: 5));
+      Uint8List? bytes;
 
-      if (response.statusCode != 200) {
+      // Try local disk cache from CachedNetworkImage / DefaultCacheManager
+      try {
+        final fileInfo =
+            await DefaultCacheManager().getFileFromCache(imageUrl);
+        if (fileInfo != null && await fileInfo.file.exists()) {
+          bytes = await fileInfo.file.readAsBytes();
+        }
+      } catch (_) {}
+
+      // Fallback to HTTP download if not in disk cache
+      if (bytes == null || bytes.isEmpty) {
+        final response = await http
+            .get(Uri.parse(imageUrl))
+            .timeout(const Duration(seconds: 3));
+
+        if (response.statusCode == 200) {
+          bytes = response.bodyBytes;
+        }
+      }
+
+      if (bytes == null || bytes.isEmpty) {
         return AlbumColors.defaultColors();
       }
 
       // Process in isolate and convert back to AlbumColors
       final rawColors = await compute(
         _extractColorsIsolate,
-        response.bodyBytes,
+        bytes,
       );
       final colors = _rawColorsToAlbumColors(rawColors);
 
-      // Cache result
+      // Cache result in memory
       _cache[imageUrl] = colors;
 
-      // Limit cache size
-      if (_cache.length > 30) {
+      // Save to Hive for instant access in future sessions
+      _saveToHive(imageUrl, colors);
+
+      // Limit in-memory cache size
+      if (_cache.length > 50) {
         _cache.remove(_cache.keys.first);
       }
 
       return colors;
     } catch (e) {
       return AlbumColors.defaultColors();
+    }
+  }
+
+  /// Save extracted colors to Hive database
+  static void _saveToHive(String imageUrl, AlbumColors colors) {
+    try {
+      HiveService.colorsBox.put(
+        imageUrl,
+        ColorCacheEntity(
+          imageUrl: imageUrl,
+          accent: colors.accent.toARGB32(),
+          accentLight: colors.accentLight.toARGB32(),
+          accentDark: colors.accentDark.toARGB32(),
+          backgroundPrimary: colors.backgroundPrimary.toARGB32(),
+          backgroundSecondary: colors.backgroundSecondary.toARGB32(),
+          surface: colors.surface.toARGB32(),
+          onBackground: colors.onBackground.toARGB32(),
+          onSurface: colors.onSurface.toARGB32(),
+          cachedAt: DateTime.now(),
+        ),
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        print('AlbumColorExtractor: Error saving to Hive: $e');
+      }
     }
   }
 

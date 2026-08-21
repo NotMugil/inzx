@@ -582,11 +582,11 @@ class _LyricsViewState extends ConsumerState<LyricsView>
     if (isCurrentLine) {
       lineAlpha = 1.0;
     } else if (dist == 1) {
-      lineAlpha = 0.40;
+      lineAlpha = 0.50;
     } else if (dist == 2) {
-      lineAlpha = 0.22;
+      lineAlpha = 0.30;
     } else {
-      lineAlpha = 0.10;
+      lineAlpha = 0.15;
     }
 
     final dimColor = textColor.withValues(alpha: isBg ? 0.35 : lineAlpha);
@@ -756,8 +756,8 @@ class _KaraokeWord extends StatelessWidget {
                       accentColor,
                       accentColor,
                       accentColor.withValues(alpha: 0.90),
-                      textColor.withValues(alpha: 0.40),
-                      textColor.withValues(alpha: 0.40),
+                      textColor.withValues(alpha: 0.85),
+                      textColor.withValues(alpha: 0.85),
                     ],
                     stops: [
                       0.0,
@@ -810,13 +810,14 @@ class _KaraokeWord extends StatelessWidget {
             );
           }
 
+          // Upcoming words in active line: rendered in bright white for high visibility
           return Text(
             wordText,
             style: TextStyle(
               fontSize: fontSize,
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.w600,
               fontStyle: isBg ? FontStyle.italic : FontStyle.normal,
-              color: textColor.withValues(alpha: 0.42),
+              color: textColor.withValues(alpha: 0.90),
               height: 1.3,
               letterSpacing: -0.2,
             ),

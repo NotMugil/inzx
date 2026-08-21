@@ -13,6 +13,7 @@ import 'playback/playback.dart';
 import 'ytmusic_api_service.dart';
 import 'queue_persistence_service.dart';
 import 'lyrics/lyrics_service.dart';
+import 'album_color_extractor.dart';
 
 /// Key for persisting streaming quality preference
 const String kStreamingQualityKey = 'streaming_quality';
@@ -2977,6 +2978,14 @@ class AudioPlayerService {
           durationSeconds: nextTrack.duration.inSeconds,
         ),
       );
+
+      // Pre-extract colors for upcoming tracks so song change is instant 0ms
+      for (int i = 1; i <= 3 && (_currentIndex + i) < _queue.length; i++) {
+        final t = _queue[_currentIndex + i];
+        if (t.thumbnailUrl != null) {
+          unawaited(AlbumColorExtractor.extractFromUrl(t.thumbnailUrl));
+        }
+      }
     }
   }
 
