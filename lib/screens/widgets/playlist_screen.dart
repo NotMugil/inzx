@@ -524,54 +524,41 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Positioned.fill(
-      child: RepaintBoundary(
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (imageUrl != null)
-              ClipRect(
-                child: Transform.scale(
-                  scale: 1.2,
-                  child: ImageFiltered(
-                    imageFilter: ImageFilter.blur(sigmaX: 45, sigmaY: 45),
-                    child: CachedNetworkImage(
-                      imageUrl: imageUrl,
-                      fit: BoxFit.cover,
-                      alignment: Alignment.topCenter,
-                      memCacheWidth: 120,
-                      color: (isDark ? Colors.black : Colors.white).withValues(
-                        alpha: isDark ? 0.35 : 0.35,
-                      ),
-                      colorBlendMode:
-                          isDark ? BlendMode.darken : BlendMode.lighten,
-                    ),
-                  ),
-                ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (imageUrl != null)
+            CachedNetworkImage(
+              imageUrl: imageUrl,
+              fit: BoxFit.cover,
+              alignment: Alignment.topCenter,
+              memCacheWidth: 100,
+              color: (isDark ? Colors.black : Colors.white).withValues(
+                alpha: isDark ? 0.5 : 0.5,
               ),
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: isDark
-                      ? [
-                          themeColor.withValues(alpha: 0.28),
-                          Colors.black.withValues(alpha: 0.25),
-                          Colors.black.withValues(alpha: 0.65),
-                          Colors.black.withValues(alpha: 0.92),
-                        ]
-                      : [
-                          themeColor.withValues(alpha: 0.14),
-                          colorScheme.surface.withValues(alpha: 0.25),
-                          colorScheme.surface.withValues(alpha: 0.65),
-                          colorScheme.surface.withValues(alpha: 0.92),
-                        ],
-                  stops: const [0.0, 0.50, 0.75, 1.0],
-                ),
+              colorBlendMode: isDark ? BlendMode.darken : BlendMode.lighten,
+            ),
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: isDark
+                    ? [
+                        themeColor.withValues(alpha: 0.3),
+                        Colors.black.withValues(alpha: 0.7),
+                        Colors.black,
+                      ]
+                    : [
+                        themeColor.withValues(alpha: 0.14),
+                        colorScheme.surface.withValues(alpha: 0.75),
+                        colorScheme.surface,
+                      ],
+                stops: const [0.0, 0.4, 1.0],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1240,6 +1227,11 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
                                           allTracks,
                                           startIndex: 0,
                                           sourceId: playlist.id,
+                                          sourceTitle: playlist.title.isNotEmpty
+                                              ? playlist.title
+                                              : (playlist.id == 'LM'
+                                                  ? l10n.likedSongsLabel
+                                                  : 'Playlist'),
                                         );
                                       }
                                     },
@@ -1432,6 +1424,11 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
                                   displayTracks,
                                   startIndex: index,
                                   sourceId: playlist.id,
+                                  sourceTitle: playlist.title.isNotEmpty
+                                      ? playlist.title
+                                      : (playlist.id == 'LM'
+                                          ? l10n.likedSongsLabel
+                                          : 'Playlist'),
                                 );
                               }
                             },
@@ -1526,6 +1523,11 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
                                 displayTracks,
                                 startIndex: index,
                                 sourceId: playlist.id,
+                                sourceTitle: playlist.title.isNotEmpty
+                                    ? playlist.title
+                                    : (playlist.id == 'LM'
+                                        ? l10n.likedSongsLabel
+                                        : 'Playlist'),
                               );
                             }
                           },
@@ -1828,6 +1830,12 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
                                             tracks,
                                             startIndex: 0,
                                             sourceId: playlist.id,
+                                            sourceTitle:
+                                                playlist.title.isNotEmpty
+                                                    ? playlist.title
+                                                    : (playlist.id == 'LM'
+                                                        ? l10n.likedSongsLabel
+                                                        : 'Playlist'),
                                           );
                                         }
                                       },
@@ -1848,6 +1856,12 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
                                             shuffled,
                                             startIndex: 0,
                                             sourceId: playlist.id,
+                                            sourceTitle:
+                                                playlist.title.isNotEmpty
+                                                    ? playlist.title
+                                                    : (playlist.id == 'LM'
+                                                        ? l10n.likedSongsLabel
+                                                        : 'Playlist'),
                                           );
                                         }
                                       },
