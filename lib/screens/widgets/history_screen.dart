@@ -161,18 +161,6 @@ class _HistoryViewState extends ConsumerState<HistoryView> {
     return CustomScrollView(
       physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
       slivers: [
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-            child: Text(
-              context.l10n.historyDescription,
-              style: TextStyle(
-                fontSize: 14,
-                color: isDark ? Colors.white54 : colorScheme.onSurface.withValues(alpha: 0.6),
-              ),
-            ),
-          ),
-        ),
         ...sections.expand((section) => [
           SliverToBoxAdapter(
             child: Padding(

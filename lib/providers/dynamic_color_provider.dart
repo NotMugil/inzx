@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/models.dart';
 import '../services/audio_player_service.dart' as player;
 import '../services/album_color_extractor.dart';
+import '../core/providers/theme_provider.dart';
 
 /// Dynamic colors extracted from album art
 class DynamicColors {
@@ -295,6 +296,7 @@ final effectiveAccentColorProvider = Provider<Color>((ref) {
     return dynamicColors.primary;
   }
 
-  // Fall back to default sage green
-  return const Color(0xFF7BC4A8);
+  // Fall back to the app's configured accent color (defaults to red)
+  final accentEnum = ref.watch(accentColorProvider);
+  return getAccentColor(accentEnum, isDark: true);
 });

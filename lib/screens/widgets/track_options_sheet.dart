@@ -52,7 +52,11 @@ class TrackOptionsSheet extends ConsumerWidget {
     final l10n = context.l10n;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final albumColors = ref.watch(albumColorsProvider);
-    final accentColor = isDark ? albumColors.accentLight : albumColors.accent;
+    final effectiveAccent = ref.watch(effectiveAccentColorProvider);
+    final isMediaPlaying = ref.watch(currentTrackProvider) != null;
+    final accentColor = (isMediaPlaying && !albumColors.isDefault)
+        ? (isDark ? albumColors.accentLight : albumColors.accent)
+        : effectiveAccent;
 
     final sheetBg = isDark
         ? const Color(0xFF141414).withValues(alpha: 0.90)
