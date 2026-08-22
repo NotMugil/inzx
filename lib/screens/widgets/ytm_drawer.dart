@@ -22,6 +22,9 @@ class YTMDrawer extends StatefulWidget {
   /// Surface color for the Up Next panel (solid, not transparent)
   final Color surfaceColor;
 
+  /// Surface decoration (e.g. gradient) for the Up Next panel
+  final Decoration? surfaceDecoration;
+
   /// Callback when state changes
   final ValueChanged<bool>? onStateChanged;
 
@@ -42,6 +45,7 @@ class YTMDrawer extends StatefulWidget {
     this.tabsWidget,
     this.backgroundColor = Colors.black,
     this.surfaceColor = const Color(0xFF1A1A1A), // Solid dark surface
+    this.surfaceDecoration,
     this.onStateChanged,
     this.onTabFromPosition,
     this.initiallyExpanded = false,
@@ -243,13 +247,14 @@ class YTMDrawerState extends State<YTMDrawer>
               child: Opacity(
                 opacity: upNextOpacity,
                 child: Container(
-                  // SOLID BACKGROUND for Up Next panel
-                  decoration: BoxDecoration(
-                    color: widget.surfaceColor,
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(16),
-                    ),
-                  ),
+                  // Background for Up Next panel (gradient or solid)
+                  decoration: widget.surfaceDecoration ??
+                      BoxDecoration(
+                        color: widget.surfaceColor,
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(16),
+                        ),
+                      ),
                   child: ClipRRect(
                     borderRadius: const BorderRadius.vertical(
                       top: Radius.circular(16),

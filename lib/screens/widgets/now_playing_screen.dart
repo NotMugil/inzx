@@ -202,11 +202,20 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
+        final newIndex = _tabController.index;
         setState(() {
-          _showQueue = _tabController.index == 0;
-          _showLyrics = _tabController.index == 1;
+          _showQueue = newIndex == 0;
+          _showLyrics = newIndex == 1;
           // index 2 = Related
         });
+        if (_pageController.hasClients &&
+            _pageController.page?.round() != newIndex) {
+          _pageController.animateToPage(
+            newIndex,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+          );
+        }
       }
     });
 
@@ -446,7 +455,21 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
             child: YTMDrawer(
               key: _drawerKey,
               backgroundColor: Colors.transparent,
-              surfaceColor: colors.surface, // Solid background for drawer
+              surfaceColor: colors.surface,
+              surfaceDecoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    colors.backgroundPrimary,
+                    colors.backgroundSecondary,
+                  ],
+                  stops: const [0.0, 1.0],
+                ),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(16),
+                ),
+              ),
               initiallyExpanded: _isDrawerExpanded,
               onDismiss: () {
                 Navigator.of(context).pop();
@@ -466,6 +489,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                   _showQueue = tabIndex == 0;
                   _showLyrics = tabIndex == 1;
                 });
+                if (_pageController.hasClients) {
+                  _pageController.jumpToPage(tabIndex);
+                }
               },
               // Now Playing content (shown when collapsed)
               nowPlayingContent: SafeArea(
@@ -1618,22 +1644,30 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     );
   }
 
-  /// Tab content switcher - shows Queue, Lyrics, or Related based on selected tab
+  /// Tab content with horizontal swipeable PageView (Up Next / Lyrics / Related)
   Widget _buildTabContent(
     Color textColor,
     Color secondaryColor,
     Color surfaceColor,
   ) {
-    switch (_tabController.index) {
-      case 0: // UP NEXT
-        return _buildQueueContent(textColor, secondaryColor, surfaceColor);
-      case 1: // LYRICS
-        return _buildLyricsView(ref);
-      case 2: // RELATED
-        return _buildRelatedContent(textColor, secondaryColor);
-      default:
-        return _buildQueueContent(textColor, secondaryColor, surfaceColor);
-    }
+    return PageView(
+      controller: _pageController,
+      physics: const BouncingScrollPhysics(),
+      onPageChanged: (index) {
+        if (_tabController.index != index) {
+          _tabController.animateTo(index);
+          setState(() {
+            _showQueue = index == 0;
+            _showLyrics = index == 1;
+          });
+        }
+      },
+      children: [
+        _buildQueueContent(textColor, secondaryColor, surfaceColor),
+        _buildLyricsView(ref),
+        _buildRelatedContent(textColor, secondaryColor),
+      ],
+    );
   }
 
   /// Related content placeholder
@@ -2163,11 +2197,77 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     );
   }
 
+  String _cleanArtistDescription(String raw) {
+    var text = raw.trim();
+    if (text.isEmpty) return text;
+
+    // 1. Remove URLs enclosed in parentheses e.g. (https://...) or (http://...)
+    text = text.replaceAll(
+      RegExp(r'\s*\(\s*https?:\/\/[^\)]+\)', caseSensitive: false),
+      '',
+    );
+
+    // 2. Remove standalone URLs
+    text = text.replaceAll(
+      RegExp(r'https?:\/\/\S+', caseSensitive: false),
+      '',
+    );
+
+    // 3. Remove Wikipedia & Creative Commons / CCA license boilerplate trailers
+    text = text.replaceAll(
+      RegExp(
+        r'[-–—|•]?\s*(?:From\s+)?Wikipedia(?:\s*\(.*?\))?\s*(?:Under\s+.*)?$',
+        caseSensitive: false,
+        multiLine: true,
+      ),
+      '',
+    );
+    text = text.replaceAll(
+      RegExp(
+        r'[-–—|•]?\s*Under\s+(?:CCA|CC|Creative\s+Commons|the\s+Creative\s+Commons).*$',
+        caseSensitive: false,
+        multiLine: true,
+      ),
+      '',
+    );
+    text = text.replaceAll(
+      RegExp(
+        r'[-–—|•]?\s*(?:CC-BY-SA|CC\s+BY-SA|Creative\s+Commons\s+Attribution).*$',
+        caseSensitive: false,
+        multiLine: true,
+      ),
+      '',
+    );
+
+    // 4. Remove empty brackets/parentheses that might remain
+    text = text.replaceAll(RegExp(r'\(\s*\)'), '');
+    text = text.replaceAll(RegExp(r'\[\s*\]'), '');
+
+    // 5. Clean up redundant spaces and trailing punctuation
+    text = text.replaceAll(RegExp(r'[ \t]+'), ' ');
+    text = text.replaceAll(RegExp(r'\n{3,}'), '\n\n');
+    text = text.trim();
+
+    // Clean any dangling trailing dashes, pipes, or commas
+    text = text.replaceAll(RegExp(r'[\s\-–—|•,]+$'), '');
+
+    return text.trim();
+  }
+
   Widget _buildAboutArtistSection(
     WatchRelatedContent relatedContent,
     Color textColor,
     Color secondaryColor,
   ) {
+    final rawDesc = relatedContent.aboutDescription ?? '';
+    final cleanedDesc = _cleanArtistDescription(rawDesc);
+    if (cleanedDesc.isEmpty) return const SizedBox.shrink();
+
+    final bool hadWikipediaSource =
+        rawDesc.toLowerCase().contains('wikipedia') ||
+        rawDesc.toLowerCase().contains('cc-by-sa') ||
+        rawDesc.toLowerCase().contains('creative commons');
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 24),
       child: Column(
@@ -2184,20 +2284,32 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
               ),
             ),
           ),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: textColor.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Text(
-              relatedContent.aboutDescription!,
-              style: TextStyle(
-                color: secondaryColor,
-                fontSize: 14,
-                height: 1.45,
-              ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  cleanedDesc,
+                  style: TextStyle(
+                    color: secondaryColor.withValues(alpha: 0.9),
+                    fontSize: 14,
+                    height: 1.5,
+                    letterSpacing: 0.1,
+                  ),
+                ),
+                if (hadWikipediaSource) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    'Source: Wikipedia',
+                    style: TextStyle(
+                      color: secondaryColor.withValues(alpha: 0.5),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ],
@@ -2826,10 +2938,18 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
         ? lines[currentIdx].text.trim()
         : '';
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeOutCubic,
-      height: showPreview ? _syncedLyricPreviewHeight : 0.0,
+    return GestureDetector(
+      onTap: () {
+        _tabController.animateTo(1);
+        if (_pageController.hasClients) {
+          _pageController.jumpToPage(1);
+        }
+        _drawerKey.currentState?.expand();
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+        height: showPreview ? _syncedLyricPreviewHeight : 0.0,
       child: ClipRect(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 6, 24, 6),
@@ -2874,8 +2994,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                 ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildTrackInfo(
     Track track,
@@ -3397,6 +3518,13 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
           _showLyrics = index == 1;
           // index 2 = Related
         });
+        if (_pageController.hasClients) {
+          _pageController.animateToPage(
+            index,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+          );
+        }
         // Also expand the drawer when tapping a tab
         _drawerKey.currentState?.expand();
       },
