@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui' show Color;
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart' show LoopMode;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
 import '../services/services.dart';
 import '../services/audio_player_service.dart' as player;
@@ -357,9 +359,35 @@ final likedSongsProvider =
       return LikedSongsNotifier();
     });
 
-/// Notifier for liked songs
+/// Notifier for liked songs with persistence
 class LikedSongsNotifier extends StateNotifier<List<Track>> {
-  LikedSongsNotifier() : super([]);
+  static const String _storageKey = 'local_liked_songs_v1';
+
+  LikedSongsNotifier() : super([]) {
+    _loadFromStorage();
+  }
+
+  Future<void> _loadFromStorage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonStr = prefs.getString(_storageKey);
+      if (jsonStr != null && jsonStr.isNotEmpty) {
+        final List<dynamic> list = jsonDecode(jsonStr);
+        final tracks = list
+            .map((j) => Track.fromJson(j as Map<String, dynamic>))
+            .toList();
+        state = tracks;
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveToStorage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonStr = jsonEncode(state.map((t) => t.toJson()).toList());
+      await prefs.setString(_storageKey, jsonStr);
+    } catch (_) {}
+  }
 
   void replaceAll(List<Track> tracks) {
     final seen = <String>{};
@@ -370,6 +398,7 @@ class LikedSongsNotifier extends StateNotifier<List<Track>> {
       }
     }
     state = normalized;
+    _saveToStorage();
   }
 
   void toggleLike(Track track) {
@@ -379,6 +408,7 @@ class LikedSongsNotifier extends StateNotifier<List<Track>> {
     } else {
       state = [track.copyWith(addedAt: DateTime.now()), ...state];
     }
+    _saveToStorage();
   }
 
   /// Add a track to liked songs (if not already liked)
@@ -386,6 +416,7 @@ class LikedSongsNotifier extends StateNotifier<List<Track>> {
     final alreadyLiked = state.any((t) => t.id == track.id);
     if (!alreadyLiked) {
       state = [track.copyWith(addedAt: DateTime.now()), ...state];
+      _saveToStorage();
     }
   }
 
@@ -395,6 +426,7 @@ class LikedSongsNotifier extends StateNotifier<List<Track>> {
 
   void unlike(String trackId) {
     state = state.where((t) => t.id != trackId).toList();
+    _saveToStorage();
   }
 }
 

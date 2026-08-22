@@ -251,13 +251,26 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab> {
           : 'U';
     }
 
+    final accentColor = ref.watch(effectiveAccentColorProvider);
+    final hsl = HSLColor.fromColor(accentColor);
+    final darkerAccent = hsl
+        .withLightness((hsl.lightness * 0.75).clamp(0.15, 0.85))
+        .toColor();
+    final lighterAccent = hsl
+        .withLightness((hsl.lightness * 1.15).clamp(0.15, 0.95))
+        .toColor();
+
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: avatarUrl == null
-            ? LinearGradient(colors: [Colors.red.shade400, Colors.red.shade700])
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [lighterAccent, darkerAccent],
+              )
             : null,
       ),
       child: ClipOval(
@@ -266,7 +279,7 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab> {
                 imageUrl: avatarUrl,
                 fit: BoxFit.cover,
                 placeholder: (_, _) => Container(
-                  color: Colors.red.shade400,
+                  color: accentColor,
                   child: Center(
                     child: Text(
                       initials,
@@ -279,7 +292,7 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab> {
                   ),
                 ),
                 errorWidget: (_, _, _) => Container(
-                  color: Colors.red.shade400,
+                  color: accentColor,
                   child: Center(
                     child: Text(
                       initials,
@@ -730,15 +743,31 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab> {
 
   Widget _buildYTMusicLoginCard(bool isDark, ColorScheme colorScheme) {
     final l10n = context.l10n;
+    final accentColor = ref.watch(effectiveAccentColorProvider);
+    final hsl = HSLColor.fromColor(accentColor);
+    final darkerAccent = hsl
+        .withLightness((hsl.lightness * 0.65).clamp(0.15, 0.85))
+        .toColor();
+
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Colors.red.shade800, Colors.red.shade900],
+          colors: [
+            accentColor,
+            darkerAccent,
+          ],
         ),
         borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: accentColor.withValues(alpha: 0.28),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Material(
         color: Colors.transparent,
@@ -860,6 +889,11 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab> {
 
   Widget _buildAlbumCard(Track track, bool isDark, ColorScheme colorScheme) {
     final playerService = ref.watch(audioPlayerServiceProvider);
+    final isCurrentTrack = ref.watch(currentTrackIdProvider) == track.id;
+    final liveAccent = ref.watch(effectiveAccentColorProvider);
+    final playbackState = ref.watch(playbackStateProvider);
+    final isPlaying =
+        playbackState.whenOrNull(data: (s) => s.isPlaying) ?? false;
     // Capture notifier BEFORE async to avoid "ref after dispose" error
     final recentlyPlayedNotifier = ref.read(recentlyPlayedProvider.notifier);
 
@@ -879,14 +913,32 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab> {
               child: SizedBox(
                 width: 130,
                 height: 130,
-                child: track.thumbnailUrl != null
-                    ? CachedNetworkImage(
-                        imageUrl: track.thumbnailUrl!,
-                        fit: BoxFit.cover,
-                        placeholder: (_, _) => _defaultArtwork(colorScheme),
-                        errorWidget: (_, _, _) => _defaultArtwork(colorScheme),
-                      )
-                    : _defaultArtwork(colorScheme),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    track.thumbnailUrl != null
+                        ? CachedNetworkImage(
+                            imageUrl: track.thumbnailUrl!,
+                            fit: BoxFit.cover,
+                            placeholder: (_, _) => _defaultArtwork(liveAccent, isDark),
+                            errorWidget: (_, _, _) => _defaultArtwork(liveAccent, isDark),
+                          )
+                        : _defaultArtwork(liveAccent, isDark),
+                    if (isCurrentTrack)
+                      Container(
+                        color: Colors.black.withValues(alpha: 0.38),
+                        child: Center(
+                          child: Icon(
+                            isPlaying
+                                ? Icons.volume_up_rounded
+                                : Icons.play_arrow_rounded,
+                            color: liveAccent,
+                            size: 32,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 6),
@@ -896,8 +948,8 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab> {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: _textColors.primary,
+                fontWeight: isCurrentTrack ? FontWeight.bold : FontWeight.w500,
+                color: isCurrentTrack ? liveAccent : _textColors.primary,
               ),
             ),
           ],
@@ -907,12 +959,12 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab> {
   }
 
   /// Default artwork placeholder
-  Widget _defaultArtwork(ColorScheme colorScheme) {
+  Widget _defaultArtwork(Color accent, bool isDark) {
     return Container(
-      color: colorScheme.primaryContainer,
+      color: accent.withValues(alpha: isDark ? 0.18 : 0.12),
       child: Icon(
         Icons.music_note_rounded,
-        color: colorScheme.primary,
+        color: accent,
         size: 40,
       ),
     );

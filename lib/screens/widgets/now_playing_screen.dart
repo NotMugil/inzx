@@ -16,6 +16,7 @@ import '../../services/audio_player_service.dart' as player;
 import '../../services/lyrics/lyrics_service.dart';
 import '../../services/lyrics/lyrics_models.dart';
 import '../../core/design_system/design_system.dart';
+import '../../core/services/cache/hive_service.dart';
 import '../../core/l10n/app_localizations_x.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart' show AlbumScreen;
@@ -2763,6 +2764,16 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
         await likeAction.like(track.id);
       }
       ref.invalidate(ytMusicLikedSongsProvider);
+      ref.invalidate(ytMusicPlaylistProvider('LM'));
+      ref.invalidate(ytMusicPlaylistProvider('VLLM'));
+      ref.invalidate(ytMusicPlaylistProvider('liked'));
+      try {
+        HiveService.playlistsBox.delete('LM');
+        HiveService.playlistsBox.delete('VLLM');
+      } catch (_) {}
+    } else {
+      ref.invalidate(ytMusicPlaylistProvider('LM'));
+      ref.invalidate(ytMusicPlaylistProvider('liked'));
     }
   }
 

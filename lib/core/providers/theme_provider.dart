@@ -8,7 +8,8 @@ enum InzxThemeMode { system, light, dark }
 
 /// Available accent color options
 enum InzxAccentColor {
-  red, // AMOLED red - default
+  purple, // Purple/Violet/Lilac #6B46C1 - default
+  red, // AMOLED red
   sage, // Sage green
   lavender, // Soft lavender
   peach, // Warm peach
@@ -22,6 +23,8 @@ enum InzxAccentColor {
 /// Get the Color value for an accent color option
 Color getAccentColor(InzxAccentColor accent, {bool isDark = false}) {
   switch (accent) {
+    case InzxAccentColor.purple:
+      return isDark ? const Color(0xFF9F7AEA) : const Color(0xFF6B46C1);
     case InzxAccentColor.red:
       return isDark ? const Color(0xFFE53935) : const Color(0xFFD32F2F);
     case InzxAccentColor.sage:
@@ -46,6 +49,8 @@ Color getAccentColor(InzxAccentColor accent, {bool isDark = false}) {
 /// Get the display name for an accent color
 String getAccentColorName(InzxAccentColor accent) {
   switch (accent) {
+    case InzxAccentColor.purple:
+      return 'Purple';
     case InzxAccentColor.red:
       return 'Red';
     case InzxAccentColor.sage:
@@ -75,7 +80,7 @@ final accentColorProvider =
 
 /// Notifier to manage accent color state
 class AccentColorNotifier extends StateNotifier<InzxAccentColor> {
-  AccentColorNotifier() : super(InzxAccentColor.red); // Default to red
+  AccentColorNotifier() : super(InzxAccentColor.purple); // Default to purple #6B46C1
 
   void setAccentColor(InzxAccentColor color) {
     state = color;

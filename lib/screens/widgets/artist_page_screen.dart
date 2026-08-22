@@ -1,8 +1,10 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:palette_generator/palette_generator.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../core/design_system/design_system.dart';
 import '../../core/l10n/app_localizations_x.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
@@ -995,7 +997,7 @@ class _ArtistContent extends ConsumerWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      contentPadding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
       selected: isTrackPlaying,
       selectedTileColor: isDark
           ? Colors.white.withValues(alpha: 0.1)
@@ -1298,163 +1300,311 @@ class _ArtistContent extends ConsumerWidget {
     ];
   }
 
+  Widget _buildSheetActionTile({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required Color textColor,
+    required VoidCallback onTap,
+  }) {
+    return BouncyTouch(
+      style: BouncyStyle.card,
+      customScale: 0.98,
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Center(
+                child: Icon(icon, color: iconColor, size: 18),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: textColor.withValues(alpha: 0.25),
+              size: 20,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showOptionsSheet(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final colorScheme = Theme.of(context).colorScheme;
     final topTracks = artistData.topTracks;
+    final l10n = context.l10n;
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: isDark ? Colors.grey[900] : colorScheme.surface,
+      backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) => Material(
-        color: isDark ? Colors.grey[900] : colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-        clipBehavior: Clip.antiAlias,
-        child: SafeArea(
-          child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.grey[700] : Colors.grey[400],
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              ListTile(
-                leading: ClipOval(
-                  child: SizedBox(
-                    width: 50,
-                    height: 50,
-                    child: artistData.thumbnailUrl != null
-                        ? CachedNetworkImage(
-                            imageUrl: artistData.thumbnailUrl!,
-                            fit: BoxFit.cover,
-                          )
-                        : Container(
-                            color: isDark ? Colors.grey[800] : Colors.grey[300],
+      builder: (ctx) {
+        return Consumer(
+          builder: (context, refConsumer, child) {
+            final liveAccent = refConsumer.watch(effectiveAccentColorProvider);
+            final sheetBg = isDark
+                ? const Color(0xFF141414).withValues(alpha: 0.92)
+                : Colors.white.withValues(alpha: 0.95);
+            final textColor = isDark ? Colors.white : Colors.black87;
+            final secondaryColor = textColor.withValues(alpha: 0.55);
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(28),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: sheetBg,
+                        borderRadius: BorderRadius.circular(28),
+                        border: Border.all(
+                          color: liveAccent.withValues(alpha: 0.22),
+                          width: 1.0,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.35),
+                            blurRadius: 32,
+                            spreadRadius: 4,
                           ),
-                  ),
-                ),
-                title: Text(
-                  artistData.name,
-                  style: TextStyle(
-                    color: isDark ? Colors.white : colorScheme.onSurface,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                subtitle: artistData.subscriberCount != null
-                    ? Text(
-                        context.l10n.subscribersCount(
-                          _formatNumber(context, artistData.subscriberCount!),
+                        ],
+                      ),
+                      child: SingleChildScrollView(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Drag handle
+                              Center(
+                                child: Container(
+                                  width: 36,
+                                  height: 4,
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  decoration: BoxDecoration(
+                                    color: textColor.withValues(alpha: 0.25),
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ),
+                              ),
+
+                              // Artist Header Card
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: textColor.withValues(alpha: 0.05),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: liveAccent.withValues(alpha: 0.15),
+                                    width: 0.8,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    ClipOval(
+                                      child: SizedBox(
+                                        width: 50,
+                                        height: 50,
+                                        child: artistData.thumbnailUrl != null
+                                            ? CachedNetworkImage(
+                                                imageUrl:
+                                                    artistData.thumbnailUrl!,
+                                                fit: BoxFit.cover,
+                                              )
+                                            : Container(
+                                                color: isDark
+                                                    ? Colors.grey[800]
+                                                    : Colors.grey[300],
+                                                child: const Icon(Icons.person),
+                                              ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            artistData.name,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.bold,
+                                              color: textColor,
+                                            ),
+                                          ),
+                                          if (artistData.subscriberCount !=
+                                              null) ...[
+                                            const SizedBox(height: 3),
+                                            Text(
+                                              context.l10n.subscribersCount(
+                                                _formatNumber(
+                                                  context,
+                                                  artistData.subscriberCount!,
+                                                ),
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: 12.5,
+                                                color: secondaryColor,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              const SizedBox(height: 14),
+
+                              // Section: ARTIST ACTIONS
+                              Padding(
+                                padding:
+                                    const EdgeInsets.only(left: 6, bottom: 4),
+                                child: Text(
+                                  'ARTIST ACTIONS',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 1.2,
+                                    color: secondaryColor,
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: textColor.withValues(alpha: 0.04),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 4,
+                                  horizontal: 4,
+                                ),
+                                child: Column(
+                                  children: [
+                                    _buildSheetActionTile(
+                                      icon: Icons.play_arrow_rounded,
+                                      iconColor: liveAccent,
+                                      title: l10n.playAll,
+                                      textColor: textColor,
+                                      onTap: () {
+                                        Navigator.pop(ctx);
+                                        if (topTracks.isNotEmpty) {
+                                          playerService.playQueue(
+                                            topTracks,
+                                            startIndex: 0,
+                                            sourceId: artistData.id,
+                                          );
+                                        }
+                                      },
+                                    ),
+                                    _buildSheetActionTile(
+                                      icon: Icons.shuffle_rounded,
+                                      iconColor: liveAccent,
+                                      title: l10n.shuffleAll,
+                                      textColor: textColor,
+                                      onTap: () {
+                                        Navigator.pop(ctx);
+                                        if (topTracks.isNotEmpty) {
+                                          final shuffled =
+                                              List<Track>.from(topTracks)
+                                                ..shuffle();
+                                          playerService.playQueue(
+                                            shuffled,
+                                            startIndex: 0,
+                                            sourceId: artistData.id,
+                                          );
+                                        }
+                                      },
+                                    ),
+                                    _buildSheetActionTile(
+                                      icon: Icons.radio_rounded,
+                                      iconColor: liveAccent,
+                                      title: l10n.startRadio,
+                                      textColor: textColor,
+                                      onTap: () {
+                                        Navigator.pop(ctx);
+                                        if (topTracks.isNotEmpty) {
+                                          playerService.playTrack(
+                                            topTracks.first,
+                                            enableRadio: true,
+                                          );
+                                        }
+                                      },
+                                    ),
+                                    _buildSheetActionTile(
+                                      icon: Icons.share_rounded,
+                                      iconColor: liveAccent,
+                                      title: l10n.share,
+                                      textColor: textColor,
+                                      onTap: () {
+                                        Navigator.pop(ctx);
+                                        final url =
+                                            DeepLinkHandler.createShareUrl(
+                                              'artist',
+                                              artistData.id,
+                                            );
+                                        SharePlus.instance.share(
+                                          ShareParams(
+                                            text: context.l10n.shareArtistText(
+                                              artistData.name,
+                                              url,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                            ],
+                          ),
                         ),
-                        style: TextStyle(
-                          color: isDark
-                              ? Colors.white54
-                              : colorScheme.onSurface.withValues(alpha: 0.54),
-                        ),
-                      )
-                    : null,
-              ),
-              Divider(color: isDark ? Colors.grey : Colors.grey[300]),
-              ListTile(
-                leading: Icon(
-                  Icons.play_arrow,
-                  color: isDark ? Colors.white : colorScheme.onSurface,
-                ),
-                title: Text(
-                  context.l10n.playAll,
-                  style: TextStyle(
-                    color: isDark ? Colors.white : colorScheme.onSurface,
-                  ),
-                ),
-                onTap: () {
-                  Navigator.pop(context);
-                  if (topTracks.isNotEmpty) {
-                    playerService.playQueue(
-                      topTracks,
-                      startIndex: 0,
-                      sourceId: artistData.id,
-                    );
-                  }
-                },
-              ),
-              ListTile(
-                leading: Icon(
-                  Icons.shuffle,
-                  color: isDark ? Colors.white : colorScheme.onSurface,
-                ),
-                title: Text(
-                  context.l10n.shuffleAll,
-                  style: TextStyle(
-                    color: isDark ? Colors.white : colorScheme.onSurface,
-                  ),
-                ),
-                onTap: () {
-                  Navigator.pop(context);
-                  if (topTracks.isNotEmpty) {
-                    final shuffled = List<Track>.from(topTracks)..shuffle();
-                    playerService.playQueue(
-                      shuffled,
-                      startIndex: 0,
-                      sourceId: artistData.id,
-                    );
-                  }
-                },
-              ),
-              ListTile(
-                leading: Icon(
-                  Icons.radio,
-                  color: isDark ? Colors.white : colorScheme.onSurface,
-                ),
-                title: Text(
-                  context.l10n.startRadio,
-                  style: TextStyle(
-                    color: isDark ? Colors.white : colorScheme.onSurface,
-                  ),
-                ),
-                onTap: () {
-                  Navigator.pop(context);
-                  if (topTracks.isNotEmpty) {
-                    playerService.playTrack(topTracks.first, enableRadio: true);
-                  }
-                },
-              ),
-              ListTile(
-                leading: Icon(
-                  Icons.share,
-                  color: isDark ? Colors.white : colorScheme.onSurface,
-                ),
-                title: Text(
-                  context.l10n.share,
-                  style: TextStyle(
-                    color: isDark ? Colors.white : colorScheme.onSurface,
-                  ),
-                ),
-                onTap: () {
-                  Navigator.pop(context);
-                  final url = DeepLinkHandler.createShareUrl('artist', artistData.id);
-                  SharePlus.instance.share(
-                    ShareParams(
-                      text: context.l10n.shareArtistText(artistData.name, url),
+                      ),
                     ),
-                  );
-                },
+                  ),
+                ),
               ),
-              const SizedBox(height: 16),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
+            );
+          },
+        );
+      },
+    );
   }
 
   String _formatNumber(BuildContext context, int number) {

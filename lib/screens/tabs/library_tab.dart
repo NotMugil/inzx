@@ -500,7 +500,17 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
         ref.watch(ytMusicLikedSongsProvider).valueOrNull ?? [];
     final downloadedTracks =
         ref.watch(downloadedTracksProvider).valueOrNull ?? [];
-    final totalLiked = likedSongs.length + ytLikedSongs.length;
+    final totalLiked = () {
+      final seen = <String>{};
+      int count = 0;
+      for (final t in likedSongs) {
+        if (seen.add(t.id)) count++;
+      }
+      for (final t in ytLikedSongs) {
+        if (seen.add(t.id)) count++;
+      }
+      return count;
+    }();
 
     // Auto playlists with modern colored container gradients (Artists removed)
     final autoPlaylists = [
@@ -1021,11 +1031,8 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
 
     // Liked songs should open the actual liked playlist page.
     if (type == 'liked') {
-      final ytAuthState = ref.read(ytMusicAuthStateProvider);
-      if (ytAuthState.isLoggedIn) {
-        PlaylistScreen.open(context, playlistId: 'LM', title: title);
-        return;
-      }
+      PlaylistScreen.open(context, playlistId: 'LM', title: title);
+      return;
     }
 
     List<Track> tracks = [];
@@ -2319,7 +2326,7 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
     ColorScheme colorScheme,
   ) {
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      contentPadding: const EdgeInsets.fromLTRB(16, 2, 4, 2),
       leading: ClipRRect(
         borderRadius: BorderRadius.circular(4),
         child: track.thumbnailUrl != null

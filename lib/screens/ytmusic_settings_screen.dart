@@ -2184,10 +2184,14 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
             width: 38,
             height: 38,
             decoration: BoxDecoration(
-              color: Colors.red.withValues(alpha: 0.12),
+              color: const Color(0xFFF48FB1).withValues(alpha: 0.16),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(Iconsax.heart5, color: Colors.redAccent, size: 18),
+            child: const Icon(
+              Iconsax.heart5,
+              color: Color(0xFFF06292), // Pastel pink
+              size: 18,
+            ),
           ),
           title: Text(
             'Sponsor Inzx',

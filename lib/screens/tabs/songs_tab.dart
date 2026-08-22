@@ -200,7 +200,9 @@ class _MusicSongsTabState extends ConsumerState<MusicSongsTab> {
                 height: 40,
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 decoration: BoxDecoration(
-                  color: isDark ? Colors.white10 : Colors.grey.shade100,
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.08)
+                      : Colors.black.withValues(alpha: 0.05),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: TextField(
@@ -733,7 +735,7 @@ class _MusicSongsTabState extends ConsumerState<MusicSongsTab> {
         playbackState.whenOrNull(data: (s) => s.isPlaying) ?? false;
 
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      contentPadding: const EdgeInsets.fromLTRB(16, 2, 4, 2),
       leading: ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: SizedBox(

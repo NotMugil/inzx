@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:marquee/marquee.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../core/design_system/design_system.dart';
+import '../../core/services/cache/hive_service.dart';
 import '../../services/deep_link_handler.dart';
 import '../../core/l10n/app_localizations_x.dart';
 import '../../models/models.dart';
@@ -711,6 +712,16 @@ class TrackOptionsSheet extends ConsumerWidget {
         await likeAction.like(track.id);
       }
       ref.invalidate(ytMusicLikedSongsProvider);
+      ref.invalidate(ytMusicPlaylistProvider('LM'));
+      ref.invalidate(ytMusicPlaylistProvider('VLLM'));
+      ref.invalidate(ytMusicPlaylistProvider('liked'));
+      try {
+        HiveService.playlistsBox.delete('LM');
+        HiveService.playlistsBox.delete('VLLM');
+      } catch (_) {}
+    } else {
+      ref.invalidate(ytMusicPlaylistProvider('LM'));
+      ref.invalidate(ytMusicPlaylistProvider('liked'));
     }
   }
 }

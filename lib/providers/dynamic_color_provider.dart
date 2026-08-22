@@ -296,7 +296,7 @@ final effectiveAccentColorProvider = Provider<Color>((ref) {
     return dynamicColors.primary;
   }
 
-  // Fall back to the app's configured accent color (defaults to red)
+  // Fall back to the app's configured accent color (defaults to purple #6B46C1)
   final accentEnum = ref.watch(accentColorProvider);
   return getAccentColor(accentEnum, isDark: true);
 });

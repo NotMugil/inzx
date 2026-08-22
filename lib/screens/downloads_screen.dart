@@ -267,6 +267,7 @@ class DownloadsScreen extends ConsumerWidget {
     final playerService = ref.watch(audioPlayerServiceProvider);
 
     return ListTile(
+      contentPadding: const EdgeInsets.fromLTRB(16, 2, 4, 2),
       leading: Stack(
         children: [
           ClipRRect(

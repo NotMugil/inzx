@@ -227,19 +227,17 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   height: 46,
                   padding: const EdgeInsets.symmetric(horizontal: 14),
                   decoration: BoxDecoration(
-                    color: Colors.transparent,
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.08)
+                        : Colors.black.withValues(alpha: 0.05),
                     borderRadius: BorderRadius.circular(24),
-                    border: Border.all(
-                      color: accentColor.withValues(alpha: 0.35),
-                      width: 1.2,
-                    ),
                   ),
                   child: Row(
                     children: [
                       Icon(
                         Iconsax.search_normal,
                         size: 18,
-                        color: accentColor,
+                        color: isDark ? Colors.white54 : InzxColors.textSecondary,
                       ),
                       const SizedBox(width: 10),
                       Expanded(
