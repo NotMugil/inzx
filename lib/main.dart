@@ -255,8 +255,9 @@ class _InzxAppState extends ConsumerState<InzxApp> {
 
     // Get accent color
     final accentColorEnum = ref.watch(accentColorProvider);
-    final lightAccent = getAccentColor(accentColorEnum, isDark: false);
-    final darkAccent = getAccentColor(accentColorEnum, isDark: true);
+    final customAccent = ref.watch(customAccentColorProvider);
+    final lightAccent = getAccentColor(accentColorEnum, isDark: false, customColor: customAccent);
+    final darkAccent = getAccentColor(accentColorEnum, isDark: true, customColor: customAccent);
 
     ThemeData lightTheme = InzxTheme.lightWithAccent(lightAccent);
     ThemeData darkTheme = InzxTheme.darkWithAccent(darkAccent);

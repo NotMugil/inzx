@@ -18,10 +18,11 @@ enum InzxAccentColor {
   amber, // Warm amber
   mint, // Fresh mint
   coral, // Soft coral
+  custom, // Custom user chosen color
 }
 
 /// Get the Color value for an accent color option
-Color getAccentColor(InzxAccentColor accent, {bool isDark = false}) {
+Color getAccentColor(InzxAccentColor accent, {bool isDark = false, Color? customColor}) {
   switch (accent) {
     case InzxAccentColor.purple:
       return isDark ? const Color(0xFF9F7AEA) : const Color(0xFF6B46C1);
@@ -43,6 +44,8 @@ Color getAccentColor(InzxAccentColor accent, {bool isDark = false}) {
       return isDark ? const Color(0xFF8FE4C8) : const Color(0xFF7DD4B8);
     case InzxAccentColor.coral:
       return isDark ? const Color(0xFFF8C4B0) : const Color(0xFFF8C4B0);
+    case InzxAccentColor.custom:
+      return customColor ?? (isDark ? const Color(0xFF9F7AEA) : const Color(0xFF6B46C1));
   }
 }
 
@@ -69,6 +72,41 @@ String getAccentColorName(InzxAccentColor accent) {
       return 'Mint';
     case InzxAccentColor.coral:
       return 'Coral';
+    case InzxAccentColor.custom:
+      return 'Custom';
+  }
+}
+
+/// Provider for the custom accent color
+final customAccentColorProvider =
+    StateNotifierProvider<CustomAccentColorNotifier, Color>((ref) {
+      return CustomAccentColorNotifier();
+    });
+
+/// Notifier to manage custom accent color
+class CustomAccentColorNotifier extends StateNotifier<Color> {
+  static const String customAccentPrefKey = 'inzx_custom_accent_color_int';
+
+  CustomAccentColorNotifier() : super(const Color(0xFF9F7AEA)) {
+    _loadCustomColor();
+  }
+
+  Future<void> _loadCustomColor() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final colorInt = prefs.getInt(customAccentPrefKey);
+      if (colorInt != null) {
+        state = Color(colorInt);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> setCustomColor(Color color) async {
+    state = color;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(customAccentPrefKey, color.toARGB32());
+    } catch (_) {}
   }
 }
 
@@ -80,10 +118,28 @@ final accentColorProvider =
 
 /// Notifier to manage accent color state
 class AccentColorNotifier extends StateNotifier<InzxAccentColor> {
-  AccentColorNotifier() : super(InzxAccentColor.purple); // Default to purple #6B46C1
+  static const String accentColorPrefKey = 'inzx_accent_color_enum';
 
-  void setAccentColor(InzxAccentColor color) {
+  AccentColorNotifier() : super(InzxAccentColor.purple) {
+    _loadAccentColor();
+  }
+
+  Future<void> _loadAccentColor() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final index = prefs.getInt(accentColorPrefKey);
+      if (index != null && index >= 0 && index < InzxAccentColor.values.length) {
+        state = InzxAccentColor.values[index];
+      }
+    } catch (_) {}
+  }
+
+  Future<void> setAccentColor(InzxAccentColor color) async {
     state = color;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(accentColorPrefKey, color.index);
+    } catch (_) {}
   }
 }
 
