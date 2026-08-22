@@ -57,6 +57,8 @@ class PlaybackState {
   final PlaybackData? currentPlaybackData;
   final String?
   queueSourceId; // Track which playlist/album/artist started this queue
+  final String?
+  queueTitle; // Track title of the playlist/album/artist
   final bool isRadioMode; // Whether radio mode is active (infinite queue)
   final bool
   isFetchingRadio; // Whether we're currently fetching more radio tracks
@@ -83,6 +85,7 @@ class PlaybackState {
     this.currentPlaybackData,
     this.queueRevision = 0,
     this.queueSourceId,
+    this.queueTitle,
     this.isRadioMode = false,
     this.isFetchingRadio = false,
     this.streamCacheWifiOnly = false,
@@ -109,6 +112,8 @@ class PlaybackState {
     PlaybackData? currentPlaybackData,
     int? queueRevision,
     String? queueSourceId,
+    String? queueTitle,
+    bool resetQueueTitle = false,
     bool? isRadioMode,
     bool? isFetchingRadio,
     bool? streamCacheWifiOnly,
@@ -134,6 +139,7 @@ class PlaybackState {
       audioQuality: audioQuality ?? this.audioQuality,
       currentPlaybackData: currentPlaybackData ?? this.currentPlaybackData,
       queueSourceId: queueSourceId ?? this.queueSourceId,
+      queueTitle: resetQueueTitle ? null : (queueTitle ?? this.queueTitle),
       isRadioMode: isRadioMode ?? this.isRadioMode,
       isFetchingRadio: isFetchingRadio ?? this.isFetchingRadio,
       streamCacheWifiOnly: streamCacheWifiOnly ?? this.streamCacheWifiOnly,
@@ -183,6 +189,8 @@ class PlaybackState {
         other.error == error &&
         other.audioQuality == audioQuality &&
         other.duration == duration &&
+        other.queueSourceId == queueSourceId &&
+        other.queueTitle == queueTitle &&
         other.isRadioMode == isRadioMode &&
         other.isFetchingRadio == isFetchingRadio &&
         other.streamCacheWifiOnly == streamCacheWifiOnly &&
@@ -207,6 +215,8 @@ class PlaybackState {
     error,
     audioQuality,
     duration,
+    queueSourceId,
+    queueTitle,
     isRadioMode,
     isFetchingRadio,
     streamCacheWifiOnly,
@@ -299,6 +309,9 @@ class AudioPlayerService {
   int _crossfadeDurationMs = kDefaultCrossfadeDurationMs;
   String?
   _queueSourceId; // Track which playlist/album/artist started this queue
+  String?
+  _queueSourceTitle; // Track title of which playlist/album/artist started this queue
+  String? get queueSourceTitle => _queueSourceTitle;
   Duration? _pendingSeekPosition;
   String? _pendingSeekTrackId;
   bool _durationMigrationInProgress = false;
@@ -2377,6 +2390,8 @@ class AudioPlayerService {
     PlaybackData? currentPlaybackData,
     int? queueRevision,
     String? queueSourceId,
+    String? queueTitle,
+    bool resetQueueTitle = false,
     bool? isRadioMode,
     bool? isFetchingRadio,
     bool? streamCacheWifiOnly,
@@ -2402,6 +2417,8 @@ class AudioPlayerService {
       audioQuality: audioQuality ?? _audioQuality,
       currentPlaybackData: currentPlaybackData ?? _currentPlaybackData,
       queueSourceId: queueSourceId ?? _queueSourceId,
+      queueTitle: resetQueueTitle ? null : (queueTitle ?? _queueSourceTitle),
+      resetQueueTitle: resetQueueTitle,
       isRadioMode: isRadioMode ?? _isRadioMode,
       isFetchingRadio: isFetchingRadio ?? _isFetchingRadio,
       streamCacheWifiOnly: streamCacheWifiOnly ?? _streamCacheWifiOnly,
@@ -2429,7 +2446,13 @@ class AudioPlayerService {
       _radioFetchedIds.add(track.id); // Don't re-add the initial track
       _radioFetchCount = 0;
     }
-    await playQueue([track], startIndex: 0, isRadioQueue: false);
+    await playQueue(
+      [track],
+      startIndex: 0,
+      isRadioQueue: false,
+      sourceId: null,
+      sourceTitle: null,
+    );
   }
 
   /// Play a queue of tracks
@@ -2441,15 +2464,17 @@ class AudioPlayerService {
   /// 4. Next tracks are pre-buffered automatically
   ///
   /// [sourceId] - optional ID of the playlist/album/artist this queue came from
+  /// [sourceTitle] - optional title of the playlist/album/artist this queue came from
   Future<void> playQueue(
     List<Track> tracks, {
     int startIndex = 0,
     bool isRadioQueue = false,
     String? sourceId,
+    String? sourceTitle,
   }) async {
     if (kDebugMode) {
       print(
-        'AudioPlayerService.playQueue: tracks=${tracks.length}, startIndex=$startIndex, isRadioQueue=$isRadioQueue, sourceId=$sourceId',
+        'AudioPlayerService.playQueue: tracks=${tracks.length}, startIndex=$startIndex, isRadioQueue=$isRadioQueue, sourceId=$sourceId, sourceTitle=$sourceTitle',
       );
     }
     if (tracks.isEmpty) return;
@@ -2465,8 +2490,9 @@ class AudioPlayerService {
       }
     }
 
-    // Track the source of this queue (playlist/album/artist ID)
+    // Track the source of this queue (playlist/album/artist ID & Title)
     _queueSourceId = isRadioQueue ? _queueSourceId : sourceId;
+    _queueSourceTitle = isRadioQueue ? _queueSourceTitle : sourceTitle;
 
     _originalQueue = List.from(tracks);
     _queue = _shuffleEnabled
@@ -2484,6 +2510,8 @@ class AudioPlayerService {
       currentTrack: _currentTrack,
       isLoading: true, // Show loading state while buffering
       queueSourceId: _queueSourceId,
+      queueTitle: _queueSourceTitle,
+      resetQueueTitle: _queueSourceTitle == null,
       isRadioMode: _isRadioMode,
       isFetchingRadio: false, // Reset fetching state for new queue
     );

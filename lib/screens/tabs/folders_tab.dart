@@ -621,7 +621,11 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
                   ),
                   onPressed: () => TrackOptionsSheet.show(context, track),
                 ),
-                onTap: () => playerService.playQueue(tracks, startIndex: index),
+                onTap: () => playerService.playQueue(
+                  tracks,
+                  startIndex: index,
+                  sourceTitle: l10n.folders,
+                ),
               );
             },
           ),

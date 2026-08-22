@@ -2501,6 +2501,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   }
 
   Widget _buildTopBar(Color textColor, Color secondaryColor) {
+    final playbackState = ref.watch(playbackStateProvider).valueOrNull;
+    final queueTitle = playbackState?.queueTitle;
+    final hasQueueTitle = queueTitle != null && queueTitle.trim().isNotEmpty;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: Row(
@@ -2519,18 +2523,38 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
               child: Icon(Icons.keyboard_arrow_down, color: textColor, size: 32),
             ),
           ),
-          Column(
-            children: [
-              Text(
-                context.l10n.nowPlayingHeader,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: secondaryColor,
-                  letterSpacing: 1.5,
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  context.l10n.nowPlayingHeader,
+                  style: TextStyle(
+                    fontSize: hasQueueTitle ? 9.5 : 11,
+                    fontWeight: FontWeight.w600,
+                    color: secondaryColor.withValues(alpha: 0.65),
+                    letterSpacing: 1.4,
+                  ),
                 ),
-              ),
-            ],
+                if (hasQueueTitle) ...[
+                  const SizedBox(height: 2),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 220),
+                    child: Text(
+                      queueTitle.trim(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: textColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
           BouncyTouch(
             style: BouncyStyle.button,

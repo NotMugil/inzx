@@ -112,6 +112,13 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
   Widget _buildCategoryTabs(bool isDark, ColorScheme colorScheme) {
     final l10n = context.l10n;
     final accentColor = ref.watch(effectiveAccentColorProvider);
+    final downloadManager = ref.watch(downloadManagerProvider);
+    final activeDownloads = downloadManager.activeTasks;
+    final isDownloading = activeDownloads.isNotEmpty;
+    final activeDownloadProgress =
+        isDownloading ? activeDownloads.first.progress : 0.0;
+    final activeDownloadPercent = (activeDownloadProgress * 100).toInt();
+
     final categories = [
       l10n.playlists,
       l10n.albums,
@@ -126,6 +133,9 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
       child: Row(
         children: List.generate(categories.length, (index) {
           final isSelected = _selectedCategory == index;
+          final isDownloadsTab = index == 3;
+          final showDownloadingPill = isDownloadsTab && isDownloading;
+
           return Padding(
             padding: const EdgeInsets.only(right: 8),
             child: GestureDetector(
@@ -145,21 +155,65 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
                 decoration: BoxDecoration(
                   color: isSelected
                       ? accentColor
-                      : (isDark
-                          ? const Color(0xFF262626)
-                          : Colors.grey.shade200),
+                      : (showDownloadingPill
+                          ? accentColor.withValues(alpha: isDark ? 0.22 : 0.14)
+                          : (isDark
+                              ? const Color(0xFF262626)
+                              : Colors.grey.shade200)),
                   borderRadius: BorderRadius.circular(24),
+                  border: showDownloadingPill && !isSelected
+                      ? Border.all(
+                          color: accentColor.withValues(alpha: 0.45),
+                          width: 1,
+                        )
+                      : null,
                 ),
-                child: Text(
-                  categories[index],
-                  style: TextStyle(
-                    color: isSelected
-                        ? (isDark ? Colors.black : Colors.white)
-                        : (isDark ? Colors.white70 : InzxColors.textPrimary),
-                    fontWeight:
-                        isSelected ? FontWeight.w700 : FontWeight.w500,
-                    fontSize: 13,
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      categories[index],
+                      style: TextStyle(
+                        color: isSelected
+                            ? (isDark ? Colors.black : Colors.white)
+                            : (showDownloadingPill
+                                ? accentColor
+                                : (isDark
+                                    ? Colors.white70
+                                    : InzxColors.textPrimary)),
+                        fontWeight:
+                            isSelected || showDownloadingPill
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                        fontSize: 13,
+                      ),
+                    ),
+                    if (showDownloadingPill) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 1.5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? (isDark ? Colors.black26 : Colors.white24)
+                              : accentColor.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '$activeDownloadPercent%',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: isSelected
+                                ? (isDark ? Colors.black : Colors.white)
+                                : accentColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
@@ -1123,7 +1177,7 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
                       final shuffled = List<Track>.from(tracks)..shuffle();
                       ref
                           .read(audioPlayerServiceProvider)
-                          .playQueue(shuffled, startIndex: 0);
+                          .playQueue(shuffled, startIndex: 0, sourceTitle: title);
                       NowPlayingScreen.show(context);
                     },
                     icon: Icon(
@@ -1136,7 +1190,7 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
                       Navigator.pop(context);
                       ref
                           .read(audioPlayerServiceProvider)
-                          .playQueue(tracks, startIndex: 0);
+                          .playQueue(tracks, startIndex: 0, sourceTitle: title);
                       NowPlayingScreen.show(context);
                     },
                     icon: Icon(
@@ -1205,7 +1259,7 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
                       Navigator.pop(context);
                       ref
                           .read(audioPlayerServiceProvider)
-                          .playQueue(tracks, startIndex: index);
+                          .playQueue(tracks, startIndex: index, sourceTitle: title);
                       NowPlayingScreen.show(context);
                     },
                   );
@@ -2232,6 +2286,7 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
     bool isDark,
     ColorScheme colorScheme,
   ) {
+    final accentColor = ref.watch(effectiveAccentColorProvider);
     return ListTile(
       leading: ClipRRect(
         borderRadius: BorderRadius.circular(4),
@@ -2277,7 +2332,7 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
           LinearProgressIndicator(
             value: task.progress,
             backgroundColor: isDark ? Colors.white12 : Colors.grey.shade300,
-            color: colorScheme.primary,
+            color: accentColor,
           ),
         ],
       ),
@@ -2287,7 +2342,11 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
               children: [
                 Text(
                   '${(task.progress * 100).toInt()}%',
-                  style: TextStyle(fontSize: 12, color: colorScheme.primary),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: accentColor,
+                  ),
                 ),
                 IconButton(
                   icon: Icon(
@@ -2374,7 +2433,11 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
       onTap: () {
         // Play this track and queue the rest
         final playerService = ref.read(audioPlayerServiceProvider);
-        playerService.playQueue(allTracks, startIndex: index);
+        playerService.playQueue(
+          allTracks,
+          startIndex: index,
+          sourceTitle: context.l10n.downloads,
+        );
 
         // Show now playing
         showModalBottomSheet(
@@ -2473,7 +2536,11 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
   void _playAllDownloads(List<Track> tracks) {
     if (tracks.isEmpty) return;
     final playerService = ref.read(audioPlayerServiceProvider);
-    playerService.playQueue(tracks, startIndex: 0);
+    playerService.playQueue(
+      tracks,
+      startIndex: 0,
+      sourceTitle: context.l10n.downloads,
+    );
 
     showModalBottomSheet(
       context: context,
