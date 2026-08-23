@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:marquee/marquee.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../core/design_system/design_system.dart';
+import '../../core/services/cache/hive_service.dart';
 import '../../services/deep_link_handler.dart';
 import '../../core/l10n/app_localizations_x.dart';
 import '../../models/models.dart';
@@ -52,7 +53,11 @@ class TrackOptionsSheet extends ConsumerWidget {
     final l10n = context.l10n;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final albumColors = ref.watch(albumColorsProvider);
-    final accentColor = isDark ? albumColors.accentLight : albumColors.accent;
+    final effectiveAccent = ref.watch(effectiveAccentColorProvider);
+    final isMediaPlaying = ref.watch(currentTrackProvider) != null;
+    final accentColor = (isMediaPlaying && !albumColors.isDefault)
+        ? (isDark ? albumColors.accentLight : albumColors.accent)
+        : effectiveAccent;
 
     final sheetBg = isDark
         ? const Color(0xFF141414).withValues(alpha: 0.90)
@@ -707,6 +712,16 @@ class TrackOptionsSheet extends ConsumerWidget {
         await likeAction.like(track.id);
       }
       ref.invalidate(ytMusicLikedSongsProvider);
+      ref.invalidate(ytMusicPlaylistProvider('LM'));
+      ref.invalidate(ytMusicPlaylistProvider('VLLM'));
+      ref.invalidate(ytMusicPlaylistProvider('liked'));
+      try {
+        HiveService.playlistsBox.delete('LM');
+        HiveService.playlistsBox.delete('VLLM');
+      } catch (_) {}
+    } else {
+      ref.invalidate(ytMusicPlaylistProvider('LM'));
+      ref.invalidate(ytMusicPlaylistProvider('liked'));
     }
   }
 }

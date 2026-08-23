@@ -16,6 +16,7 @@ import '../../services/audio_player_service.dart' as player;
 import '../../services/lyrics/lyrics_service.dart';
 import '../../services/lyrics/lyrics_models.dart';
 import '../../core/design_system/design_system.dart';
+import '../../core/services/cache/hive_service.dart';
 import '../../core/l10n/app_localizations_x.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart' show AlbumScreen;
@@ -202,11 +203,20 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
+        final newIndex = _tabController.index;
         setState(() {
-          _showQueue = _tabController.index == 0;
-          _showLyrics = _tabController.index == 1;
+          _showQueue = newIndex == 0;
+          _showLyrics = newIndex == 1;
           // index 2 = Related
         });
+        if (_pageController.hasClients &&
+            _pageController.page?.round() != newIndex) {
+          _pageController.animateToPage(
+            newIndex,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+          );
+        }
       }
     });
 
@@ -285,8 +295,31 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     if (_lastOrientation != null && _lastOrientation != currentOrientation) {
       _lastOrientation = currentOrientation;
       _lastAlbumArtSyncedIndex = -1; // Force re-sync of album art controller on orientation change
-      if (currentOrientation == Orientation.landscape && _tabController.index == 0) {
-        _tabController.index = 1; // Default to Lyrics tab when first entering landscape mode
+      final activeTabIndex = _tabController.index;
+
+      if (currentOrientation == Orientation.landscape) {
+        // Ensure stage view controller is at the current active tab
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _stageViewPageController.hasClients) {
+            _stageViewPageController.jumpToPage(activeTabIndex);
+          }
+        });
+      } else {
+        // Returning to portrait: open drawer on the active tab from landscape (e.g., Lyrics)
+        _isDrawerExpanded = true;
+        _showQueue = activeTabIndex == 0;
+        _showLyrics = activeTabIndex == 1;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            if (_pageController.hasClients) {
+              _pageController.jumpToPage(activeTabIndex);
+            }
+            if (_tabController.index != activeTabIndex) {
+              _tabController.animateTo(activeTabIndex);
+            }
+            _drawerKey.currentState?.expand();
+          }
+        });
       }
     } else {
       _lastOrientation = currentOrientation;
@@ -446,7 +479,21 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
             child: YTMDrawer(
               key: _drawerKey,
               backgroundColor: Colors.transparent,
-              surfaceColor: colors.surface, // Solid background for drawer
+              surfaceColor: colors.surface,
+              surfaceDecoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    colors.backgroundPrimary,
+                    colors.backgroundSecondary,
+                  ],
+                  stops: const [0.0, 1.0],
+                ),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(16),
+                ),
+              ),
               initiallyExpanded: _isDrawerExpanded,
               onDismiss: () {
                 Navigator.of(context).pop();
@@ -466,6 +513,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                   _showQueue = tabIndex == 0;
                   _showLyrics = tabIndex == 1;
                 });
+                if (_pageController.hasClients) {
+                  _pageController.jumpToPage(tabIndex);
+                }
               },
               // Now Playing content (shown when collapsed)
               nowPlayingContent: SafeArea(
@@ -681,6 +731,19 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                   PageView(
                     controller: _stageViewPageController,
                     physics: const BouncingScrollPhysics(),
+                    onPageChanged: (index) {
+                      if (_tabController.index != index) {
+                        _tabController.animateTo(index);
+                      }
+                      setState(() {
+                        _showQueue = index == 0;
+                        _showLyrics = index == 1;
+                      });
+                      if (_pageController.hasClients &&
+                          _pageController.page?.round() != index) {
+                        _pageController.jumpToPage(index);
+                      }
+                    },
                     children: [
                       _buildQueueContent(
                         textColor,
@@ -1618,22 +1681,30 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     );
   }
 
-  /// Tab content switcher - shows Queue, Lyrics, or Related based on selected tab
+  /// Tab content with horizontal swipeable PageView (Up Next / Lyrics / Related)
   Widget _buildTabContent(
     Color textColor,
     Color secondaryColor,
     Color surfaceColor,
   ) {
-    switch (_tabController.index) {
-      case 0: // UP NEXT
-        return _buildQueueContent(textColor, secondaryColor, surfaceColor);
-      case 1: // LYRICS
-        return _buildLyricsView(ref);
-      case 2: // RELATED
-        return _buildRelatedContent(textColor, secondaryColor);
-      default:
-        return _buildQueueContent(textColor, secondaryColor, surfaceColor);
-    }
+    return PageView(
+      controller: _pageController,
+      physics: const BouncingScrollPhysics(),
+      onPageChanged: (index) {
+        if (_tabController.index != index) {
+          _tabController.animateTo(index);
+          setState(() {
+            _showQueue = index == 0;
+            _showLyrics = index == 1;
+          });
+        }
+      },
+      children: [
+        _buildQueueContent(textColor, secondaryColor, surfaceColor),
+        _buildLyricsView(ref),
+        _buildRelatedContent(textColor, secondaryColor),
+      ],
+    );
   }
 
   /// Related content placeholder
@@ -2163,11 +2234,77 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     );
   }
 
+  String _cleanArtistDescription(String raw) {
+    var text = raw.trim();
+    if (text.isEmpty) return text;
+
+    // 1. Remove URLs enclosed in parentheses e.g. (https://...) or (http://...)
+    text = text.replaceAll(
+      RegExp(r'\s*\(\s*https?:\/\/[^\)]+\)', caseSensitive: false),
+      '',
+    );
+
+    // 2. Remove standalone URLs
+    text = text.replaceAll(
+      RegExp(r'https?:\/\/\S+', caseSensitive: false),
+      '',
+    );
+
+    // 3. Remove Wikipedia & Creative Commons / CCA license boilerplate trailers
+    text = text.replaceAll(
+      RegExp(
+        r'[-–—|•]?\s*(?:From\s+)?Wikipedia(?:\s*\(.*?\))?\s*(?:Under\s+.*)?$',
+        caseSensitive: false,
+        multiLine: true,
+      ),
+      '',
+    );
+    text = text.replaceAll(
+      RegExp(
+        r'[-–—|•]?\s*Under\s+(?:CCA|CC|Creative\s+Commons|the\s+Creative\s+Commons).*$',
+        caseSensitive: false,
+        multiLine: true,
+      ),
+      '',
+    );
+    text = text.replaceAll(
+      RegExp(
+        r'[-–—|•]?\s*(?:CC-BY-SA|CC\s+BY-SA|Creative\s+Commons\s+Attribution).*$',
+        caseSensitive: false,
+        multiLine: true,
+      ),
+      '',
+    );
+
+    // 4. Remove empty brackets/parentheses that might remain
+    text = text.replaceAll(RegExp(r'\(\s*\)'), '');
+    text = text.replaceAll(RegExp(r'\[\s*\]'), '');
+
+    // 5. Clean up redundant spaces and trailing punctuation
+    text = text.replaceAll(RegExp(r'[ \t]+'), ' ');
+    text = text.replaceAll(RegExp(r'\n{3,}'), '\n\n');
+    text = text.trim();
+
+    // Clean any dangling trailing dashes, pipes, or commas
+    text = text.replaceAll(RegExp(r'[\s\-–—|•,]+$'), '');
+
+    return text.trim();
+  }
+
   Widget _buildAboutArtistSection(
     WatchRelatedContent relatedContent,
     Color textColor,
     Color secondaryColor,
   ) {
+    final rawDesc = relatedContent.aboutDescription ?? '';
+    final cleanedDesc = _cleanArtistDescription(rawDesc);
+    if (cleanedDesc.isEmpty) return const SizedBox.shrink();
+
+    final bool hadWikipediaSource =
+        rawDesc.toLowerCase().contains('wikipedia') ||
+        rawDesc.toLowerCase().contains('cc-by-sa') ||
+        rawDesc.toLowerCase().contains('creative commons');
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 24),
       child: Column(
@@ -2184,20 +2321,32 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
               ),
             ),
           ),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: textColor.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Text(
-              relatedContent.aboutDescription!,
-              style: TextStyle(
-                color: secondaryColor,
-                fontSize: 14,
-                height: 1.45,
-              ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  cleanedDesc,
+                  style: TextStyle(
+                    color: secondaryColor.withValues(alpha: 0.9),
+                    fontSize: 14,
+                    height: 1.5,
+                    letterSpacing: 0.1,
+                  ),
+                ),
+                if (hadWikipediaSource) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    'Source: Wikipedia',
+                    style: TextStyle(
+                      color: secondaryColor.withValues(alpha: 0.5),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ],
@@ -2388,6 +2537,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   }
 
   Widget _buildTopBar(Color textColor, Color secondaryColor) {
+    final playbackState = ref.watch(playbackStateProvider).valueOrNull;
+    final queueTitle = playbackState?.queueTitle;
+    final hasQueueTitle = queueTitle != null && queueTitle.trim().isNotEmpty;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: Row(
@@ -2406,18 +2559,74 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
               child: Icon(Icons.keyboard_arrow_down, color: textColor, size: 32),
             ),
           ),
-          Column(
-            children: [
-              Text(
-                context.l10n.nowPlayingHeader,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: secondaryColor,
-                  letterSpacing: 1.5,
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  context.l10n.nowPlayingHeader,
+                  style: TextStyle(
+                    fontSize: hasQueueTitle ? 9.5 : 11,
+                    fontWeight: FontWeight.w600,
+                    color: secondaryColor.withValues(alpha: 0.65),
+                    letterSpacing: 1.4,
+                  ),
                 ),
-              ),
-            ],
+                if (hasQueueTitle) ...[
+                  const SizedBox(height: 2),
+                  SizedBox(
+                    height: 18,
+                    width: 220,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final textStyle = TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: textColor,
+                        );
+
+                        final textPainter = TextPainter(
+                          text: TextSpan(
+                            text: queueTitle.trim(),
+                            style: textStyle,
+                          ),
+                          maxLines: 1,
+                          textDirection: TextDirection.ltr,
+                        )..layout();
+
+                        if (textPainter.width > constraints.maxWidth) {
+                          return Marquee(
+                            text: queueTitle.trim(),
+                            style: textStyle,
+                            scrollAxis: Axis.horizontal,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            blankSpace: 36.0,
+                            velocity: 25.0,
+                            pauseAfterRound: const Duration(seconds: 2),
+                            startPadding: 0.0,
+                            accelerationDuration: const Duration(seconds: 1),
+                            accelerationCurve: Curves.linear,
+                            decelerationDuration:
+                                const Duration(milliseconds: 500),
+                            decelerationCurve: Curves.easeOut,
+                          );
+                        }
+
+                        return Center(
+                          child: Text(
+                            queueTitle.trim(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: textStyle,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
           BouncyTouch(
             style: BouncyStyle.button,
@@ -2651,6 +2860,16 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
         await likeAction.like(track.id);
       }
       ref.invalidate(ytMusicLikedSongsProvider);
+      ref.invalidate(ytMusicPlaylistProvider('LM'));
+      ref.invalidate(ytMusicPlaylistProvider('VLLM'));
+      ref.invalidate(ytMusicPlaylistProvider('liked'));
+      try {
+        HiveService.playlistsBox.delete('LM');
+        HiveService.playlistsBox.delete('VLLM');
+      } catch (_) {}
+    } else {
+      ref.invalidate(ytMusicPlaylistProvider('LM'));
+      ref.invalidate(ytMusicPlaylistProvider('liked'));
     }
   }
 
@@ -2826,10 +3045,18 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
         ? lines[currentIdx].text.trim()
         : '';
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeOutCubic,
-      height: showPreview ? _syncedLyricPreviewHeight : 0.0,
+    return GestureDetector(
+      onTap: () {
+        _tabController.animateTo(1);
+        if (_pageController.hasClients) {
+          _pageController.jumpToPage(1);
+        }
+        _drawerKey.currentState?.expand();
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+        height: showPreview ? _syncedLyricPreviewHeight : 0.0,
       child: ClipRect(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 6, 24, 6),
@@ -2874,8 +3101,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                 ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildTrackInfo(
     Track track,
@@ -3397,6 +3625,13 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
           _showLyrics = index == 1;
           // index 2 = Related
         });
+        if (_pageController.hasClients) {
+          _pageController.animateToPage(
+            index,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+          );
+        }
         // Also expand the drawer when tapping a tab
         _drawerKey.currentState?.expand();
       },

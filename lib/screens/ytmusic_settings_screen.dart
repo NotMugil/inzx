@@ -24,6 +24,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../services/github_release_update_service.dart';
 import '../services/shorebird_update_service.dart';
 import 'widgets/whats_new_dialog.dart';
+import 'widgets/color_picker_dialog.dart';
 
 /// Provider for sync service
 final ytMusicSyncServiceProvider = Provider<YTMusicSyncService>((ref) {
@@ -748,6 +749,167 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
             );
           }).toList(),
         ),
+        const SizedBox(height: 18),
+
+        // Accent Color selector
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Accent Color',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: _textSecondary,
+              ),
+            ),
+            if (ref.watch(accentColorProvider) == InzxAccentColor.custom)
+              GestureDetector(
+                onTap: () => _openCustomColorPicker(ref.read(customAccentColorProvider)),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: _accentColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '#${ref.watch(customAccentColorProvider).toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                      color: _accentColor,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 48,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [
+              ...InzxAccentColor.values
+                  .where((c) => c != InzxAccentColor.custom)
+                  .map((preset) {
+                final isSelected = ref.watch(accentColorProvider) == preset;
+                final presetColor = getAccentColor(preset, isDark: _isDark);
+                return Padding(
+                  padding: const EdgeInsets.only(right: 10),
+                  child: GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      ref
+                          .read(accentColorProvider.notifier)
+                          .setAccentColor(preset);
+                    },
+                    child: Tooltip(
+                      message: getAccentColorName(preset),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: presetColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isSelected
+                                ? Colors.white
+                                : (_isDark ? Colors.white12 : Colors.black12),
+                            width: isSelected ? 3 : 1,
+                          ),
+                          boxShadow: isSelected
+                              ? [
+                                  BoxShadow(
+                                    color: presetColor.withValues(alpha: 0.6),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: isSelected
+                            ? const Icon(
+                                Icons.check,
+                                color: Colors.white,
+                                size: 20,
+                              )
+                            : null,
+                      ),
+                    ),
+                  ),
+                );
+              }),
+              // Custom Color Wheel Button
+              Consumer(
+                builder: (context, refConsumer, _) {
+                  final isCustomSelected =
+                      refConsumer.watch(accentColorProvider) == InzxAccentColor.custom;
+                  final currentCustom = refConsumer.watch(customAccentColorProvider);
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: GestureDetector(
+                      onTap: () => _openCustomColorPicker(currentCustom),
+                      child: Tooltip(
+                        message: 'Custom Color & Wheel',
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            gradient: isCustomSelected
+                                ? null
+                                : const SweepGradient(
+                                    colors: [
+                                      Colors.red,
+                                      Colors.yellow,
+                                      Colors.green,
+                                      Colors.cyan,
+                                      Colors.blue,
+                                      Colors.purple,
+                                      Colors.red,
+                                    ],
+                                  ),
+                            color: isCustomSelected ? currentCustom : null,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: isCustomSelected
+                                  ? Colors.white
+                                  : (_isDark ? Colors.white24 : Colors.black12),
+                              width: isCustomSelected ? 3 : 1.5,
+                            ),
+                            boxShadow: isCustomSelected
+                                ? [
+                                    BoxShadow(
+                                      color: currentCustom.withValues(alpha: 0.6),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Center(
+                            child: Icon(
+                              isCustomSelected ? Icons.check : Iconsax.colorfilter,
+                              color: isCustomSelected
+                                  ? (currentCustom.computeLuminance() > 0.5
+                                      ? Colors.black
+                                      : Colors.white)
+                                  : Colors.white,
+                              size: 18,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
 
         const SizedBox(height: 14),
 
@@ -796,6 +958,17 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
         ),
       ],
     );
+  }
+
+  Future<void> _openCustomColorPicker(Color initialColor) async {
+    final pickedColor = await ColorPickerDialog.show(
+      context,
+      initialColor: initialColor,
+    );
+    if (pickedColor != null) {
+      await ref.read(customAccentColorProvider.notifier).setCustomColor(pickedColor);
+      await ref.read(accentColorProvider.notifier).setAccentColor(InzxAccentColor.custom);
+    }
   }
 
   // ── Quick Actions (Audio, Downloads, Backup) ──────────────────────
@@ -2184,10 +2357,14 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
             width: 38,
             height: 38,
             decoration: BoxDecoration(
-              color: Colors.red.withValues(alpha: 0.12),
+              color: const Color(0xFFF48FB1).withValues(alpha: 0.16),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(Iconsax.heart5, color: Colors.redAccent, size: 18),
+            child: const Icon(
+              Iconsax.heart5,
+              color: Color(0xFFF06292), // Pastel pink
+              size: 18,
+            ),
           ),
           title: Text(
             'Sponsor Inzx',

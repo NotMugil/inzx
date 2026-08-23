@@ -601,9 +601,11 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
         false;
 
     return ListTile(
-      contentPadding: EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: isLarge ? 8 : 2,
+      contentPadding: EdgeInsets.fromLTRB(
+        16,
+        isLarge ? 8 : 2,
+        4,
+        isLarge ? 8 : 2,
       ),
       leading: ClipRRect(
         borderRadius: BorderRadius.circular(isLarge ? 8 : 6),

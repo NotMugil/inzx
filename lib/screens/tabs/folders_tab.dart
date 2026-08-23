@@ -1,3 +1,4 @@
+import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/design_system/design_system.dart';
@@ -7,7 +8,7 @@ import '../../models/models.dart';
 import '../../services/local_music_scanner.dart';
 import '../widgets/track_options_sheet.dart';
 
-/// Folders tab for local file browsing (placeholder)
+/// Folders tab for local file browsing
 class MusicFoldersTab extends ConsumerStatefulWidget {
   const MusicFoldersTab({super.key});
 
@@ -16,6 +17,8 @@ class MusicFoldersTab extends ConsumerStatefulWidget {
 }
 
 class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
+  bool _isSyncing = false;
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -36,6 +39,8 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
 
   Widget _buildHeader(bool isDark, ColorScheme colorScheme) {
     final l10n = context.l10n;
+    final accentColor = ref.watch(effectiveAccentColorProvider);
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: Row(
@@ -52,18 +57,25 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
           Row(
             children: [
               IconButton(
-                onPressed: () {
-                  _showScanDialog();
-                },
-                icon: Icon(
-                  Icons.document_scanner_rounded,
-                  color: isDark ? Colors.white70 : InzxColors.textPrimary,
-                ),
+                tooltip: l10n.scanForMusic,
+                onPressed: _isSyncing ? null : _syncFoldersAutomatically,
+                icon: _isSyncing
+                    ? SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: accentColor,
+                        ),
+                      )
+                    : Icon(
+                        Icons.sync_rounded,
+                        color: isDark ? Colors.white70 : InzxColors.textPrimary,
+                      ),
               ),
               IconButton(
-                onPressed: () {
-                  _showSettingsDialog();
-                },
+                tooltip: l10n.folderSettings,
+                onPressed: _showSettingsDialog,
                 icon: Icon(
                   Icons.settings_rounded,
                   color: isDark ? Colors.white70 : InzxColors.textPrimary,
@@ -77,107 +89,313 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
   }
 
   void _showSettingsDialog() {
-    final l10n = context.l10n;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final folders = ref.read(localMusicFoldersProvider);
+    final textColor = isDark ? Colors.white : InzxColors.textPrimary;
+    final secondaryColor = isDark ? Colors.white70 : InzxColors.textSecondary;
+    final sheetBg = isDark
+        ? const Color(0xFF141414).withValues(alpha: 0.92)
+        : Colors.white.withValues(alpha: 0.95);
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              l10n.folderSettings,
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: isDark ? Colors.white : InzxColors.textPrimary,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (bottomSheetContext) {
+        return Consumer(
+          builder: (context, ref, child) {
+            final l10n = context.l10n;
+            final folders = ref.watch(localMusicFoldersProvider);
+            final liveAccent = ref.watch(effectiveAccentColorProvider);
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(28),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: sheetBg,
+                        borderRadius: BorderRadius.circular(28),
+                        border: Border.all(
+                          color: liveAccent.withValues(alpha: 0.22),
+                          width: 1.0,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.35),
+                            blurRadius: 32,
+                            spreadRadius: 4,
+                          ),
+                        ],
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Drag handle
+                            Center(
+                              child: Container(
+                                width: 36,
+                                height: 4,
+                                margin: const EdgeInsets.only(bottom: 14),
+                                decoration: BoxDecoration(
+                                  color: textColor.withValues(alpha: 0.25),
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                            ),
+
+                            // Section Title & Badge
+                            Padding(
+                              padding:
+                                  const EdgeInsets.only(left: 4, bottom: 12),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    l10n.folderSettings,
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: textColor,
+                                    ),
+                                  ),
+                                  if (folders.isNotEmpty)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: liveAccent.withValues(
+                                          alpha: isDark ? 0.25 : 0.15,
+                                        ),
+                                        borderRadius:
+                                            BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        '${folders.length}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: liveAccent,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+
+                            // Folders list
+                            if (folders.isEmpty)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 24),
+                                child: Center(
+                                  child: Text(
+                                    l10n.noFoldersAddedYet,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: secondaryColor,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            else
+                              ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxHeight:
+                                      MediaQuery.of(context).size.height * 0.42,
+                                ),
+                                child: ListView.separated(
+                                  shrinkWrap: true,
+                                  itemCount: folders.length,
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(height: 8),
+                                  itemBuilder: (context, index) {
+                                    final folder = folders[index];
+                                    final folderName = folder.split('/').last;
+                                    return Container(
+                                      decoration: BoxDecoration(
+                                        color: (isDark
+                                                ? Colors.white
+                                                : Colors.black)
+                                            .withValues(
+                                          alpha: isDark ? 0.05 : 0.04,
+                                        ),
+                                        borderRadius:
+                                            BorderRadius.circular(14),
+                                        border: Border.all(
+                                          color: (isDark
+                                                  ? Colors.white
+                                                  : Colors.black)
+                                              .withValues(
+                                            alpha: isDark ? 0.08 : 0.06,
+                                          ),
+                                        ),
+                                      ),
+                                      child: ListTile(
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 2,
+                                        ),
+                                        leading: Container(
+                                          width: 38,
+                                          height: 38,
+                                          decoration: BoxDecoration(
+                                            color: liveAccent.withValues(
+                                              alpha: isDark ? 0.2 : 0.12,
+                                            ),
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                          ),
+                                          child: Icon(
+                                            Icons.folder_rounded,
+                                            color: liveAccent,
+                                            size: 20,
+                                          ),
+                                        ),
+                                        title: Text(
+                                          folderName.isEmpty
+                                              ? folder
+                                              : folderName,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 14,
+                                            color: textColor,
+                                          ),
+                                        ),
+                                        subtitle: Text(
+                                          folder,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: secondaryColor,
+                                          ),
+                                        ),
+                                        trailing: IconButton(
+                                          icon: Icon(
+                                            Icons.delete_outline_rounded,
+                                            color: Colors.red.shade400,
+                                            size: 20,
+                                          ),
+                                          onPressed: () {
+                                            ref
+                                                .read(
+                                                  localTracksProvider.notifier,
+                                                )
+                                                .removeTracksInFolder(folder);
+                                            ref
+                                                .read(
+                                                  localMusicFoldersProvider
+                                                      .notifier,
+                                                )
+                                                .removeFolder(folder);
+                                          },
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+
+                            const SizedBox(height: 16),
+
+                            // Actions
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: FilledButton.icon(
+                                    onPressed: () {
+                                      Navigator.pop(bottomSheetContext);
+                                      _pickFolder();
+                                    },
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: liveAccent,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 12,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(14),
+                                      ),
+                                    ),
+                                    icon: const Icon(
+                                      Icons.add_rounded,
+                                      size: 20,
+                                    ),
+                                    label: Text(
+                                      l10n.addFolder,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                if (folders.isNotEmpty) ...[
+                                  const SizedBox(width: 10),
+                                  OutlinedButton.icon(
+                                    onPressed: () {
+                                      Navigator.pop(bottomSheetContext);
+                                      ref
+                                          .read(localTracksProvider.notifier)
+                                          .clear();
+                                      ref
+                                          .read(
+                                            localMusicFoldersProvider.notifier,
+                                          )
+                                          .clear();
+                                    },
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.red.shade400,
+                                      side: BorderSide(
+                                        color: Colors.red.shade400.withValues(
+                                          alpha: 0.4,
+                                        ),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                        vertical: 12,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(14),
+                                      ),
+                                    ),
+                                    icon: const Icon(
+                                      Icons.delete_sweep_rounded,
+                                      size: 18,
+                                    ),
+                                    label: Text(l10n.clearAll),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            if (folders.isEmpty)
-              Text(
-                l10n.noFoldersAddedYet,
-                style: TextStyle(
-                  color: isDark ? Colors.white54 : InzxColors.textSecondary,
-                ),
-              )
-            else
-              ...folders.map(
-                (folder) => ListTile(
-                  leading: const Icon(Icons.folder_rounded),
-                  title: Text(
-                    folder.split('/').last,
-                    style: TextStyle(
-                      color: isDark ? Colors.white : InzxColors.textPrimary,
-                    ),
-                  ),
-                  subtitle: Text(
-                    folder,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isDark ? Colors.white54 : InzxColors.textSecondary,
-                    ),
-                  ),
-                  trailing: IconButton(
-                    icon: Icon(
-                      Icons.delete_outline,
-                      color: Colors.red.shade300,
-                    ),
-                    onPressed: () {
-                      ref
-                          .read(localTracksProvider.notifier)
-                          .removeTracksInFolder(folder);
-                      ref
-                          .read(localMusicFoldersProvider.notifier)
-                          .removeFolder(folder);
-                      Navigator.pop(context);
-                    },
-                  ),
-                ),
-              ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _pickFolder();
-                    },
-                    icon: const Icon(Icons.add_rounded),
-                    label: Text(l10n.addFolder),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: folders.isEmpty
-                        ? null
-                        : () {
-                            Navigator.pop(context);
-                            ref.read(localTracksProvider.notifier).clear();
-                            ref
-                                .read(localMusicFoldersProvider.notifier)
-                                .clear();
-                          },
-                    icon: const Icon(Icons.delete_sweep_rounded),
-                    label: Text(l10n.clearAll),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -185,6 +403,7 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
     final l10n = context.l10n;
     final localTracks = ref.watch(localTracksProvider);
     final folders = ref.watch(localMusicFoldersProvider);
+    final accentColor = ref.watch(effectiveAccentColorProvider);
 
     // If we have scanned tracks, show them
     if (localTracks.isNotEmpty) {
@@ -202,17 +421,13 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
               width: 120,
               height: 120,
               decoration: BoxDecoration(
-                color: isDark
-                    ? Colors.white10
-                    : colorScheme.primaryContainer.withValues(alpha: 0.3),
+                color: accentColor.withValues(alpha: isDark ? 0.16 : 0.1),
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 Icons.folder_open_rounded,
                 size: 56,
-                color: isDark
-                    ? Colors.white38
-                    : colorScheme.primary.withValues(alpha: 0.5),
+                color: accentColor,
               ),
             ),
             const SizedBox(height: 24),
@@ -236,13 +451,27 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
             ),
             const SizedBox(height: 32),
             FilledButton.icon(
-              onPressed: _showScanDialog,
-              icon: const Icon(Icons.document_scanner_rounded),
+              onPressed: _isSyncing ? null : _syncFoldersAutomatically,
+              icon: _isSyncing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.sync_rounded),
               label: Text(l10n.scanForMusic),
               style: FilledButton.styleFrom(
+                backgroundColor: accentColor,
+                foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 24,
                   vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
                 ),
               ),
             ),
@@ -251,6 +480,17 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
               onPressed: _pickFolder,
               icon: const Icon(Icons.create_new_folder_rounded),
               label: Text(l10n.addFolderLowercase),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: accentColor,
+                side: BorderSide(color: accentColor.withValues(alpha: 0.5)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
             ),
             const SizedBox(height: 48),
             // Info card
@@ -301,6 +541,7 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
   ) {
     final l10n = context.l10n;
     final playerService = ref.watch(audioPlayerServiceProvider);
+    final accentColor = ref.watch(effectiveAccentColorProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -319,6 +560,9 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
               ),
               TextButton.icon(
                 onPressed: _pickFolder,
+                style: TextButton.styleFrom(
+                  foregroundColor: accentColor,
+                ),
                 icon: const Icon(Icons.create_new_folder_rounded, size: 18),
                 label: Text(l10n.add),
               ),
@@ -334,16 +578,24 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
             itemBuilder: (context, index) {
               final track = tracks[index];
               return ListTile(
+                contentPadding: const EdgeInsets.fromLTRB(16, 2, 4, 2),
                 leading: Container(
                   width: 48,
                   height: 48,
                   decoration: BoxDecoration(
-                    color: colorScheme.primaryContainer,
+                    color: accentColor.withValues(
+                      alpha: isDark ? 0.22 : 0.14,
+                    ),
                     borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: accentColor.withValues(alpha: 0.18),
+                      width: 0.8,
+                    ),
                   ),
                   child: Icon(
                     Icons.music_note_rounded,
-                    color: colorScheme.primary,
+                    color: accentColor,
+                    size: 24,
                   ),
                 ),
                 title: Text(
@@ -369,7 +621,11 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
                   ),
                   onPressed: () => TrackOptionsSheet.show(context, track),
                 ),
-                onTap: () => playerService.playQueue(tracks, startIndex: index),
+                onTap: () => playerService.playQueue(
+                  tracks,
+                  startIndex: index,
+                  sourceTitle: l10n.folders,
+                ),
               );
             },
           ),
@@ -400,14 +656,15 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
     final folderPath = await LocalMusicScanner.pickFolder();
     if (folderPath != null && mounted) {
       ref.read(localMusicFoldersProvider.notifier).addFolder(folderPath);
-      // Ask if user wants to scan immediately
-      _showScanNewFolderDialog(folderPath);
+      // Scan immediately without showing extra popup dialog
+      _scanFolder(folderPath);
     }
   }
 
   void _showPermissionDialog({bool isPermanentlyDenied = false}) {
     final l10n = context.l10n;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accentColor = ref.read(effectiveAccentColorProvider);
 
     showDialog(
       context: context,
@@ -441,7 +698,6 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
           FilledButton.icon(
             onPressed: () async {
               Navigator.pop(context);
-              // Always open settings since Android won't re-show permission dialog
               final opened = await LocalMusicScanner.openSettings();
               if (!opened) {
                 if (!context.mounted) return;
@@ -450,6 +706,10 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
                 );
               }
             },
+            style: FilledButton.styleFrom(
+              backgroundColor: accentColor,
+              foregroundColor: Colors.white,
+            ),
             icon: const Icon(Icons.settings_rounded),
             label: Text(l10n.openSettings),
           ),
@@ -458,252 +718,69 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
     );
   }
 
-  void _showScanNewFolderDialog(String folderPath) {
-    final l10n = context.l10n;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final folderName = folderPath.split('/').last;
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-        title: Text(
-          l10n.folderAdded,
-          style: TextStyle(
-            color: isDark ? Colors.white : InzxColors.textPrimary,
-          ),
-        ),
-        content: Text(
-          l10n.addedFolderScanNow(folderName),
-          style: TextStyle(
-            color: isDark ? Colors.white70 : InzxColors.textSecondary,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(l10n.later),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _scanFolder(folderPath);
-            },
-            child: Text(l10n.scanNow),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _scanFolder(String path) async {
     final l10n = context.l10n;
-    _showScanningProgress();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l10n.scanningForMusic),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
 
-    final tracks = await LocalMusicScanner.scanDirectory(
-      path,
-      onProgress: (scanned, total, current) {
-        ref.read(scanProgressProvider.notifier).state = ScanProgress(
-          scannedFiles: scanned,
-          totalFiles: total,
-          currentFile: current,
-        );
-      },
-    );
+    setState(() => _isSyncing = true);
+
+    final tracks = await LocalMusicScanner.scanDirectory(path);
 
     if (mounted) {
-      Navigator.of(context).pop(); // Close progress dialog
+      setState(() => _isSyncing = false);
       ref.read(localTracksProvider.notifier).addTracks(tracks);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.foundSongsCount(tracks.length))),
+        SnackBar(
+          content: Text(l10n.foundSongsCount(tracks.length)),
+          duration: const Duration(seconds: 2),
+        ),
       );
     }
   }
 
-  void _showScanDialog() {
-    final l10n = context.l10n;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final folders = ref.read(localMusicFoldersProvider);
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-        title: Row(
-          children: [
-            Icon(
-              Icons.document_scanner_rounded,
-              color: isDark ? Colors.white : InzxColors.textPrimary,
-            ),
-            const SizedBox(width: 12),
-            Text(
-              l10n.scanForMusic,
-              style: TextStyle(
-                color: isDark ? Colors.white : InzxColors.textPrimary,
-              ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              folders.isEmpty
-                  ? l10n.addFolderFirstThenScan
-                  : l10n.scanFoldersCountDescription(folders.length),
-              style: TextStyle(
-                color: isDark ? Colors.white70 : InzxColors.textSecondary,
-              ),
-            ),
-            if (folders.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text(
-                l10n.foldersToScan,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.white54 : InzxColors.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 4),
-              ...folders
-                  .take(3)
-                  .map(
-                    (f) => Text(
-                      '\u2022 ${f.split('/').last}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: isDark
-                            ? Colors.white54
-                            : InzxColors.textSecondary,
-                      ),
-                    ),
-                  ),
-              if (folders.length > 3)
-                Text(
-                  l10n.andMoreFolders(folders.length - 3),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isDark ? Colors.white38 : InzxColors.textSecondary,
-                  ),
-                ),
-            ],
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(l10n.cancel),
-          ),
-          if (folders.isEmpty)
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _pickFolder();
-              },
-              child: Text(l10n.addFolder),
-            )
-          else
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _startScanning();
-              },
-              child: Text(l10n.startScan),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _startScanning() async {
+  Future<void> _syncFoldersAutomatically() async {
     final l10n = context.l10n;
     final folders = ref.read(localMusicFoldersProvider);
-    if (folders.isEmpty) return;
+    if (folders.isEmpty) {
+      _pickFolder();
+      return;
+    }
 
-    _showScanningProgress();
+    setState(() => _isSyncing = true);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l10n.scanningForMusic),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
 
     final allTracks = <Track>[];
     for (final folder in folders) {
-      final tracks = await LocalMusicScanner.scanDirectory(
-        folder,
-        onProgress: (scanned, total, current) {
-          ref.read(scanProgressProvider.notifier).state = ScanProgress(
-            scannedFiles: scanned,
-            totalFiles: total,
-            currentFile: current,
-          );
-        },
-      );
+      final tracks = await LocalMusicScanner.scanDirectory(folder);
       allTracks.addAll(tracks);
     }
 
     if (mounted) {
-      Navigator.of(context).pop(); // Close progress dialog
+      setState(() => _isSyncing = false);
       ref.read(localTracksProvider.notifier).addTracks(allTracks);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             l10n.foundSongsInFoldersCount(allTracks.length, folders.length),
           ),
+          duration: const Duration(seconds: 2),
         ),
       );
     }
-  }
-
-  void _showScanningProgress() {
-    final l10n = context.l10n;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => Consumer(
-        builder: (context, ref, child) {
-          final progress = ref.watch(scanProgressProvider);
-          return AlertDialog(
-            backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(value: progress?.progress),
-                const SizedBox(height: 24),
-                Text(
-                  l10n.scanningForMusic,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? Colors.white : InzxColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                if (progress != null) ...[
-                  Text(
-                    l10n.filesProgress(
-                      progress.scannedFiles,
-                      progress.totalFiles,
-                    ),
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: isDark ? Colors.white54 : InzxColors.textSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    progress.currentFile.split('/').last,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: isDark ? Colors.white38 : InzxColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          );
-        },
-      ),
-    );
   }
 }

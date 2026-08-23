@@ -265,8 +265,10 @@ class DownloadsScreen extends ConsumerWidget {
   ) {
     final track = task.track;
     final playerService = ref.watch(audioPlayerServiceProvider);
+    final accentColor = ref.watch(effectiveAccentColorProvider);
 
     return ListTile(
+      contentPadding: const EdgeInsets.fromLTRB(16, 2, 4, 2),
       leading: Stack(
         children: [
           ClipRRect(
@@ -300,7 +302,7 @@ class DownloadsScreen extends ConsumerWidget {
                     child: CircularProgressIndicator(
                       value: task.progress,
                       strokeWidth: 2,
-                      color: Colors.white,
+                      color: accentColor,
                     ),
                   ),
                 ),
@@ -348,6 +350,7 @@ class DownloadsScreen extends ConsumerWidget {
                     child: LinearProgressIndicator(
                       value: task.progress,
                       backgroundColor: isDark ? Colors.white12 : Colors.black12,
+                      color: accentColor,
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -355,7 +358,8 @@ class DownloadsScreen extends ConsumerWidget {
                     task.progressText,
                     style: TextStyle(
                       fontSize: 11,
-                      color: isDark ? Colors.white54 : InzxColors.textSecondary,
+                      fontWeight: FontWeight.w600,
+                      color: accentColor,
                     ),
                   ),
                 ],

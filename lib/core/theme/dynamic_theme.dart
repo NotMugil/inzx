@@ -24,7 +24,7 @@ class ThemeSettings {
   const ThemeSettings({
     this.themeMode = AppThemeMode.dark, // Default to dark mode
     this.colorSource = ColorSchemeSource.custom, // Use custom accent
-    this.customAccentColor = const Color(0xFFE53935), // Red accent
+    this.customAccentColor = const Color(0xFF6B46C1), // Purple/Violet accent #6B46C1
     this.usePureBlack = true, // AMOLED black by default
     this.useHighContrast = false,
   });

@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -93,8 +94,11 @@ class _MusicSongsTabState extends ConsumerState<MusicSongsTab> {
         tracks = tracks.where((t) => localIds.contains(t.id)).toList();
         break;
       case SongFilter.downloaded:
-        // Only show tracks that have a local file path (downloaded)
-        tracks = tracks.where((t) => t.localFilePath != null).toList();
+        final downloadedIds =
+            (ref.read(downloadedTracksProvider).valueOrNull ?? [])
+                .map((t) => t.id)
+                .toSet();
+        tracks = tracks.where((t) => downloadedIds.contains(t.id)).toList();
         break;
       case SongFilter.all:
         break;
@@ -144,12 +148,8 @@ class _MusicSongsTabState extends ConsumerState<MusicSongsTab> {
     final filteredTracks = _getFilteredTracks(allTracks);
     final sortOptions = SongSort.values;
 
-    // Get dynamic colors from album art
-    final albumColors = ref.watch(albumColorsProvider);
-    final hasAlbumColors = !albumColors.isDefault;
-    final accentColor = hasAlbumColors
-        ? albumColors.accent
-        : colorScheme.primary;
+    // Get dynamic colors from effectiveAccentColorProvider
+    final accentColor = ref.watch(effectiveAccentColorProvider);
 
     return SafeArea(
       child: Column(
@@ -159,6 +159,7 @@ class _MusicSongsTabState extends ConsumerState<MusicSongsTab> {
 
           // Filter chips
           _buildFilterChips(isDark, colorScheme, accentColor),
+          const SizedBox(height: 6),
 
           // Sort row and count
           _buildSortRow(
@@ -204,38 +205,29 @@ class _MusicSongsTabState extends ConsumerState<MusicSongsTab> {
                       : Colors.black.withValues(alpha: 0.05),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: Row(
-                  children: [
-                    Icon(
+                child: TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : InzxColors.textPrimary,
+                    fontSize: 14,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: l10n.searchSongsHint,
+                    hintStyle: TextStyle(
+                      color: isDark ? Colors.white38 : InzxColors.textSecondary,
+                      fontSize: 14,
+                    ),
+                    border: InputBorder.none,
+                    icon: Icon(
                       Icons.search_rounded,
                       size: 20,
-                      color: isDark ? Colors.white54 : InzxColors.textSecondary,
+                      color: isDark ? Colors.white38 : InzxColors.textSecondary,
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: _searchController,
-                        autofocus: true,
-                        decoration: InputDecoration(
-                          hintText: l10n.searchSongsHint,
-                          border: InputBorder.none,
-                          isDense: true,
-                          contentPadding: EdgeInsets.zero,
-                          hintStyle: TextStyle(
-                            color: isDark
-                                ? Colors.white54
-                                : InzxColors.textSecondary,
-                          ),
-                        ),
-                        style: TextStyle(
-                          color: isDark ? Colors.white : InzxColors.textPrimary,
-                          fontSize: 15,
-                        ),
-                        onChanged: (value) =>
-                            setState(() => _searchQuery = value),
-                      ),
-                    ),
-                  ],
+                  ),
+                  onChanged: (val) {
+                    setState(() => _searchQuery = val);
+                  },
                 ),
               ),
             )
@@ -281,40 +273,231 @@ class _MusicSongsTabState extends ConsumerState<MusicSongsTab> {
     final filters = SongFilter.values;
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 2),
       child: Row(
         children: filters.map((filter) {
           final isSelected = _selectedFilter == filter;
           return Padding(
             padding: const EdgeInsets.only(right: 8),
-            child: FilterChip(
-              label: Text(_filterLabel(l10n, filter)),
-              selected: isSelected,
-              onSelected: (selected) {
-                if (selected) {
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                if (_selectedFilter != filter) {
                   setState(() => _selectedFilter = filter);
                 }
               },
-              selectedColor: accentColor.withValues(alpha: 0.2),
-              backgroundColor: isDark ? Colors.white10 : Colors.grey.shade100,
-              labelStyle: TextStyle(
-                color: isSelected
-                    ? accentColor
-                    : (isDark ? Colors.white70 : InzxColors.textPrimary),
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                fontSize: 13,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? accentColor
+                      : (isDark
+                          ? const Color(0xFF262626)
+                          : Colors.grey.shade200),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Text(
+                  _filterLabel(l10n, filter),
+                  style: TextStyle(
+                    color: isSelected
+                        ? (isDark ? Colors.black : Colors.white)
+                        : (isDark ? Colors.white70 : InzxColors.textPrimary),
+                    fontWeight:
+                        isSelected ? FontWeight.w700 : FontWeight.w500,
+                    fontSize: 13,
+                  ),
+                ),
               ),
-              side: BorderSide(
-                color: isSelected ? accentColor : Colors.transparent,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 4),
             ),
           );
         }).toList(),
       ),
+    );
+  }
+
+  void _showSortBottomSheet<T>({
+    required T currentValue,
+    required List<(T value, String label, IconData icon)> options,
+    required ValueChanged<T> onSelected,
+    required bool isDark,
+  }) {
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final secondaryColor = textColor.withValues(alpha: 0.55);
+    final sheetBg = isDark
+        ? const Color(0xFF141414).withValues(alpha: 0.92)
+        : Colors.white.withValues(alpha: 0.95);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) {
+        return Consumer(
+          builder: (context, ref, child) {
+            final liveAccent = ref.watch(effectiveAccentColorProvider);
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(28),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: sheetBg,
+                        borderRadius: BorderRadius.circular(28),
+                        border: Border.all(
+                          color: liveAccent.withValues(alpha: 0.22),
+                          width: 1.0,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.35),
+                            blurRadius: 32,
+                            spreadRadius: 4,
+                          ),
+                        ],
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Drag handle
+                            Center(
+                              child: Container(
+                                width: 36,
+                                height: 4,
+                                margin: const EdgeInsets.only(bottom: 14),
+                                decoration: BoxDecoration(
+                                  color: textColor.withValues(alpha: 0.25),
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                            ),
+
+                            // Section Title
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8, bottom: 8),
+                              child: Text(
+                                'SORT BY',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 1.2,
+                                  color: secondaryColor,
+                                ),
+                              ),
+                            ),
+
+                            // Options list
+                            Column(
+                              children: options.map((opt) {
+                                final isSelected = opt.$1 == currentValue;
+
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 2),
+                                  child: InkWell(
+                                    onTap: () {
+                                      Navigator.pop(context);
+                                      onSelected(opt.$1);
+                                    },
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 8,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 42,
+                                            height: 42,
+                                            decoration: BoxDecoration(
+                                              color: (isSelected
+                                                      ? liveAccent
+                                                      : (isDark
+                                                          ? Colors.white
+                                                          : Colors.black))
+                                                  .withValues(
+                                                    alpha: isDark ? 0.12 : 0.07,
+                                                  ),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              border: Border.all(
+                                                color: (isSelected
+                                                        ? liveAccent
+                                                        : (isDark
+                                                            ? Colors.white
+                                                            : Colors.black))
+                                                    .withValues(
+                                                      alpha: isDark
+                                                          ? 0.18
+                                                          : 0.10,
+                                                    ),
+                                                width: 0.8,
+                                              ),
+                                            ),
+                                            child: Icon(
+                                              opt.$3,
+                                              size: 20,
+                                              color: isSelected
+                                                  ? liveAccent
+                                                  : (isDark
+                                                      ? Colors.white70
+                                                      : Colors.black87),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 14),
+                                          Expanded(
+                                            child: Text(
+                                              opt.$2,
+                                              style: TextStyle(
+                                                fontSize: 15,
+                                                fontWeight: isSelected
+                                                    ? FontWeight.w600
+                                                    : FontWeight.w500,
+                                                color: isSelected
+                                                    ? liveAccent
+                                                    : textColor,
+                                              ),
+                                            ),
+                                          ),
+                                          if (isSelected)
+                                            Icon(
+                                              Icons.check_rounded,
+                                              size: 20,
+                                              color: liveAccent,
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                            const SizedBox(height: 6),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -326,66 +509,75 @@ class _MusicSongsTabState extends ConsumerState<MusicSongsTab> {
     Color accentColor,
     List<SongSort> sortOptions,
   ) {
+    final options = [
+      (
+        SongSort.recentlyAdded,
+        l10n.recentlyAdded,
+        Icons.more_time_rounded,
+      ),
+      (
+        SongSort.name,
+        l10n.name,
+        Icons.sort_by_alpha_rounded,
+      ),
+      (
+        SongSort.artist,
+        l10n.artistLabel,
+        Icons.person_rounded,
+      ),
+      (
+        SongSort.duration,
+        l10n.duration,
+        Icons.timer_outlined,
+      ),
+    ];
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              Text(
-                l10n.songsCount(count),
-                style: TextStyle(
-                  fontSize: 13,
-                  color: isDark ? Colors.white54 : InzxColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-          PopupMenuButton<String>(
-            onSelected: (value) =>
-                setState(() => _sortBy = SongSort.values.byName(value)),
-            offset: const Offset(0, 40),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            itemBuilder: (context) => sortOptions.map((option) {
-              return PopupMenuItem(
-                value: option.name,
-                child: Row(
-                  children: [
-                    if (_sortBy == option)
-                      Icon(Icons.check_rounded, size: 18, color: accentColor)
-                    else
-                      const SizedBox(width: 18),
-                    const SizedBox(width: 8),
-                    Text(_sortLabel(l10n, option)),
-                  ],
-                ),
+          // Sort button on LEFT
+          InkWell(
+            onTap: () {
+              _showSortBottomSheet<SongSort>(
+                currentValue: _sortBy,
+                options: options,
+                onSelected: (newSort) => setState(() => _sortBy = newSort),
+                isDark: isDark,
               );
-            }).toList(),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.sort_rounded,
-                  size: 18,
-                  color: isDark ? Colors.white54 : InzxColors.textSecondary,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  _sortLabel(l10n, _sortBy),
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: isDark ? Colors.white70 : InzxColors.textPrimary,
+            },
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.swap_vert_rounded,
+                    size: 20,
+                    color: isDark ? Colors.white70 : InzxColors.textSecondary,
                   ),
-                ),
-                Icon(
-                  Icons.arrow_drop_down_rounded,
-                  size: 20,
-                  color: isDark ? Colors.white54 : InzxColors.textSecondary,
-                ),
-              ],
+                  const SizedBox(width: 4),
+                  Text(
+                    _sortLabel(l10n, _sortBy),
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? Colors.white70 : InzxColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Songs count on RIGHT
+          Text(
+            l10n.songsCount(count),
+            style: TextStyle(
+              fontSize: 13,
+              color: isDark ? Colors.white54 : InzxColors.textSecondary,
             ),
           ),
         ],
@@ -543,7 +735,7 @@ class _MusicSongsTabState extends ConsumerState<MusicSongsTab> {
         playbackState.whenOrNull(data: (s) => s.isPlaying) ?? false;
 
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      contentPadding: const EdgeInsets.fromLTRB(16, 2, 4, 2),
       leading: ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: SizedBox(

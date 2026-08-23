@@ -279,6 +279,7 @@ class _ShelfDetailsScreenState extends ConsumerState<ShelfDetailsScreen> {
         .whereType<Track>()
         .toList();
 
+    final accentColor = ref.watch(effectiveAccentColorProvider);
     return ListView.builder(
       controller: _scrollController,
       padding: const EdgeInsets.only(bottom: 100),
@@ -292,10 +293,14 @@ class _ShelfDetailsScreenState extends ConsumerState<ShelfDetailsScreen> {
             padding: const EdgeInsets.all(16),
             child: Center(
               child: _isLoadingMore
-                  ? const CircularProgressIndicator(strokeWidth: 2)
+                  ? CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: accentColor,
+                    )
                   : _continuationToken != null
                   ? TextButton(
                       onPressed: _loadMore,
+                      style: TextButton.styleFrom(foregroundColor: accentColor),
                       child: Text(context.l10n.loadMore),
                     )
                   : const SizedBox.shrink(),
@@ -312,7 +317,7 @@ class _ShelfDetailsScreenState extends ConsumerState<ShelfDetailsScreen> {
             vertical: 4,
           ),
           selected: isCurrentTrack,
-          selectedTileColor: colorScheme.primary.withValues(alpha: 0.1),
+          selectedTileColor: accentColor.withValues(alpha: 0.12),
           leading: ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: SizedBox(
@@ -324,8 +329,8 @@ class _ShelfDetailsScreenState extends ConsumerState<ShelfDetailsScreen> {
                       fit: BoxFit.cover,
                     )
                   : Container(
-                      color: colorScheme.primaryContainer,
-                      child: Icon(Iconsax.music, color: colorScheme.primary),
+                      color: accentColor.withValues(alpha: 0.15),
+                      child: Icon(Iconsax.music, color: accentColor),
                     ),
             ),
           ),
@@ -336,7 +341,7 @@ class _ShelfDetailsScreenState extends ConsumerState<ShelfDetailsScreen> {
             style: TextStyle(
               fontWeight: isCurrentTrack ? FontWeight.bold : FontWeight.w500,
               color: isCurrentTrack
-                  ? colorScheme.primary
+                  ? accentColor
                   : colorScheme.onSurface,
             ),
           ),
@@ -344,7 +349,11 @@ class _ShelfDetailsScreenState extends ConsumerState<ShelfDetailsScreen> {
             track.artist,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: colorScheme.onSurfaceVariant),
+            style: TextStyle(
+              color: isCurrentTrack
+                  ? accentColor.withValues(alpha: 0.8)
+                  : colorScheme.onSurfaceVariant,
+            ),
           ),
           trailing: IconButton(
             icon: Icon(Icons.more_vert, color: colorScheme.onSurfaceVariant),

@@ -176,7 +176,7 @@ class QuickPicksShelf extends ConsumerWidget {
                   icon: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: colorScheme.primary,
+                      color: ref.watch(effectiveAccentColorProvider),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
@@ -266,6 +266,11 @@ class OptimizedTrackItem extends ConsumerWidget {
     final isCurrentTrack = showCurrentTrackHighlight
         ? ref.watch(currentTrackIdProvider) == track.id
         : false;
+    final effectiveAccent = ref.watch(effectiveAccentColorProvider);
+    final playbackState = ref.watch(playbackStateProvider);
+    final isPlaying = playbackState.whenOrNull(data: (s) => s.isPlaying) ?? false;
+    final highlightColor =
+        enableDynamicColors ? effectiveAccent : colorScheme.primary;
 
     // Capture notifier BEFORE async operation to avoid "ref after dispose" error
     final recentlyPlayedNotifier = ref.read(recentlyPlayedProvider.notifier);
@@ -292,9 +297,18 @@ class OptimizedTrackItem extends ConsumerWidget {
       },
       child: Container(
         decoration: BoxDecoration(
+          color: isCurrentTrack
+              ? highlightColor.withValues(alpha: isDark ? 0.14 : 0.09)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
+          border: isCurrentTrack
+              ? Border.all(
+                  color: highlightColor.withValues(alpha: isDark ? 0.32 : 0.22),
+                  width: 1.0,
+                )
+              : null,
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Row(
           children: [
             // Album art
@@ -303,15 +317,33 @@ class OptimizedTrackItem extends ConsumerWidget {
               child: SizedBox(
                 width: 56,
                 height: 56,
-                child: track.thumbnailUrl != null
-                    ? CachedNetworkImage(
-                        imageUrl: track.thumbnailUrl!,
-                        fit: BoxFit.cover,
-                        memCacheWidth: 112, // 2x for high DPI
-                        placeholder: (_, _) => _defaultArtwork(),
-                        errorWidget: (_, _, _) => _defaultArtwork(),
-                      )
-                    : _defaultArtwork(),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    track.thumbnailUrl != null
+                        ? CachedNetworkImage(
+                            imageUrl: track.thumbnailUrl!,
+                            fit: BoxFit.cover,
+                            memCacheWidth: 112, // 2x for high DPI
+                            placeholder: (_, _) => _defaultArtwork(highlightColor),
+                            errorWidget: (_, _, _) => _defaultArtwork(highlightColor),
+                          )
+                        : _defaultArtwork(highlightColor),
+                    if (isCurrentTrack)
+                      Container(
+                        color: Colors.black.withValues(alpha: 0.35),
+                        child: Center(
+                          child: Icon(
+                            isPlaying
+                                ? Icons.volume_up_rounded
+                                : Icons.play_arrow_rounded,
+                            color: highlightColor,
+                            size: 22,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -327,9 +359,10 @@ class OptimizedTrackItem extends ConsumerWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 13,
-                      fontWeight: FontWeight.w500,
+                      fontWeight:
+                          isCurrentTrack ? FontWeight.w600 : FontWeight.w500,
                       color: isCurrentTrack
-                          ? colorScheme.primary
+                          ? highlightColor
                           : (isDark ? Colors.white : InzxColors.textPrimary),
                     ),
                   ),
@@ -340,7 +373,13 @@ class OptimizedTrackItem extends ConsumerWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 11,
-                      color: isDark ? Colors.white54 : InzxColors.textSecondary,
+                      color: isCurrentTrack
+                          ? highlightColor.withValues(
+                              alpha: isDark ? 0.8 : 0.9,
+                            )
+                          : (isDark
+                              ? Colors.white54
+                              : InzxColors.textSecondary),
                     ),
                   ),
                 ],
@@ -363,12 +402,12 @@ class OptimizedTrackItem extends ConsumerWidget {
     );
   }
 
-  Widget _defaultArtwork() {
+  Widget _defaultArtwork(Color accent) {
     return Container(
-      color: isDark ? Colors.white12 : Colors.grey.shade200,
+      color: accent.withValues(alpha: isDark ? 0.18 : 0.12),
       child: Icon(
         Iconsax.music,
-        color: isDark ? Colors.white38 : InzxColors.textSecondary,
+        color: accent,
         size: 24,
       ),
     );
@@ -594,7 +633,10 @@ class ContentCarouselShelf extends ConsumerWidget {
                   },
                   child: Text(
                     l10n.more,
-                    style: TextStyle(color: colorScheme.primary),
+                    style: TextStyle(
+                      color: ref.watch(effectiveAccentColorProvider),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
             ],
@@ -825,7 +867,10 @@ class ChartsShelf extends ConsumerWidget {
                   },
                   child: Text(
                     l10n.seeAll,
-                    style: TextStyle(color: colorScheme.primary),
+                    style: TextStyle(
+                      color: ref.watch(effectiveAccentColorProvider),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
             ],
@@ -978,7 +1023,10 @@ class VideoShelf extends ConsumerWidget {
                   },
                   child: Text(
                     l10n.more,
-                    style: TextStyle(color: colorScheme.primary),
+                    style: TextStyle(
+                      color: ref.watch(effectiveAccentColorProvider),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
             ],
@@ -1185,7 +1233,10 @@ class CommunityShelf extends ConsumerWidget {
                   },
                   child: Text(
                     l10n.more,
-                    style: TextStyle(color: colorScheme.primary),
+                    style: TextStyle(
+                      color: ref.watch(effectiveAccentColorProvider),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
             ],
@@ -1355,7 +1406,10 @@ class DailyDiscoverShelf extends ConsumerWidget {
                 },
                 child: Text(
                   l10n.playAll,
-                  style: TextStyle(color: colorScheme.primary),
+                  style: TextStyle(
+                    color: ref.watch(effectiveAccentColorProvider),
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -1533,7 +1587,9 @@ class TrackListShelf extends ConsumerWidget {
                   icon: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: colorScheme.primary,
+                      color: enableDynamicColors
+                          ? ref.watch(effectiveAccentColorProvider)
+                          : colorScheme.primary,
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(

@@ -106,6 +106,7 @@ class _MusicAppState extends ConsumerState<MusicApp>
         }
       },
       child: Scaffold(
+        resizeToAvoidBottomInset: false,
         backgroundColor: backgroundColor,
         body: Stack(
           children: [
