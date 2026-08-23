@@ -295,8 +295,31 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     if (_lastOrientation != null && _lastOrientation != currentOrientation) {
       _lastOrientation = currentOrientation;
       _lastAlbumArtSyncedIndex = -1; // Force re-sync of album art controller on orientation change
-      if (currentOrientation == Orientation.landscape && _tabController.index == 0) {
-        _tabController.index = 1; // Default to Lyrics tab when first entering landscape mode
+      final activeTabIndex = _tabController.index;
+
+      if (currentOrientation == Orientation.landscape) {
+        // Ensure stage view controller is at the current active tab
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _stageViewPageController.hasClients) {
+            _stageViewPageController.jumpToPage(activeTabIndex);
+          }
+        });
+      } else {
+        // Returning to portrait: open drawer on the active tab from landscape (e.g., Lyrics)
+        _isDrawerExpanded = true;
+        _showQueue = activeTabIndex == 0;
+        _showLyrics = activeTabIndex == 1;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            if (_pageController.hasClients) {
+              _pageController.jumpToPage(activeTabIndex);
+            }
+            if (_tabController.index != activeTabIndex) {
+              _tabController.animateTo(activeTabIndex);
+            }
+            _drawerKey.currentState?.expand();
+          }
+        });
       }
     } else {
       _lastOrientation = currentOrientation;
@@ -708,6 +731,19 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                   PageView(
                     controller: _stageViewPageController,
                     physics: const BouncingScrollPhysics(),
+                    onPageChanged: (index) {
+                      if (_tabController.index != index) {
+                        _tabController.animateTo(index);
+                      }
+                      setState(() {
+                        _showQueue = index == 0;
+                        _showLyrics = index == 1;
+                      });
+                      if (_pageController.hasClients &&
+                          _pageController.page?.round() != index) {
+                        _pageController.jumpToPage(index);
+                      }
+                    },
                     children: [
                       _buildQueueContent(
                         textColor,
@@ -2538,18 +2574,54 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                 ),
                 if (hasQueueTitle) ...[
                   const SizedBox(height: 2),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 220),
-                    child: Text(
-                      queueTitle.trim(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: textColor,
-                      ),
+                  SizedBox(
+                    height: 18,
+                    width: 220,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final textStyle = TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: textColor,
+                        );
+
+                        final textPainter = TextPainter(
+                          text: TextSpan(
+                            text: queueTitle.trim(),
+                            style: textStyle,
+                          ),
+                          maxLines: 1,
+                          textDirection: TextDirection.ltr,
+                        )..layout();
+
+                        if (textPainter.width > constraints.maxWidth) {
+                          return Marquee(
+                            text: queueTitle.trim(),
+                            style: textStyle,
+                            scrollAxis: Axis.horizontal,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            blankSpace: 36.0,
+                            velocity: 25.0,
+                            pauseAfterRound: const Duration(seconds: 2),
+                            startPadding: 0.0,
+                            accelerationDuration: const Duration(seconds: 1),
+                            accelerationCurve: Curves.linear,
+                            decelerationDuration:
+                                const Duration(milliseconds: 500),
+                            decelerationCurve: Curves.easeOut,
+                          );
+                        }
+
+                        return Center(
+                          child: Text(
+                            queueTitle.trim(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: textStyle,
+                          ),
+                        );
+                      },
                     ),
                   ),
                 ],
