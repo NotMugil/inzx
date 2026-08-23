@@ -1,7 +1,9 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:iconsax/iconsax.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../services/github_release_update_service.dart';
 
 class WhatsNewDialog {
@@ -24,12 +26,9 @@ class WhatsNewDialog {
     final rawBody = info?.body?.trim();
     final bodyText = (rawBody != null && rawBody.isNotEmpty)
         ? rawBody
-        : '• Refined Dynamic Glassmorphic UI & Smooth Animations\n'
-          '• High-Fidelity Lossless Streaming & Offline Downloader\n'
-          '• Embedded Lyrics, Equalizer & Pitch Shifter Engine\n'
-          '• Smart GitHub Release & OTA Patch Auto-Updater';
+        : 'No release notes available.';
 
-    showDialog(
+    await showDialog(
       context: context,
       builder: (dialogContext) {
         return Dialog(
@@ -116,37 +115,104 @@ class WhatsNewDialog {
                         physics: const BouncingScrollPhysics(),
                         child: Align(
                           alignment: Alignment.topLeft,
-                          child: Text(
-                            bodyText,
-                            style: TextStyle(
-                              fontSize: 13.5,
-                              height: 1.55,
-                              color: isDark ? Colors.white70 : Colors.black87,
+                          child: MarkdownBody(
+                            data: bodyText,
+                            selectable: true,
+                            onTapLink: (text, href, title) async {
+                              if (href != null && href.isNotEmpty) {
+                                final uri = Uri.tryParse(href);
+                                if (uri != null) {
+                                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                }
+                              }
+                            },
+                            styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                              p: TextStyle(
+                                fontSize: 13.5,
+                                height: 1.55,
+                                color: isDark ? Colors.white70 : Colors.black87,
+                              ),
+                              h1: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.white : Colors.black87,
+                              ),
+                              h2: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.white : Colors.black87,
+                              ),
+                              h3: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: primaryColor,
+                              ),
+                              listBullet: TextStyle(
+                                fontSize: 13.5,
+                                color: primaryColor,
+                              ),
+                              code: TextStyle(
+                                fontSize: 12.5,
+                                backgroundColor: isDark ? Colors.white10 : Colors.black12,
+                                color: primaryColor,
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
                     const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: primaryColor,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 4,
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: primaryColor,
+                              side: BorderSide(
+                                color: primaryColor.withValues(alpha: 0.4),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 13),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            onPressed: () async {
+                              final uri = Uri.parse('https://github.com/sponsors/nirmaleeswar30');
+                              await launchUrl(uri, mode: LaunchMode.externalApplication);
+                            },
+                            icon: const Icon(Iconsax.heart, size: 18),
+                            label: const Text(
+                              'Donate',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
                           ),
                         ),
-                        onPressed: () => Navigator.pop(dialogContext),
-                        child: const Text(
-                          'Got it!',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
+                        const SizedBox(width: 10),
+                        Expanded(
+                          flex: 6,
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: primaryColor,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            onPressed: () => Navigator.pop(dialogContext),
+                            child: const Text(
+                              'Got it!',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
                   ],
                 ),

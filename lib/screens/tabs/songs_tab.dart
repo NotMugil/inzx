@@ -198,36 +198,60 @@ class _MusicSongsTabState extends ConsumerState<MusicSongsTab> {
             Expanded(
               child: Container(
                 height: 40,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
                 decoration: BoxDecoration(
                   color: isDark
                       ? Colors.white.withValues(alpha: 0.08)
                       : Colors.black.withValues(alpha: 0.05),
                   borderRadius: BorderRadius.circular(20),
-                ),
-                child: TextField(
-                  controller: _searchController,
-                  autofocus: true,
-                  style: TextStyle(
-                    color: isDark ? Colors.white : InzxColors.textPrimary,
-                    fontSize: 14,
+                  border: Border.all(
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.12)
+                        : Colors.black.withValues(alpha: 0.08),
+                    width: 1,
                   ),
-                  decoration: InputDecoration(
-                    hintText: l10n.searchSongsHint,
-                    hintStyle: TextStyle(
-                      color: isDark ? Colors.white38 : InzxColors.textSecondary,
+                ),
+                child: Center(
+                  child: TextField(
+                    controller: _searchController,
+                    autofocus: true,
+                    textAlignVertical: TextAlignVertical.center,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : InzxColors.textPrimary,
                       fontSize: 14,
                     ),
-                    border: InputBorder.none,
-                    icon: Icon(
-                      Icons.search_rounded,
-                      size: 20,
-                      color: isDark ? Colors.white38 : InzxColors.textSecondary,
+                    decoration: InputDecoration(
+                      hintText: l10n.searchSongsHint,
+                      hintStyle: TextStyle(
+                        color: isDark ? Colors.white38 : InzxColors.textSecondary,
+                        fontSize: 14,
+                      ),
+                      filled: false,
+                      fillColor: Colors.transparent,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      errorBorder: InputBorder.none,
+                      focusedErrorBorder: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
+                      isDense: true,
+                      prefixIcon: Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Icon(
+                          Icons.search_rounded,
+                          size: 20,
+                          color: isDark ? Colors.white38 : InzxColors.textSecondary,
+                        ),
+                      ),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 20,
+                        minHeight: 20,
+                      ),
                     ),
+                    onChanged: (val) {
+                      setState(() => _searchQuery = val);
+                    },
                   ),
-                  onChanged: (val) {
-                    setState(() => _searchQuery = val);
-                  },
                 ),
               ),
             )

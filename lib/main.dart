@@ -187,12 +187,15 @@ class _InzxAppState extends ConsumerState<InzxApp> {
       final lastSeenVersion = prefs.getString('last_seen_changelog_version');
 
       if (lastSeenVersion != currentVersion) {
-        await prefs.setString('last_seen_changelog_version', currentVersion);
         final releaseInfo = await GithubReleaseUpdateService.instance.fetchLatestReleaseInfo();
         if (!mounted) return;
-        WhatsNewDialog.show(context, releaseInfo: releaseInfo, currentVersion: currentVersion);
+        final navContext = rootNavigatorKey.currentContext ?? context;
+        await WhatsNewDialog.show(navContext, releaseInfo: releaseInfo, currentVersion: currentVersion);
+        await prefs.setString('last_seen_changelog_version', currentVersion);
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Error showing changelog dialog: $e');
+    }
   }
 
   void _showPatchUpdateBanner() {
