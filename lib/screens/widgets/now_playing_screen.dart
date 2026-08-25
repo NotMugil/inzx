@@ -182,6 +182,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   late AnimationController _heartAnimController;
   late Animation<double> _heartScaleAnimation;
   late Animation<double> _heartOpacityAnimation;
+  late ScrollController _queueScrollController;
+  bool _hasInitialQueueScrolled = false;
 
   @override
   void initState() {
@@ -199,6 +201,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       }
     });
 
+    _queueScrollController = ScrollController();
+
     // Tab controller for bottom tabs
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
@@ -209,6 +213,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
           _showLyrics = newIndex == 1;
           // index 2 = Related
         });
+        if (newIndex == 0) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _scrollToActiveTrack(animate: true);
+          });
+        }
         if (_pageController.hasClients &&
             _pageController.page?.round() != newIndex) {
           _pageController.animateToPage(
@@ -280,7 +289,59 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     _albumArtPageController.dispose();
     _stageViewPageController.dispose();
     _heartAnimController.dispose();
+    _queueScrollController.dispose();
     super.dispose();
+  }
+
+  void _scrollToActiveTrack({bool animate = true}) {
+    if (!mounted || !_queueScrollController.hasClients) return;
+
+    final queue = ref.read(queueProvider);
+    final currentTrack = ref.read(currentTrackProvider);
+    if (queue.isEmpty) return;
+
+    int activeIndex = -1;
+    if (currentTrack != null) {
+      activeIndex = queue.indexWhere((t) => t.id == currentTrack.id);
+    }
+    if (activeIndex < 0) {
+      activeIndex = ref.read(audioPlayerServiceProvider).currentIndex;
+    }
+
+    if (activeIndex <= 0) {
+      if (_queueScrollController.offset != 0) {
+        if (animate) {
+          _queueScrollController.animateTo(
+            0,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+          );
+        } else {
+          _queueScrollController.jumpTo(0);
+        }
+      }
+      return;
+    }
+
+    const double itemExtent = 72.0;
+    double targetOffset = (activeIndex * itemExtent) - 80.0;
+    if (targetOffset < 0) targetOffset = 0;
+    if (_queueScrollController.position.hasContentDimensions) {
+      targetOffset = targetOffset.clamp(
+        0.0,
+        _queueScrollController.position.maxScrollExtent,
+      );
+    }
+
+    if (animate) {
+      _queueScrollController.animateTo(
+        targetOffset,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+      );
+    } else {
+      _queueScrollController.jumpTo(targetOffset);
+    }
   }
 
   @override
@@ -290,6 +351,17 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     final albumColors = ref.watch(albumColorsProvider);
     final currentTrack = ref.watch(currentTrackProvider);
     final currentQueueIndex = playerService.currentIndex;
+
+    ref.listen<Track?>(currentTrackProvider, (previous, next) {
+      if (next != null && previous?.id != next.id) {
+        _hasInitialQueueScrolled = false;
+        if (_tabController.index == 0 && _isDrawerExpanded) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _scrollToActiveTrack(animate: true);
+          });
+        }
+      }
+    });
 
     final currentOrientation = MediaQuery.of(context).orientation;
     if (_lastOrientation != null && _lastOrientation != currentOrientation) {
@@ -505,6 +577,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                   _showQueue = expanded && _tabController.index == 0;
                   _showLyrics = expanded && _tabController.index == 1;
                 });
+                if (expanded && _tabController.index == 0) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _scrollToActiveTrack(animate: true);
+                  });
+                }
               },
               // Position-based tab selection (left=UP NEXT, center=LYRICS, right=RELATED)
               onTabFromPosition: (tabIndex) {
@@ -513,6 +590,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                   _showQueue = tabIndex == 0;
                   _showLyrics = tabIndex == 1;
                 });
+                if (tabIndex == 0) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _scrollToActiveTrack(animate: true);
+                  });
+                }
                 if (_pageController.hasClients) {
                   _pageController.jumpToPage(tabIndex);
                 }
@@ -1216,10 +1298,21 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
               }
               return false; // Don't consume the notification
             },
-            child: ReorderableListView.builder(
-              physics: const BouncingScrollPhysics(
-                parent: AlwaysScrollableScrollPhysics(),
-              ),
+            child: Builder(
+              builder: (context) {
+                if (!_hasInitialQueueScrolled) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted && _queueScrollController.hasClients) {
+                      _scrollToActiveTrack(animate: false);
+                      _hasInitialQueueScrolled = true;
+                    }
+                  });
+                }
+                return ReorderableListView.builder(
+                  scrollController: _queueScrollController,
+                  physics: const BouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
               padding: const EdgeInsets.symmetric(horizontal: 8),
               // Add extra item at end for loading indicator when in radio mode
               itemCount: queue.length + (isRadioMode ? 1 : 0),
@@ -1315,6 +1408,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
             ),
           ),
         ),
+        ),
       ],
     );
   }
@@ -1407,6 +1501,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                   ),
                 )
               : ReorderableListView.builder(
+                  scrollController: _queueScrollController,
                   physics: const BouncingScrollPhysics(
                     parent: AlwaysScrollableScrollPhysics(),
                   ),
