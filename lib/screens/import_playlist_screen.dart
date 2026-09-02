@@ -267,7 +267,7 @@ extension AlbumRadioExtension on Album {
 
       if (tracks != null && tracks.isNotEmpty) {
         // Play first track with radio mode enabled
-        await playerService.playTrack(tracks.first, enableRadio: true);
+        await playerService.startRadio(tracks.first);
       }
     } catch (e) {
       if (kDebugMode) {
@@ -291,7 +291,7 @@ extension ArtistRadioExtension on Artist {
 
       if (topTracks != null && topTracks.isNotEmpty) {
         // Play first track with radio mode enabled
-        await playerService.playTrack(topTracks.first, enableRadio: true);
+        await playerService.startRadio(topTracks.first);
       }
     } catch (e) {
       if (kDebugMode) {

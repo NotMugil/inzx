@@ -163,7 +163,7 @@ class TrackOptionsSheet extends ConsumerWidget {
                             title: l10n.startRadio,
                             textColor: textColor,
                             onTap: () {
-                              playerService.playTrack(track, enableRadio: true);
+                              playerService.startRadio(track);
                               Navigator.pop(context);
                             },
                           ),

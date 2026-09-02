@@ -416,8 +416,10 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab> {
         child: ListView(
           padding: const EdgeInsets.symmetric(vertical: 8),
           children: [
-            // YT Music login prompt if not logged in
-            if (!ytAuthState.isLoggedIn && !ytAuthState.isLoading)
+            // YT Music login prompt if not logged in and not dismissed
+            if (!ytAuthState.isLoggedIn &&
+                !ytAuthState.isLoading &&
+                !ref.watch(hideConnectYTMusicBannerProvider))
               _buildYTMusicLoginCard(isDark, colorScheme),
 
             // Mood chips removed as per request
@@ -827,7 +829,16 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab> {
                     ],
                   ),
                 ),
-                const Icon(Icons.chevron_right, color: Colors.white, size: 24),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, color: Colors.white, size: 20),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
+                  onPressed: () {
+                    ref.read(hideConnectYTMusicBannerProvider.notifier).dismiss();
+                  },
+                ),
               ],
             ),
           ),

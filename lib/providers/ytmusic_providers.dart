@@ -136,6 +136,35 @@ class YTMusicAuthNotifier extends StateNotifier<YTMusicAuthState> {
   }
 }
 
+/// Provider for whether the "Connect YouTube Music" banner on Home tab has been permanently dismissed
+final hideConnectYTMusicBannerProvider =
+    StateNotifierProvider<HideConnectYTMusicBannerNotifier, bool>((ref) {
+  return HideConnectYTMusicBannerNotifier();
+});
+
+class HideConnectYTMusicBannerNotifier extends StateNotifier<bool> {
+  static const String _prefKey = 'hide_ytmusic_connect_banner';
+
+  HideConnectYTMusicBannerNotifier() : super(false) {
+    _loadState();
+  }
+
+  Future<void> _loadState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      state = prefs.getBool(_prefKey) ?? false;
+    } catch (_) {}
+  }
+
+  Future<void> dismiss() async {
+    state = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefKey, true);
+    } catch (_) {}
+  }
+}
+
 // ============ LIBRARY PROVIDERS ============
 
 /// Liked songs from YT Music (keepAlive to avoid refetching)

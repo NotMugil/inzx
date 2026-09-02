@@ -2435,6 +2435,55 @@ class AudioPlayerService {
     }
   }
 
+  /// Start radio mode based on a track.
+  /// If the track is already playing or loaded, it keeps playing seamlessly without restarting from 0:00,
+  /// clears subsequent queue items, turns on radio mode, and fetches recommendations in background.
+  Future<void> startRadio(Track track) async {
+    final isCurrentTrack = _currentTrack?.id == track.id;
+    final hasActiveSource = _player.processingState != ProcessingState.idle &&
+        _player.audioSource != null;
+
+    if (isCurrentTrack && hasActiveSource) {
+      if (kDebugMode) {
+        print(
+          'AudioPlayerService: Starting radio for currently playing track ${track.title} without restart',
+        );
+      }
+      _isRadioMode = true;
+      _radioSourceTrackId = track.id;
+      _radioFetchedIds.clear();
+      _radioFetchedIds.add(track.id);
+      _radioFetchCount = 0;
+
+      // Keep only the current playing track in queue
+      _queue = [_currentTrack!];
+      _originalQueue = [_currentTrack!];
+      _currentIndex = 0;
+      _queueRevision++;
+      _queueSourceId = null;
+      _queueSourceTitle = null;
+
+      _updateState(
+        queue: _queue,
+        queueRevision: _queueRevision,
+        currentIndex: _currentIndex,
+        currentTrack: _currentTrack,
+        queueSourceId: null,
+        queueTitle: null,
+        resetQueueTitle: true,
+        isRadioMode: true,
+        isFetchingRadio: false,
+      );
+
+      _saveQueueDebounced();
+
+      // Immediately fetch upcoming radio tracks in background
+      unawaited(_fetchRadioTracks());
+    } else {
+      await playTrack(track, enableRadio: true);
+    }
+  }
+
   /// Play a single track (enables YouTube Radio mode by default)
   /// When radio mode is on, related tracks are auto-fetched when queue runs low
   Future<void> playTrack(Track track, {bool enableRadio = true}) async {

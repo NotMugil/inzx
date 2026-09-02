@@ -1,13 +1,13 @@
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/design_system/design_system.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
-import '../../services/download_service.dart';
 import 'package:marquee/marquee.dart';
 
 
@@ -195,11 +195,18 @@ class MusicMiniPlayer extends ConsumerWidget {
         final foregroundColor = textColors.primary;
         final secondaryColor = textColors.secondary;
 
-        return BouncyTouch(
-          style: BouncyStyle.card,
-          customScale: 0.985,
-          onTap: onTap,
-          child: Padding(
+        return Dismissible(
+          key: ValueKey('mini_player_${track.id}'),
+          direction: DismissDirection.down,
+          onDismissed: (_) {
+            HapticFeedback.mediumImpact();
+            ref.read(audioPlayerServiceProvider).clearQueue();
+          },
+          child: BouncyTouch(
+            style: BouncyStyle.card,
+            customScale: 0.985,
+            onTap: onTap,
+            child: Padding(
             padding: const EdgeInsets.fromLTRB(10, 4, 10, 14),
             child: Container(
               decoration: BoxDecoration(
@@ -407,7 +414,8 @@ class MusicMiniPlayer extends ConsumerWidget {
               ),
             ),
           ),
-        );
+        ),
+      );
       },
       loading: () => const SizedBox.shrink(),
       error: (_, _) => const SizedBox.shrink(),

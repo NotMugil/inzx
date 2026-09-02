@@ -712,7 +712,7 @@ class _ArtistContent extends ConsumerWidget {
 
               _buildActionButton(context, Icons.radio, l10n.radio, () {
                 if (topTracks.isNotEmpty) {
-                  playerService.playTrack(topTracks.first, enableRadio: true);
+                  playerService.startRadio(topTracks.first);
                 }
               }),
             ],
@@ -1559,9 +1559,8 @@ class _ArtistContent extends ConsumerWidget {
                                       onTap: () {
                                         Navigator.pop(ctx);
                                         if (topTracks.isNotEmpty) {
-                                          playerService.playTrack(
+                                          playerService.startRadio(
                                             topTracks.first,
-                                            enableRadio: true,
                                           );
                                         }
                                       },
