@@ -133,13 +133,20 @@ class _CircularAlbumArtWithProgress extends ConsumerWidget {
 }
 
 /// Floating glassmorphic capsule MiniPlayer widget
-class MusicMiniPlayer extends ConsumerWidget {
+class MusicMiniPlayer extends ConsumerStatefulWidget {
   final VoidCallback onTap;
 
   const MusicMiniPlayer({super.key, required this.onTap});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MusicMiniPlayer> createState() => _MusicMiniPlayerState();
+}
+
+class _MusicMiniPlayerState extends ConsumerState<MusicMiniPlayer> {
+  String? _dismissedTrackId;
+
+  @override
+  Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colorScheme = Theme.of(context).colorScheme;
     final playbackState = ref.watch(playbackStateProvider);
@@ -149,10 +156,17 @@ class MusicMiniPlayer extends ConsumerWidget {
     return playbackState.when(
       data: (state) {
         if (state.currentTrack == null) {
+          _dismissedTrackId = null;
           return const SizedBox.shrink();
         }
 
         final track = state.currentTrack!;
+        if (_dismissedTrackId == track.id) {
+          return const SizedBox.shrink();
+        } else if (_dismissedTrackId != null && _dismissedTrackId != track.id) {
+          _dismissedTrackId = null;
+        }
+
         final hasAlbumColors = !albumColors.isDefault;
 
         // Accent for progress ring & primary play button
@@ -199,13 +213,16 @@ class MusicMiniPlayer extends ConsumerWidget {
           key: ValueKey('mini_player_${track.id}'),
           direction: DismissDirection.down,
           onDismissed: (_) {
+            setState(() {
+              _dismissedTrackId = track.id;
+            });
             HapticFeedback.mediumImpact();
             ref.read(audioPlayerServiceProvider).clearQueue();
           },
           child: BouncyTouch(
             style: BouncyStyle.card,
             customScale: 0.985,
-            onTap: onTap,
+            onTap: widget.onTap,
             child: Padding(
             padding: const EdgeInsets.fromLTRB(10, 4, 10, 14),
             child: Container(

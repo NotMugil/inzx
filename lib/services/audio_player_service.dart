@@ -96,6 +96,7 @@ class PlaybackState {
 
   PlaybackState copyWith({
     Track? currentTrack,
+    bool resetCurrentTrack = false,
     List<Track>? queue,
     int? currentIndex,
     bool? isPlaying,
@@ -110,6 +111,7 @@ class PlaybackState {
     String? error,
     AudioQuality? audioQuality,
     PlaybackData? currentPlaybackData,
+    bool resetCurrentPlaybackData = false,
     int? queueRevision,
     String? queueSourceId,
     String? queueTitle,
@@ -122,7 +124,7 @@ class PlaybackState {
     int? crossfadeDurationMs,
   }) {
     return PlaybackState(
-      currentTrack: currentTrack ?? this.currentTrack,
+      currentTrack: resetCurrentTrack ? null : (currentTrack ?? this.currentTrack),
       queue: queue ?? this.queue,
       queueRevision: queueRevision ?? this.queueRevision,
       currentIndex: currentIndex ?? this.currentIndex,
@@ -137,7 +139,9 @@ class PlaybackState {
       shuffleEnabled: shuffleEnabled ?? this.shuffleEnabled,
       error: error,
       audioQuality: audioQuality ?? this.audioQuality,
-      currentPlaybackData: currentPlaybackData ?? this.currentPlaybackData,
+      currentPlaybackData: resetCurrentPlaybackData
+          ? null
+          : (currentPlaybackData ?? this.currentPlaybackData),
       queueSourceId: queueSourceId ?? this.queueSourceId,
       queueTitle: resetQueueTitle ? null : (queueTitle ?? this.queueTitle),
       isRadioMode: isRadioMode ?? this.isRadioMode,
@@ -2374,6 +2378,7 @@ class AudioPlayerService {
 
   void _updateState({
     Track? currentTrack,
+    bool resetCurrentTrack = false,
     List<Track>? queue,
     int? currentIndex,
     bool? isPlaying,
@@ -2388,6 +2393,7 @@ class AudioPlayerService {
     String? error,
     AudioQuality? audioQuality,
     PlaybackData? currentPlaybackData,
+    bool resetCurrentPlaybackData = false,
     int? queueRevision,
     String? queueSourceId,
     String? queueTitle,
@@ -2399,8 +2405,16 @@ class AudioPlayerService {
     int? streamCacheMaxConcurrent,
     int? crossfadeDurationMs,
   }) {
+    final shouldResetCurrentTrack =
+        resetCurrentTrack || (currentTrack == null && _currentTrack == null);
+    final shouldResetPlaybackData =
+        resetCurrentPlaybackData ||
+        (currentPlaybackData == null && _currentPlaybackData == null);
+
     final newState = _stateController.value.copyWith(
-      currentTrack: currentTrack ?? _currentTrack,
+      currentTrack:
+          shouldResetCurrentTrack ? null : (currentTrack ?? _currentTrack),
+      resetCurrentTrack: shouldResetCurrentTrack,
       queue: queue ?? _queue,
       queueRevision: queueRevision, // Passed explicitly when queue changes
       currentIndex: currentIndex ?? _currentIndex,
@@ -2415,7 +2429,10 @@ class AudioPlayerService {
       shuffleEnabled: shuffleEnabled ?? _shuffleEnabled,
       error: error,
       audioQuality: audioQuality ?? _audioQuality,
-      currentPlaybackData: currentPlaybackData ?? _currentPlaybackData,
+      currentPlaybackData: shouldResetPlaybackData
+          ? null
+          : (currentPlaybackData ?? _currentPlaybackData),
+      resetCurrentPlaybackData: shouldResetPlaybackData,
       queueSourceId: queueSourceId ?? _queueSourceId,
       queueTitle: resetQueueTitle ? null : (queueTitle ?? _queueSourceTitle),
       resetQueueTitle: resetQueueTitle,
@@ -2778,6 +2795,12 @@ class AudioPlayerService {
       queueRevision: _queueRevision,
       currentIndex: _currentIndex,
       currentTrack: null,
+      resetCurrentTrack: true,
+      currentPlaybackData: null,
+      resetCurrentPlaybackData: true,
+      isPlaying: false,
+      isBuffering: false,
+      isLoading: false,
     );
     // Clear persisted queue when explicitly cleared
     QueuePersistenceService.clearQueue();
