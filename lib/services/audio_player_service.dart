@@ -10,6 +10,7 @@ import 'package:rxdart/rxdart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
 import 'playback/playback.dart';
+import 'jiosaavn/jiosaavn_service.dart';
 import 'ytmusic_api_service.dart';
 import 'queue_persistence_service.dart';
 import 'lyrics/lyrics_service.dart';
@@ -21,6 +22,8 @@ const String kStreamCacheWifiOnlyKey = 'stream_cache_wifi_only';
 const String kStreamCacheSizeLimitMbKey = 'stream_cache_size_limit_mb';
 const String kStreamCacheMaxConcurrentKey = 'stream_cache_max_concurrent';
 const String kCrossfadeDurationMsKey = 'crossfade_duration_ms';
+const String kShowNerdStatsKey = 'show_nerd_stats';
+const String kJioSaavnEnabledKey = 'jiosaavn_enabled';
 const int kDefaultStreamCacheSizeLimitMb = 1024;
 const int kMinStreamCacheSizeLimitMb = 128;
 const int kMaxStreamCacheSizeLimitMb = 4096;
@@ -66,6 +69,8 @@ class PlaybackState {
   final int streamCacheSizeLimitMb;
   final int streamCacheMaxConcurrent;
   final int crossfadeDurationMs;
+  final bool showNerdStats;
+  final bool jioSaavnEnabled;
 
   const PlaybackState({
     this.currentTrack,
@@ -92,6 +97,8 @@ class PlaybackState {
     this.streamCacheSizeLimitMb = kDefaultStreamCacheSizeLimitMb,
     this.streamCacheMaxConcurrent = kDefaultStreamCacheMaxConcurrent,
     this.crossfadeDurationMs = kDefaultCrossfadeDurationMs,
+    this.showNerdStats = false,
+    this.jioSaavnEnabled = true,
   });
 
   PlaybackState copyWith({
@@ -122,6 +129,8 @@ class PlaybackState {
     int? streamCacheSizeLimitMb,
     int? streamCacheMaxConcurrent,
     int? crossfadeDurationMs,
+    bool? showNerdStats,
+    bool? jioSaavnEnabled,
   }) {
     return PlaybackState(
       currentTrack: resetCurrentTrack ? null : (currentTrack ?? this.currentTrack),
@@ -152,6 +161,8 @@ class PlaybackState {
       streamCacheMaxConcurrent:
           streamCacheMaxConcurrent ?? this.streamCacheMaxConcurrent,
       crossfadeDurationMs: crossfadeDurationMs ?? this.crossfadeDurationMs,
+      showNerdStats: showNerdStats ?? this.showNerdStats,
+      jioSaavnEnabled: jioSaavnEnabled ?? this.jioSaavnEnabled,
     );
   }
 
@@ -170,10 +181,28 @@ class PlaybackState {
 
   /// Current stream quality info
   String get qualityInfo {
-    if (currentPlaybackData == null) return '';
-    final format = currentPlaybackData!.format;
-    final kbps = (format.bitrate / 1000).round();
-    return '${format.codecs ?? format.mimeType.split('/').last} ${kbps}kbps';
+    if (currentPlaybackData != null) {
+      return currentPlaybackData!.statsSummary;
+    }
+    if (currentTrack?.localFilePath != null) {
+      final path = currentTrack!.localFilePath!.toLowerCase();
+      String codec = '';
+      if (path.endsWith('.mp3')) {
+        codec = 'MP3 • ';
+      } else if (path.endsWith('.flac')) {
+        codec = 'FLAC • ';
+      } else if (path.endsWith('.m4a') || path.endsWith('.aac')) {
+        codec = 'AAC • ';
+      } else if (path.endsWith('.opus')) {
+        codec = 'Opus • ';
+      } else if (path.endsWith('.wav')) {
+        codec = 'WAV • ';
+      } else if (path.endsWith('.ogg')) {
+        codec = 'OGG • ';
+      }
+      return '${codec}Local';
+    }
+    return '';
   }
 
   @override
@@ -200,13 +229,16 @@ class PlaybackState {
         other.streamCacheWifiOnly == streamCacheWifiOnly &&
         other.streamCacheSizeLimitMb == streamCacheSizeLimitMb &&
         other.streamCacheMaxConcurrent == streamCacheMaxConcurrent &&
-        other.crossfadeDurationMs == crossfadeDurationMs;
+        other.crossfadeDurationMs == crossfadeDurationMs &&
+        other.showNerdStats == showNerdStats &&
+        other.jioSaavnEnabled == jioSaavnEnabled &&
+        other.currentPlaybackData == currentPlaybackData;
     // NOTE: position and bufferedPosition intentionally excluded
     // to prevent rebuilds on every position update
   }
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     currentTrack?.id,
     currentIndex,
     queueRevision, // Include queue revision
@@ -227,7 +259,10 @@ class PlaybackState {
     streamCacheSizeLimitMb,
     streamCacheMaxConcurrent,
     crossfadeDurationMs,
-  );
+    showNerdStats,
+    jioSaavnEnabled,
+    currentPlaybackData,
+  ]);
 }
 
 /// OuterTune-style Audio Player Service
@@ -256,6 +291,8 @@ class AudioPlayerService {
     // Load persisted streaming quality
     _loadStreamingQuality();
     _loadStreamCacheSettings();
+    _loadNerdStatsSetting();
+    _loadJioSaavnSetting();
     // Load persisted queue from previous session
     _loadPersistedQueue();
   }
@@ -311,6 +348,11 @@ class AudioPlayerService {
   int _streamCacheSizeLimitMb = kDefaultStreamCacheSizeLimitMb;
   int _streamCacheMaxConcurrent = kDefaultStreamCacheMaxConcurrent;
   int _crossfadeDurationMs = kDefaultCrossfadeDurationMs;
+  bool _showNerdStats = false;
+  bool get showNerdStats => _showNerdStats;
+  bool _jioSaavnEnabled = true;
+  bool get jioSaavnEnabled => _jioSaavnEnabled;
+  int _upgradeSessionId = 0;
   String?
   _queueSourceId; // Track which playlist/album/artist started this queue
   String?
@@ -527,6 +569,60 @@ class AudioPlayerService {
         print(
           'AudioPlayerService: Failed to persist crossfade duration setting: $e',
         );
+      }
+    }
+  }
+
+  /// Load Stats for nerds preference
+  Future<void> _loadNerdStatsSetting() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _showNerdStats = prefs.getBool(kShowNerdStatsKey) ?? false;
+      _updateState(showNerdStats: _showNerdStats);
+    } catch (e) {
+      if (kDebugMode) {
+        print('AudioPlayerService: Failed to load nerd stats setting: $e');
+      }
+    }
+  }
+
+  /// Toggle Stats for nerds preference
+  Future<void> setShowNerdStats(bool enabled) async {
+    _showNerdStats = enabled;
+    _updateState(showNerdStats: enabled);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(kShowNerdStatsKey, enabled);
+    } catch (e) {
+      if (kDebugMode) {
+        print('AudioPlayerService: Failed to persist nerd stats setting: $e');
+      }
+    }
+  }
+
+  /// Load JioSaavn source preference
+  Future<void> _loadJioSaavnSetting() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _jioSaavnEnabled = prefs.getBool(kJioSaavnEnabledKey) ?? true;
+      _updateState(jioSaavnEnabled: _jioSaavnEnabled);
+    } catch (e) {
+      if (kDebugMode) {
+        print('AudioPlayerService: Failed to load JioSaavn setting: $e');
+      }
+    }
+  }
+
+  /// Toggle JioSaavn source preference
+  Future<void> setJioSaavnEnabled(bool enabled) async {
+    _jioSaavnEnabled = enabled;
+    _updateState(jioSaavnEnabled: enabled);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(kJioSaavnEnabledKey, enabled);
+    } catch (e) {
+      if (kDebugMode) {
+        print('AudioPlayerService: Failed to persist JioSaavn setting: $e');
       }
     }
   }
@@ -1965,6 +2061,9 @@ class AudioPlayerService {
       _saveQueueDebounced();
       _prefetchNextTrack();
       _scheduleLyricsPrefetchAroundCurrent();
+      if (_currentTrack != null) {
+        unawaited(_upgradeTrackQualityIfPossible(_currentTrack!));
+      }
     });
 
     player.positionStream.listen((position) {
@@ -2404,6 +2503,8 @@ class AudioPlayerService {
     int? streamCacheSizeLimitMb,
     int? streamCacheMaxConcurrent,
     int? crossfadeDurationMs,
+    bool? showNerdStats,
+    bool? jioSaavnEnabled,
   }) {
     final shouldResetCurrentTrack =
         resetCurrentTrack || (currentTrack == null && _currentTrack == null);
@@ -2443,6 +2544,8 @@ class AudioPlayerService {
       streamCacheMaxConcurrent:
           streamCacheMaxConcurrent ?? _streamCacheMaxConcurrent,
       crossfadeDurationMs: crossfadeDurationMs ?? _crossfadeDurationMs,
+      showNerdStats: showNerdStats ?? _showNerdStats,
+      jioSaavnEnabled: jioSaavnEnabled ?? _jioSaavnEnabled,
     );
 
     // Only emit if state actually changed (using == that excludes position)
@@ -2920,6 +3023,54 @@ class AudioPlayerService {
         }
       }
 
+      // Check if JioSaavn stream is already cached (e.g. from prefetch)
+      if (_jioSaavnEnabled &&
+          (_audioQuality == AudioQuality.high ||
+              _audioQuality == AudioQuality.max ||
+              _audioQuality == AudioQuality.auto)) {
+        final cachedSaavnStream =
+            JioSaavnService.instance.getCachedStream(trackId);
+        if (cachedSaavnStream != null && cachedSaavnStream.bitrateKbps >= 320) {
+          if (kDebugMode) {
+            print('AudioPlayerService: Playing prefetched JioSaavn 320kbps stream');
+          }
+          final saavnPlaybackData = PlaybackData(
+            streamUrl: cachedSaavnStream.streamUrl,
+            format: AudioFormat(
+              mimeType: 'audio/mp4',
+              bitrate: cachedSaavnStream.bitrateKbps * 1000,
+              codecs: 'mp4a.40.2',
+            ),
+            streamExpiresInSeconds: 86400,
+            fetchedAt: DateTime.now(),
+            audioSource: 'JioSaavn',
+          );
+          _currentPlaybackData = saavnPlaybackData;
+          _activeSourceQueueIndices = <int>[_currentIndex];
+          _activeSourcePlaybackDataByQueueIndex = <int, PlaybackData>{
+            _currentIndex: saavnPlaybackData,
+          };
+          final saavnSource = AudioSource.uri(
+            Uri.parse(cachedSaavnStream.streamUrl),
+            tag: _currentTrack,
+          );
+          await _player.setAudioSource(saavnSource, preload: true);
+          if (_pendingSeekPosition != null &&
+              _pendingSeekTrackId == _currentTrack!.id) {
+            await _player.seek(_pendingSeekPosition);
+            _positionController.add(_pendingSeekPosition!);
+            _updateState(position: _pendingSeekPosition);
+            _pendingSeekPosition = null;
+            _pendingSeekTrackId = null;
+          }
+          await _player.play();
+          _updateState(isLoading: false, currentPlaybackData: saavnPlaybackData);
+          _prefetchNextTrack();
+          unawaited(_enforceAudioCacheLimit());
+          return;
+        }
+      }
+
       // Check if URL is already cached (should be instant if prefetched)
       final hasCached = _ytPlayerUtils.hasCachedData(trackId);
       if (hasCached) {
@@ -3048,6 +3199,11 @@ class AudioPlayerService {
       // Prefetch next track while current plays
       _prefetchNextTrack();
       unawaited(_enforceAudioCacheLimit());
+
+      // Attempt seamless upgrade to JioSaavn 320kbps in background
+      if (_currentTrack != null) {
+        unawaited(_upgradeTrackQualityIfPossible(_currentTrack!));
+      }
     } catch (e) {
       unawaited(_player.setVolume(1.0));
       if (kDebugMode) {
@@ -3079,12 +3235,129 @@ class AudioPlayerService {
         ),
       );
 
+      // Prefetch JioSaavn 320kbps stream in background if enabled
+      if (_jioSaavnEnabled &&
+          (_audioQuality == AudioQuality.high ||
+              _audioQuality == AudioQuality.max ||
+              _audioQuality == AudioQuality.auto)) {
+        unawaited(JioSaavnService.instance.getBestStreamForTrack(nextTrack));
+      }
+
       // Pre-extract colors for upcoming tracks so song change is instant 0ms
       for (int i = 1; i <= 3 && (_currentIndex + i) < _queue.length; i++) {
         final t = _queue[_currentIndex + i];
         if (t.thumbnailUrl != null) {
           unawaited(AlbumColorExtractor.extractFromUrl(t.thumbnailUrl));
         }
+      }
+    }
+  }
+
+  /// Seamlessly upgrade the current playing track to JioSaavn 320kbps if available
+  Future<void> _upgradeTrackQualityIfPossible(Track track) async {
+    final sessionId = ++_upgradeSessionId;
+
+    if (!_jioSaavnEnabled) return;
+
+    // Respect data saver quality preferences
+    if (_audioQuality == AudioQuality.low ||
+        _audioQuality == AudioQuality.medium) {
+      return;
+    }
+
+    // Do not attempt upgrade for local files
+    if (track.localFilePath != null) return;
+
+    // Already playing JioSaavn at 320kbps
+    if (_currentPlaybackData?.audioSource == 'JioSaavn' &&
+        (_currentPlaybackData?.bitrateKbps ?? 0) >= 320) {
+      return;
+    }
+
+    try {
+      final saavnStream =
+          await JioSaavnService.instance.getBestStreamForTrack(track);
+
+      // User changed track or queue in the meantime
+      if (sessionId != _upgradeSessionId || _currentTrack?.id != track.id) {
+        return;
+      }
+
+      if (saavnStream == null) {
+        if (kDebugMode) {
+          print(
+            'AudioPlayerService: No matching JioSaavn stream found for "${track.title}"',
+          );
+        }
+        return;
+      }
+
+      // If current bitrate is already higher or equal to this stream
+      final currentBitrate = _currentPlaybackData?.bitrateKbps ?? 0;
+      if (_currentPlaybackData?.audioSource == 'JioSaavn' &&
+          currentBitrate >= saavnStream.bitrateKbps) {
+        return;
+      }
+
+      if (kDebugMode) {
+        print(
+          'AudioPlayerService: Upgrading "${track.title}" to JioSaavn ${saavnStream.bitrateKbps}kbps (${saavnStream.streamUrl})',
+        );
+      }
+
+      final wasPlaying = _player.playing;
+      final currentPos = _player.position;
+
+      final upgradedPlaybackData = PlaybackData(
+        streamUrl: saavnStream.streamUrl,
+        format: AudioFormat(
+          mimeType: 'audio/mp4',
+          bitrate: saavnStream.bitrateKbps * 1000,
+          codecs: 'mp4a.40.2',
+        ),
+        streamExpiresInSeconds: 86400,
+        fetchedAt: DateTime.now(),
+        audioSource: 'JioSaavn',
+      );
+
+      final newSource = AudioSource.uri(
+        Uri.parse(saavnStream.streamUrl),
+        tag: track,
+      );
+
+      // Hot-swap player audio source at current position
+      await _player.setAudioSource(
+        newSource,
+        initialPosition: currentPos,
+        preload: true,
+      );
+
+      if (sessionId != _upgradeSessionId || _currentTrack?.id != track.id) {
+        return;
+      }
+
+      if (wasPlaying && !_player.playing) {
+        await _player.play();
+      }
+
+      _currentPlaybackData = upgradedPlaybackData;
+      _activeSourcePlaybackDataByQueueIndex = <int, PlaybackData>{
+        _currentIndex: upgradedPlaybackData,
+      };
+
+      _updateState(
+        currentPlaybackData: upgradedPlaybackData,
+        isPlaying: _player.playing,
+      );
+
+      if (kDebugMode) {
+        print(
+          'AudioPlayerService: Successfully upgraded "${track.title}" to JioSaavn at ${currentPos.inSeconds}s',
+        );
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('AudioPlayerService: Quality upgrade failed gracefully: $e');
       }
     }
   }

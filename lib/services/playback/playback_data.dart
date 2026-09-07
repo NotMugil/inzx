@@ -36,10 +36,35 @@ class AudioFormat {
   });
 
   /// Check if this is an Opus format (preferred)
-  bool get isOpus => mimeType.contains('opus') || mimeType.contains('webm');
+  bool get isOpus =>
+      mimeType.contains('opus') ||
+      mimeType.contains('webm') ||
+      (codecs != null && codecs!.toLowerCase().contains('opus'));
 
   /// Check if this is AAC format
-  bool get isAac => mimeType.contains('mp4') || mimeType.contains('m4a');
+  bool get isAac =>
+      mimeType.contains('mp4') ||
+      mimeType.contains('m4a') ||
+      (codecs != null &&
+          (codecs!.toLowerCase().contains('mp4a') ||
+              codecs!.toLowerCase().contains('aac')));
+
+  /// Clean user-friendly codec name (e.g. "Opus", "AAC", "FLAC", "MP3")
+  String get codecName {
+    final lowerMime = mimeType.toLowerCase();
+    final lowerCodecs = codecs?.toLowerCase() ?? '';
+    if (isOpus) return 'Opus';
+    if (isAac) return 'AAC';
+    if (lowerMime.contains('flac') || lowerCodecs.contains('flac')) return 'FLAC';
+    if (lowerMime.contains('mp3') || lowerCodecs.contains('mp3')) return 'MP3';
+    if (lowerMime.contains('ogg') || lowerCodecs.contains('vorbis')) {
+      return 'Vorbis';
+    }
+    if (codecs != null && codecs!.isNotEmpty) {
+      return codecs!.toUpperCase();
+    }
+    return mimeType.split('/').last.toUpperCase();
+  }
 
   /// Quality factor for sorting (higher is better)
   int get qualityFactor {
@@ -183,6 +208,7 @@ class PlaybackData {
   final String streamUrl;
   final int streamExpiresInSeconds;
   final DateTime fetchedAt;
+  final String audioSource;
 
   const PlaybackData({
     this.audioConfig,
@@ -192,7 +218,40 @@ class PlaybackData {
     required this.streamUrl,
     required this.streamExpiresInSeconds,
     required this.fetchedAt,
+    this.audioSource = 'YouTube',
   });
+
+  /// Codec display name (e.g. "Opus", "AAC")
+  String get codecName => format.codecName;
+
+  /// Bitrate in kbps
+  int get bitrateKbps => (format.bitrate / 1000).round();
+
+  /// Formatted stats for nerds summary (e.g. "AAC • 320 kbps • JioSaavn")
+  String get statsSummary => '$codecName • $bitrateKbps kbps • $audioSource';
+
+  PlaybackData copyWith({
+    AudioConfig? audioConfig,
+    VideoDetails? videoDetails,
+    PlaybackTracking? playbackTracking,
+    AudioFormat? format,
+    String? streamUrl,
+    int? streamExpiresInSeconds,
+    DateTime? fetchedAt,
+    String? audioSource,
+  }) {
+    return PlaybackData(
+      audioConfig: audioConfig ?? this.audioConfig,
+      videoDetails: videoDetails ?? this.videoDetails,
+      playbackTracking: playbackTracking ?? this.playbackTracking,
+      format: format ?? this.format,
+      streamUrl: streamUrl ?? this.streamUrl,
+      streamExpiresInSeconds:
+          streamExpiresInSeconds ?? this.streamExpiresInSeconds,
+      fetchedAt: fetchedAt ?? this.fetchedAt,
+      audioSource: audioSource ?? this.audioSource,
+    );
+  }
 
   /// Check if stream URL is still valid
   bool get isValid {

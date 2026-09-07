@@ -50,7 +50,13 @@ class LocalMusicFoldersNotifier extends StateNotifier<List<String>> {
   Future<void> _loadPersisted() async {
     try {
       final box = HiveService.localMusicFoldersBox;
-      state = box.values.toList();
+      final rawFolders = box.values.toList();
+      final validFolders =
+          rawFolders.where((p) => Directory(p).existsSync()).toList();
+      state = validFolders;
+      if (validFolders.length != rawFolders.length) {
+        await _persist();
+      }
     } catch (e) {
       if (kDebugMode) {
         print('LocalMusicFoldersNotifier: Load error: $e');
@@ -100,11 +106,66 @@ class LocalTracksNotifier extends StateNotifier<List<Track>> {
   Future<void> _loadPersisted() async {
     try {
       final box = HiveService.localMusicTracksBox;
-      final tracks = box.values.map(_trackFromEntity).toList();
-      state = tracks;
+      final allTracks = box.values.map(_trackFromEntity).toList();
+      final validTracks = <Track>[];
+      final missingIds = <String>[];
+
+      for (final track in allTracks) {
+        final filePath = track.localFilePath;
+        if (filePath != null &&
+            filePath.isNotEmpty &&
+            File(filePath).existsSync()) {
+          validTracks.add(track);
+        } else {
+          missingIds.add(track.id);
+        }
+      }
+
+      state = validTracks;
+      if (missingIds.isNotEmpty) {
+        await box.deleteAll(missingIds);
+        if (kDebugMode) {
+          print(
+            'LocalTracksNotifier: Pruned ${missingIds.length} missing tracks from Hive',
+          );
+        }
+      }
     } catch (e) {
       if (kDebugMode) {
         print('LocalTracksNotifier: Load error: $e');
+      }
+    }
+  }
+
+  /// Prune tracks whose files no longer exist on disk
+  Future<void> pruneMissingFiles() async {
+    final validTracks = <Track>[];
+    final missingIds = <String>[];
+
+    for (final track in state) {
+      final filePath = track.localFilePath;
+      if (filePath != null &&
+          filePath.isNotEmpty &&
+          File(filePath).existsSync()) {
+        validTracks.add(track);
+      } else {
+        missingIds.add(track.id);
+      }
+    }
+
+    if (missingIds.isNotEmpty) {
+      state = validTracks;
+      try {
+        await HiveService.localMusicTracksBox.deleteAll(missingIds);
+        if (kDebugMode) {
+          print(
+            'LocalTracksNotifier: pruneMissingFiles pruned ${missingIds.length} tracks',
+          );
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('LocalTracksNotifier: pruneMissingFiles error: $e');
+        }
       }
     }
   }
@@ -118,6 +179,102 @@ class LocalTracksNotifier extends StateNotifier<List<Track>> {
     }
   }
 
+  /// Syncs a specific folder with fresh scanned tracks, removing deleted/moved files
+  Future<void> syncFolderTracks(
+    String folderPath,
+    List<Track> freshTracks,
+  ) async {
+    final normalizedFolder = _normalizePath(folderPath);
+    final folderWithSep = '$normalizedFolder/';
+
+    final removedIds = <String>[];
+    final otherTracks = <Track>[];
+
+    for (final track in state) {
+      final filePath = track.localFilePath;
+      if (filePath == null || filePath.isEmpty) {
+        otherTracks.add(track);
+        continue;
+      }
+      final normalizedFile = _normalizePath(filePath);
+      final isInFolder =
+          normalizedFile == normalizedFolder ||
+          normalizedFile.startsWith(folderWithSep);
+
+      if (isInFolder) {
+        removedIds.add(track.id);
+      } else {
+        otherTracks.add(track);
+      }
+    }
+
+    state = [...otherTracks, ...freshTracks];
+
+    try {
+      final box = HiveService.localMusicTracksBox;
+      if (removedIds.isNotEmpty) {
+        await box.deleteAll(removedIds);
+      }
+      if (freshTracks.isNotEmpty) {
+        final entities = {for (final t in freshTracks) t.id: _trackToEntity(t)};
+        await box.putAll(entities);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('LocalTracksNotifier: syncFolderTracks error: $e');
+      }
+    }
+  }
+
+  /// Replaces tracks for all given folders with fresh tracks, removing deleted/moved files
+  Future<void> syncAllFolders(
+    List<String> folders,
+    List<Track> allScannedTracks,
+  ) async {
+    final normalizedFolders = folders.map(_normalizePath).toList();
+
+    final remaining = <Track>[];
+    final removedIds = <String>[];
+
+    for (final track in state) {
+      final filePath = track.localFilePath;
+      if (filePath == null || filePath.isEmpty) {
+        remaining.add(track);
+        continue;
+      }
+      final normalizedFile = _normalizePath(filePath);
+      final isInTrackedFolder = normalizedFolders.any((f) {
+        final fWithSep = '$f/';
+        return normalizedFile == f || normalizedFile.startsWith(fWithSep);
+      });
+
+      if (isInTrackedFolder) {
+        removedIds.add(track.id);
+      } else {
+        remaining.add(track);
+      }
+    }
+
+    state = [...remaining, ...allScannedTracks];
+
+    try {
+      final box = HiveService.localMusicTracksBox;
+      if (removedIds.isNotEmpty) {
+        await box.deleteAll(removedIds);
+      }
+      if (allScannedTracks.isNotEmpty) {
+        final entities = {
+          for (final t in allScannedTracks) t.id: _trackToEntity(t),
+        };
+        await box.putAll(entities);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('LocalTracksNotifier: syncAllFolders error: $e');
+      }
+    }
+  }
+
   void clear() {
     state = [];
     HiveService.localMusicTracksBox.clear();
@@ -125,9 +282,7 @@ class LocalTracksNotifier extends StateNotifier<List<Track>> {
 
   void removeTracksInFolder(String folderPath) {
     final normalizedFolder = _normalizePath(folderPath);
-    final folderWithSep = normalizedFolder.endsWith(Platform.pathSeparator)
-        ? normalizedFolder
-        : '$normalizedFolder${Platform.pathSeparator}';
+    final folderWithSep = '$normalizedFolder/';
 
     final removedIds = <String>[];
     final remaining = <Track>[];
@@ -401,7 +556,7 @@ Track _trackFromEntity(TrackEntity entity) {
 }
 
 String _normalizePath(String path) {
-  return path.replaceAll('\\', Platform.pathSeparator);
+  return path.replaceAll('\\', '/').replaceAll(RegExp(r'/+$'), '');
 }
 
 /// Request data for isolate file discovery

@@ -48,6 +48,7 @@ dependencies:
 
   # YouTube Music InnerTube API
   crypto: ^3.0.6 # For SAPISIDHASH generation
+  pointycastle: ^4.0.0 # For JioSaavn DES URL decryption
   webview_flutter: ^4.10.0 # For YT Music login
   share_plus: ^12.0.1
   file_picker: ^10.3.8

@@ -20,6 +20,14 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
   bool _isSyncing = false;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(localTracksProvider.notifier).pruneMissingFiles();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colorScheme = Theme.of(context).colorScheme;
@@ -735,7 +743,10 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
 
     if (mounted) {
       setState(() => _isSyncing = false);
-      ref.read(localTracksProvider.notifier).addTracks(tracks);
+      await ref
+          .read(localTracksProvider.notifier)
+          .syncFolderTracks(path, tracks);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(l10n.foundSongsCount(tracks.length)),
@@ -772,7 +783,10 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
 
     if (mounted) {
       setState(() => _isSyncing = false);
-      ref.read(localTracksProvider.notifier).addTracks(allTracks);
+      await ref
+          .read(localTracksProvider.notifier)
+          .syncAllFolders(folders, allTracks);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(

@@ -35,6 +35,8 @@ class AudioSettingsScreen extends ConsumerWidget {
     );
     final crossfadeDurationMs = ref.watch(crossfadeDurationMsProvider);
     final streamCacheUsageAsync = ref.watch(streamAudioCacheUsageBytesProvider);
+    final showNerdStats = ref.watch(showNerdStatsProvider);
+    final jioSaavnEnabled = ref.watch(jioSaavnEnabledProvider);
     final playerService = ref.watch(audioPlayerServiceProvider);
 
     return Scaffold(
@@ -89,7 +91,7 @@ class AudioSettingsScreen extends ConsumerWidget {
             quality: AudioQuality.auto,
             currentQuality: currentQuality,
             title: l10n.qualityAutoChip,
-            subtitle: l10n.adjustsBasedOnNetworkSpeed,
+            subtitle: 'Adapts automatically to network connection',
             icon: Iconsax.autobrightness,
             onTap: () => playerService.setAudioQuality(AudioQuality.auto),
           ),
@@ -102,7 +104,7 @@ class AudioSettingsScreen extends ConsumerWidget {
             quality: AudioQuality.low,
             currentQuality: currentQuality,
             title: l10n.qualityLowChip,
-            subtitle: l10n.qualityLowUsesLessData,
+            subtitle: '~48–64 kbps • Data saver',
             icon: Iconsax.volume_low,
             onTap: () => playerService.setAudioQuality(AudioQuality.low),
           ),
@@ -115,7 +117,7 @@ class AudioSettingsScreen extends ConsumerWidget {
             quality: AudioQuality.medium,
             currentQuality: currentQuality,
             title: l10n.qualityMediumChip,
-            subtitle: l10n.qualityMediumBalanced,
+            subtitle: '~70–128 kbps • Balanced',
             icon: Iconsax.volume_high,
             onTap: () => playerService.setAudioQuality(AudioQuality.medium),
           ),
@@ -128,7 +130,9 @@ class AudioSettingsScreen extends ConsumerWidget {
             quality: AudioQuality.high,
             currentQuality: currentQuality,
             title: l10n.qualityHighChip,
-            subtitle: l10n.qualityHighBestForMost,
+            subtitle: jioSaavnEnabled
+                ? '~160 kbps YouTube • Up to 320 kbps with JioSaavn'
+                : '~160 kbps Opus • Best for most',
             icon: Iconsax.headphones,
             recommended: true,
             onTap: () => playerService.setAudioQuality(AudioQuality.high),
@@ -142,12 +146,42 @@ class AudioSettingsScreen extends ConsumerWidget {
             quality: AudioQuality.max,
             currentQuality: currentQuality,
             title: l10n.qualityMaxChip,
-            subtitle: l10n.qualityMaximumAvailable,
+            subtitle: jioSaavnEnabled
+                ? 'Highest available (320 kbps JioSaavn / 160 kbps YouTube)'
+                : 'Highest available (~160 kbps Opus)',
             icon: Iconsax.sound,
             onTap: () => playerService.setAudioQuality(AudioQuality.max),
           ),
 
           const SizedBox(height: 32),
+
+          // JioSaavn source section
+          Text(
+            'High Quality Sources',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: isDark ? Colors.white : InzxColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Enable external studio-quality sources for matching tracks',
+            style: TextStyle(
+              fontSize: 14,
+              color: isDark ? Colors.white54 : InzxColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _buildJioSaavnSection(
+            context: context,
+            isDark: isDark,
+            accentColor: accentColor,
+            jioSaavnEnabled: jioSaavnEnabled,
+            onChanged: (enabled) async {
+              await playerService.setJioSaavnEnabled(enabled);
+            },
+          ),
 
           Text(
             l10n.crossfadeTransition,
@@ -216,6 +250,214 @@ class AudioSettingsScreen extends ConsumerWidget {
             onMaxConcurrentChanged: (value) async {
               await playerService.setStreamCacheMaxConcurrent(value);
             },
+          ),
+
+          const SizedBox(height: 32),
+
+          // Stats for nerds section
+          Text(
+            'Stats for nerds',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: isDark ? Colors.white : InzxColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Show technical audio bitrate and source details in the player',
+            style: TextStyle(
+              fontSize: 14,
+              color: isDark ? Colors.white54 : InzxColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _buildNerdStatsSection(
+            context: context,
+            isDark: isDark,
+            accentColor: accentColor,
+            showNerdStats: showNerdStats,
+            onChanged: (enabled) async {
+              await playerService.setShowNerdStats(enabled);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCustomSwitch({
+    required bool value,
+    required Color accentColor,
+    required bool isDark,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Switch(
+      value: value,
+      onChanged: onChanged,
+      activeThumbColor: Colors.white,
+      activeTrackColor: accentColor,
+      inactiveThumbColor: isDark ? Colors.white70 : Colors.white,
+      inactiveTrackColor: isDark
+          ? Colors.white.withValues(alpha: 0.16)
+          : Colors.grey.shade300,
+      trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+      trackOutlineWidth: WidgetStateProperty.all(0.0),
+    );
+  }
+
+  Widget _buildJioSaavnSection({
+    required BuildContext context,
+    required bool isDark,
+    required Color accentColor,
+    required bool jioSaavnEnabled,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.05)
+            : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? Colors.white12 : accentColor.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: jioSaavnEnabled
+                  ? accentColor.withValues(alpha: 0.2)
+                  : isDark
+                      ? Colors.white.withValues(alpha: 0.1)
+                      : Colors.grey.shade200,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Opacity(
+                opacity: jioSaavnEnabled ? 1.0 : 0.4,
+                child: Image.asset(
+                  'assets/icon/JioSaavn.png',
+                  width: 40,
+                  height: 40,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Center(
+                    child: Icon(
+                      Iconsax.music_dashboard,
+                      color: jioSaavnEnabled
+                          ? accentColor
+                          : (isDark ? Colors.white54 : Colors.grey.shade600),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'JioSaavn',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white : InzxColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Stream in 320 kbps studio quality',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isDark ? Colors.white54 : InzxColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _buildCustomSwitch(
+            value: jioSaavnEnabled,
+            accentColor: accentColor,
+            isDark: isDark,
+            onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNerdStatsSection({
+    required BuildContext context,
+    required bool isDark,
+    required Color accentColor,
+    required bool showNerdStats,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.05)
+            : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? Colors.white12 : accentColor.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: showNerdStats
+                  ? accentColor.withValues(alpha: 0.2)
+                  : isDark
+                      ? Colors.white.withValues(alpha: 0.1)
+                      : Colors.grey.shade200,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              Iconsax.status,
+              color: showNerdStats
+                  ? accentColor
+                  : (isDark ? Colors.white54 : Colors.grey.shade600),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Stats for nerds',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white : InzxColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Show bitrate and audio source in Now Playing',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isDark ? Colors.white54 : InzxColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _buildCustomSwitch(
+            value: showNerdStats,
+            accentColor: accentColor,
+            isDark: isDark,
+            onChanged: onChanged,
           ),
         ],
       ),

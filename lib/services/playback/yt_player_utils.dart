@@ -557,29 +557,38 @@ class YTPlayerUtils {
       print('YTPlayerUtils: Found ${opusFormats.length} Opus formats');
     }
 
-    // Sort by bitrate based on quality preference
-    double qualityFactor;
+    // Sort formats based on quality preference
     switch (quality) {
       case AudioQuality.low:
-        qualityFactor = 0.3;
+        // Pick lowest bitrate (data saver, ~50kbps)
+        opusFormats.sort((a, b) {
+          final formatA = a['format'] as AudioFormat;
+          final formatB = b['format'] as AudioFormat;
+          return formatA.bitrate.compareTo(formatB.bitrate); // Ascending
+        });
         break;
       case AudioQuality.medium:
-        qualityFactor = 0.6;
+        // Pick medium bitrate (~70kbps)
+        const targetBitrate = 70000;
+        opusFormats.sort((a, b) {
+          final formatA = a['format'] as AudioFormat;
+          final formatB = b['format'] as AudioFormat;
+          final diffA = (formatA.bitrate - targetBitrate).abs();
+          final diffB = (formatB.bitrate - targetBitrate).abs();
+          return diffA.compareTo(diffB);
+        });
         break;
       case AudioQuality.high:
       case AudioQuality.max:
       case AudioQuality.auto:
-        qualityFactor = 1.0;
+        // Pick highest bitrate (~160kbps)
+        opusFormats.sort((a, b) {
+          final formatA = a['format'] as AudioFormat;
+          final formatB = b['format'] as AudioFormat;
+          return formatB.bitrate.compareTo(formatA.bitrate); // Descending
+        });
         break;
     }
-
-    opusFormats.sort((a, b) {
-      final formatA = a['format'] as AudioFormat;
-      final formatB = b['format'] as AudioFormat;
-      final scoreA = (formatA.bitrate * qualityFactor).toInt();
-      final scoreB = (formatB.bitrate * qualityFactor).toInt();
-      return scoreB.compareTo(scoreA);
-    });
 
     final best = opusFormats.first;
     final format = best['format'] as AudioFormat;
@@ -625,29 +634,38 @@ class YTPlayerUtils {
       print('YTPlayerUtils: Found ${aacFormats.length} AAC formats');
     }
 
-    // Sort by bitrate based on quality preference
-    double qualityFactor;
+    // Sort formats based on quality preference
     switch (quality) {
       case AudioQuality.low:
-        qualityFactor = 0.3;
+        // Pick lowest bitrate (~48kbps)
+        aacFormats.sort((a, b) {
+          final formatA = a['format'] as AudioFormat;
+          final formatB = b['format'] as AudioFormat;
+          return formatA.bitrate.compareTo(formatB.bitrate); // Ascending
+        });
         break;
       case AudioQuality.medium:
-        qualityFactor = 0.6;
+        // Pick medium bitrate (~96-128kbps)
+        const targetBitrate = 96000;
+        aacFormats.sort((a, b) {
+          final formatA = a['format'] as AudioFormat;
+          final formatB = b['format'] as AudioFormat;
+          final diffA = (formatA.bitrate - targetBitrate).abs();
+          final diffB = (formatB.bitrate - targetBitrate).abs();
+          return diffA.compareTo(diffB);
+        });
         break;
       case AudioQuality.high:
       case AudioQuality.max:
       case AudioQuality.auto:
-        qualityFactor = 1.0;
+        // Pick highest bitrate (~128kbps)
+        aacFormats.sort((a, b) {
+          final formatA = a['format'] as AudioFormat;
+          final formatB = b['format'] as AudioFormat;
+          return formatB.bitrate.compareTo(formatA.bitrate); // Descending
+        });
         break;
     }
-
-    aacFormats.sort((a, b) {
-      final formatA = a['format'] as AudioFormat;
-      final formatB = b['format'] as AudioFormat;
-      final scoreA = (formatA.bitrate * qualityFactor).toInt();
-      final scoreB = (formatB.bitrate * qualityFactor).toInt();
-      return scoreB.compareTo(scoreA);
-    });
 
     final best = aacFormats.first;
     final format = best['format'] as AudioFormat;
@@ -839,22 +857,47 @@ class YTPlayerUtils {
       print('YTPlayerUtils: Found ${audioFormats.length} audio formats');
     }
 
-    // Calculate quality factor for each format
-    final qualityFactor = _getQualityFactor(quality, isMetered);
+    // Resolve auto quality based on connection
+    final effectiveQuality = (quality == AudioQuality.auto)
+        ? (isMetered ? AudioQuality.medium : AudioQuality.high)
+        : quality;
 
     // Sort by quality preference
-    audioFormats.sort((a, b) {
-      final formatA = a['format'] as AudioFormat;
-      final formatB = b['format'] as AudioFormat;
-
-      // Calculate weighted score
-      final scoreA =
-          formatA.bitrate * qualityFactor + (formatA.isOpus ? 10240 : 0);
-      final scoreB =
-          formatB.bitrate * qualityFactor + (formatB.isOpus ? 10240 : 0);
-
-      return scoreB.compareTo(scoreA); // Descending
-    });
+    switch (effectiveQuality) {
+      case AudioQuality.low:
+        // Lowest bitrate first (Data saver ~48-64kbps)
+        audioFormats.sort((a, b) {
+          final formatA = a['format'] as AudioFormat;
+          final formatB = b['format'] as AudioFormat;
+          return formatA.bitrate.compareTo(formatB.bitrate); // Ascending
+        });
+        break;
+      case AudioQuality.medium:
+        // Target balanced bitrate (~70-128kbps), slight Opus preference
+        const targetBitrate = 96000;
+        audioFormats.sort((a, b) {
+          final formatA = a['format'] as AudioFormat;
+          final formatB = b['format'] as AudioFormat;
+          final diffA = (formatA.bitrate - targetBitrate).abs() -
+              (formatA.isOpus ? 5000 : 0);
+          final diffB = (formatB.bitrate - targetBitrate).abs() -
+              (formatB.isOpus ? 5000 : 0);
+          return diffA.compareTo(diffB);
+        });
+        break;
+      case AudioQuality.high:
+      case AudioQuality.max:
+      case AudioQuality.auto:
+        // Highest bitrate first, prefer Opus for perceptual transparency
+        audioFormats.sort((a, b) {
+          final formatA = a['format'] as AudioFormat;
+          final formatB = b['format'] as AudioFormat;
+          final scoreA = formatA.bitrate + (formatA.isOpus ? 10240 : 0);
+          final scoreB = formatB.bitrate + (formatB.isOpus ? 10240 : 0);
+          return scoreB.compareTo(scoreA); // Descending
+        });
+        break;
+    }
 
     // Return the best format with both parsed and raw data
     final best = audioFormats.first;
@@ -865,27 +908,6 @@ class YTPlayerUtils {
     }
 
     return best;
-  }
-
-  /// Get quality factor based on preference and network
-  double _getQualityFactor(AudioQuality quality, bool isMetered) {
-    if (isMetered) {
-      // On metered connection, prefer lower bitrate
-      return 0.5;
-    }
-
-    switch (quality) {
-      case AudioQuality.low:
-        return 0.3;
-      case AudioQuality.medium:
-        return 0.6;
-      case AudioQuality.high:
-        return 1.0;
-      case AudioQuality.max:
-        return 1.5;
-      case AudioQuality.auto:
-        return 1.0;
-    }
   }
 
   /// Extract stream URL from format data

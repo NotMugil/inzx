@@ -121,6 +121,18 @@ final isFetchingRadioProvider = Provider<bool>((ref) {
   return state.whenOrNull(data: (s) => s.isFetchingRadio) ?? false;
 });
 
+/// Provider for Stats for nerds setting
+final showNerdStatsProvider = Provider<bool>((ref) {
+  final state = ref.watch(playbackStateProvider);
+  return state.whenOrNull(data: (s) => s.showNerdStats) ?? false;
+});
+
+/// Provider for JioSaavn source setting
+final jioSaavnEnabledProvider = Provider<bool>((ref) {
+  final state = ref.watch(playbackStateProvider);
+  return state.whenOrNull(data: (s) => s.jioSaavnEnabled) ?? true;
+});
+
 /// Provider for dynamic album colors - updates when track changes
 /// Used across the app for dynamic theming (mini player, now playing, etc.)
 final albumColorsProvider =

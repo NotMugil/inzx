@@ -184,10 +184,19 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   late Animation<double> _heartOpacityAnimation;
   late ScrollController _queueScrollController;
   bool _hasInitialQueueScrolled = false;
+  Timer? _nerdStatsAlternateTimer;
+  bool _showStatsInsteadOfTitle = false;
 
   @override
   void initState() {
     super.initState();
+    _nerdStatsAlternateTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (mounted) {
+        setState(() {
+          _showStatsInsteadOfTitle = !_showStatsInsteadOfTitle;
+        });
+      }
+    });
     _colorAnimController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 350),
@@ -290,6 +299,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     _stageViewPageController.dispose();
     _heartAnimController.dispose();
     _queueScrollController.dispose();
+    _nerdStatsAlternateTimer?.cancel();
     super.dispose();
   }
 
@@ -2636,6 +2646,35 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     final playbackState = ref.watch(playbackStateProvider).valueOrNull;
     final queueTitle = playbackState?.queueTitle;
     final hasQueueTitle = queueTitle != null && queueTitle.trim().isNotEmpty;
+    final showNerdStats = playbackState?.showNerdStats ?? false;
+    final statsSummary = playbackState?.qualityInfo;
+    final hasStats =
+        showNerdStats && statsSummary != null && statsSummary.isNotEmpty;
+
+    // Subtext logic:
+    // If playing from album/playlist and stats are enabled: alternate between title and stats.
+    // If playing from album/playlist and stats are disabled: show album/playlist title.
+    // If normal playback and stats are enabled: show stats.
+    // Otherwise: no subtext.
+    final String? displaySubtext;
+    final bool isDisplayingStats;
+
+    if (hasQueueTitle && hasStats) {
+      isDisplayingStats = _showStatsInsteadOfTitle;
+      displaySubtext =
+          _showStatsInsteadOfTitle ? statsSummary : queueTitle.trim();
+    } else if (hasQueueTitle) {
+      isDisplayingStats = false;
+      displaySubtext = queueTitle.trim();
+    } else if (hasStats) {
+      isDisplayingStats = true;
+      displaySubtext = statsSummary;
+    } else {
+      isDisplayingStats = false;
+      displaySubtext = null;
+    }
+
+    final hasSubtext = displaySubtext != null && displaySubtext.isNotEmpty;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
@@ -2662,62 +2701,75 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                 Text(
                   context.l10n.nowPlayingHeader,
                   style: TextStyle(
-                    fontSize: hasQueueTitle ? 9.5 : 11,
+                    fontSize: hasSubtext ? 9.5 : 11,
                     fontWeight: FontWeight.w600,
                     color: secondaryColor.withValues(alpha: 0.65),
                     letterSpacing: 1.4,
                   ),
                 ),
-                if (hasQueueTitle) ...[
+                if (hasSubtext) ...[
                   const SizedBox(height: 2),
                   SizedBox(
                     height: 18,
                     width: 220,
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final textStyle = TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: textColor,
-                        );
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 350),
+                      transitionBuilder: (child, animation) =>
+                          FadeTransition(opacity: animation, child: child),
+                      child: KeyedSubtree(
+                        key: ValueKey<String>(displaySubtext),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final text = displaySubtext!;
+                            final textStyle = TextStyle(
+                              fontSize: isDisplayingStats ? 11.5 : 12,
+                              fontWeight: FontWeight.w600,
+                              color: isDisplayingStats
+                                  ? secondaryColor.withValues(alpha: 0.9)
+                                  : textColor,
+                              letterSpacing: isDisplayingStats ? 0.3 : 0.0,
+                            );
 
-                        final textPainter = TextPainter(
-                          text: TextSpan(
-                            text: queueTitle.trim(),
-                            style: textStyle,
-                          ),
-                          maxLines: 1,
-                          textDirection: TextDirection.ltr,
-                        )..layout();
+                            final textPainter = TextPainter(
+                              text: TextSpan(
+                                text: text,
+                                style: textStyle,
+                              ),
+                              maxLines: 1,
+                              textDirection: TextDirection.ltr,
+                            )..layout();
 
-                        if (textPainter.width > constraints.maxWidth) {
-                          return Marquee(
-                            text: queueTitle.trim(),
-                            style: textStyle,
-                            scrollAxis: Axis.horizontal,
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            blankSpace: 36.0,
-                            velocity: 25.0,
-                            pauseAfterRound: const Duration(seconds: 2),
-                            startPadding: 0.0,
-                            accelerationDuration: const Duration(seconds: 1),
-                            accelerationCurve: Curves.linear,
-                            decelerationDuration:
-                                const Duration(milliseconds: 500),
-                            decelerationCurve: Curves.easeOut,
-                          );
-                        }
+                            if (textPainter.width > constraints.maxWidth) {
+                              return Marquee(
+                                text: text,
+                                style: textStyle,
+                                scrollAxis: Axis.horizontal,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                blankSpace: 36.0,
+                                velocity: 25.0,
+                                pauseAfterRound: const Duration(seconds: 2),
+                                startPadding: 0.0,
+                                accelerationDuration:
+                                    const Duration(seconds: 1),
+                                accelerationCurve: Curves.linear,
+                                decelerationDuration:
+                                    const Duration(milliseconds: 500),
+                                decelerationCurve: Curves.easeOut,
+                              );
+                            }
 
-                        return Center(
-                          child: Text(
-                            queueTitle.trim(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: textStyle,
-                          ),
-                        );
-                      },
+                            return Center(
+                              child: Text(
+                                text,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: textStyle,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
                     ),
                   ),
                 ],
