@@ -246,14 +246,27 @@ class _LyricsViewState extends ConsumerState<LyricsView>
       }
     });
 
-    return _buildLyricsContent(
-      context,
-      lyricsState,
-      isDark,
-      textColor,
-      secondaryColor,
-      accentColor,
-      showNerdStats,
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 350),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) {
+        return FadeTransition(opacity: animation, child: child);
+      },
+      child: KeyedSubtree(
+        key: ValueKey(
+          '${lyricsState.currentProvider}_${lyricsState.currentStatus.state}_${lyricsState.currentLyrics?.lines?.length ?? 0}',
+        ),
+        child: _buildLyricsContent(
+          context,
+          lyricsState,
+          isDark,
+          textColor,
+          secondaryColor,
+          accentColor,
+          showNerdStats,
+        ),
+      ),
     );
   }
 
@@ -527,6 +540,9 @@ class _LyricsViewState extends ConsumerState<LyricsView>
                 final line = lines[index];
                 final isCurrentLine = index == currentIdx;
                 final dist = currentIdx >= 0 ? (index - currentIdx).abs() : 999;
+                final int nextStart = (index + 1 < lines.length)
+                    ? lines[index + 1].timeInMs
+                    : (line.timeInMs + 1000000);
 
                 if (line.isGap) {
                   return RepaintBoundary(
@@ -537,6 +553,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
                       dist: dist,
                       textColor: textColor,
                       accentColor: accentColor,
+                      nextStart: nextStart,
                     ),
                   );
                 }
@@ -550,6 +567,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
                       dist: dist,
                       textColor: textColor,
                       accentColor: accentColor,
+                      nextStart: nextStart,
                     ),
                   );
                 }
@@ -563,6 +581,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
                     dist: dist,
                     textColor: textColor,
                     accentColor: accentColor,
+                    nextStart: nextStart,
                   ),
                 );
               },
@@ -643,6 +662,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
     required int dist,
     required Color textColor,
     required Color accentColor,
+    required int nextStart,
   }) {
     final displayText = (line.text.trim().isNotEmpty &&
             !LyricLine.isMusicalSymbol(line.text.trim()))
@@ -667,68 +687,95 @@ class _LyricsViewState extends ConsumerState<LyricsView>
         ? accentColor
         : textColor.withValues(alpha: opacity);
 
-    return GestureDetector(
-      onTap: () => _seekToLyric(line.timeInMs),
-      child: AnimatedContainer(
-        key: _lineKeys[index],
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOutCubic,
+    Widget content = AnimatedContainer(
+      key: _lineKeys[index],
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.centerLeft,
+      padding: EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: isCurrentLine ? 14 : 8,
+      ),
+      child: AnimatedScale(
+        scale: isCurrentLine ? 1.08 : 1.0,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutBack,
         alignment: Alignment.centerLeft,
-        padding: EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: isCurrentLine ? 14 : 8,
-        ),
-        child: AnimatedScale(
-          scale: isCurrentLine ? 1.08 : 1.0,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutBack,
-          alignment: Alignment.centerLeft,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.music_note_rounded,
-                size: iconSize,
-                color: noteColor,
-                shadows: isCurrentLine
-                    ? [
-                        Shadow(
-                          color: accentColor.withValues(alpha: 0.45),
-                          blurRadius: 16,
-                        ),
-                      ]
-                    : null,
-              ),
-              const SizedBox(width: 10),
-              Flexible(
-                child: Text(
-                  displayText,
-                  style: TextStyle(
-                    fontStyle: FontStyle.italic,
-                    fontSize: isCurrentLine ? 20.0 : 16.0,
-                    fontWeight: isCurrentLine ? FontWeight.w600 : FontWeight.w400,
-                    color: noteColor,
-                    letterSpacing: 0.3,
-                    shadows: isCurrentLine
-                        ? [
-                            Shadow(
-                              color: accentColor.withValues(alpha: 0.35),
-                              blurRadius: 12,
-                            ),
-                          ]
-                        : null,
-                  ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.music_note_rounded,
+              size: iconSize,
+              color: noteColor,
+              shadows: isCurrentLine
+                  ? [
+                      Shadow(
+                        color: accentColor.withValues(alpha: 0.45),
+                        blurRadius: 16,
+                      ),
+                    ]
+                  : null,
+            ),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Text(
+                displayText,
+                style: TextStyle(
+                  fontStyle: FontStyle.italic,
+                  fontSize: isCurrentLine ? 20.0 : 16.0,
+                  fontWeight: isCurrentLine ? FontWeight.w600 : FontWeight.w400,
+                  color: noteColor,
+                  letterSpacing: 0.3,
+                  shadows: isCurrentLine
+                      ? [
+                          Shadow(
+                            color: accentColor.withValues(alpha: 0.35),
+                            blurRadius: 12,
+                          ),
+                        ]
+                      : null,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
+      ),
+    );
+
+    if (isCurrentLine) {
+      content = AnimatedBuilder(
+        animation: _smoothPositionNotifier,
+        builder: (context, child) {
+          final pos = _smoothPositionNotifier.value;
+          double gapAlpha = 1.0;
+          final remaining = nextStart - pos;
+          if (remaining < 350) {
+            gapAlpha = (remaining / 350.0).clamp(0.0, 1.0);
+          }
+          final effectiveAlpha = (0.35 + (0.65 * gapAlpha)).clamp(0.35, 1.0);
+          return Opacity(
+            opacity: effectiveAlpha,
+            child: child,
+          );
+        },
+        child: content,
+      );
+    }
+
+    return GestureDetector(
+      onTap: () => _seekToLyric(line.timeInMs),
+      child: AnimatedOpacity(
+        opacity: isCurrentLine ? 1.0 : opacity,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+        child: content,
       ),
     );
   }
 
-  /// Line-level synced row with Metrolist-style distance attenuation
+  /// Line-level synced row with Metrolist-style distance attenuation and smooth fade transitions
   Widget _buildLineSyncRow({
     required LyricLine line,
     required int index,
@@ -736,6 +783,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
     required int dist,
     required Color textColor,
     required Color accentColor,
+    required int nextStart,
   }) {
     final isBg = line.isBackground;
     final fontSize = isBg
@@ -757,50 +805,100 @@ class _LyricsViewState extends ConsumerState<LyricsView>
       opacity = 0.10;
     }
 
+    final targetOpacity = isBg ? 0.35 : opacity;
     final lyricColor = isCurrentLine
         ? accentColor
-        : textColor.withValues(alpha: isBg ? 0.35 : opacity);
+        : textColor.withValues(alpha: targetOpacity);
+
+    Widget content = AnimatedContainer(
+      key: _lineKeys[index],
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+      alignment: isBg ? Alignment.center : Alignment.centerLeft,
+      padding: EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: isBg ? 4 : (isCurrentLine ? 10 : 8),
+      ),
+      child: AnimatedDefaultTextStyle(
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+        style: TextStyle(
+          fontSize: fontSize,
+          fontWeight: fontWeight,
+          fontStyle: isBg ? FontStyle.italic : FontStyle.normal,
+          color: lyricColor,
+          height: 1.3,
+          letterSpacing: isCurrentLine ? -0.4 : 0.0,
+          shadows: isCurrentLine
+              ? [
+                  Shadow(
+                    color: accentColor.withValues(alpha: 0.35),
+                    blurRadius: 14,
+                  ),
+                ]
+              : null,
+        ),
+        child: Text(
+          line.text.isEmpty ? '♪' : line.text,
+          softWrap: true,
+        ),
+      ),
+    );
+
+    if (isCurrentLine) {
+      content = AnimatedBuilder(
+        animation: _smoothPositionNotifier,
+        builder: (context, child) {
+          final pos = _smoothPositionNotifier.value;
+          double lineAlpha = 1.0;
+
+          if (line.hasKnownEnd) {
+            final vocalEnd = line.endMs;
+            if (pos > vocalEnd) {
+              final elapsed = pos - vocalEnd;
+              lineAlpha = (1.0 - (elapsed / 350.0)).clamp(0.0, 1.0);
+            }
+            final remaining = nextStart - pos;
+            if (remaining < 350) {
+              final nextFade = (remaining / 350.0).clamp(0.0, 1.0);
+              if (nextFade < lineAlpha) lineAlpha = nextFade;
+            }
+          } else if (nextStart > line.timeInMs) {
+            final remaining = nextStart - pos;
+            if (remaining < 350) {
+              lineAlpha = (remaining / 350.0).clamp(0.0, 1.0);
+            }
+          }
+
+          final effectiveAlpha = (0.40 + (0.60 * lineAlpha)).clamp(0.40, 1.0);
+
+          return Opacity(
+            opacity: effectiveAlpha,
+            child: child,
+          );
+        },
+        child: content,
+      );
+    }
 
     return GestureDetector(
       onTap: () => _seekToLyric(line.timeInMs),
-      child: AnimatedContainer(
-        key: _lineKeys[index],
-        duration: const Duration(milliseconds: 250),
+      child: AnimatedScale(
+        scale: isCurrentLine ? 1.04 : 1.0,
+        duration: const Duration(milliseconds: 350),
         curve: Curves.easeOutCubic,
         alignment: isBg ? Alignment.center : Alignment.centerLeft,
-        padding: EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: isBg ? 4 : (isCurrentLine ? 10 : 8),
-        ),
-        child: AnimatedDefaultTextStyle(
-          duration: const Duration(milliseconds: 250),
+        child: AnimatedOpacity(
+          opacity: isCurrentLine ? 1.0 : targetOpacity,
+          duration: const Duration(milliseconds: 350),
           curve: Curves.easeOutCubic,
-          style: TextStyle(
-            fontSize: fontSize,
-            fontWeight: fontWeight,
-            fontStyle: isBg ? FontStyle.italic : FontStyle.normal,
-            color: lyricColor,
-            height: 1.3,
-            letterSpacing: isCurrentLine ? -0.4 : 0.0,
-            shadows: isCurrentLine
-                ? [
-                    Shadow(
-                      color: accentColor.withValues(alpha: 0.35),
-                      blurRadius: 14,
-                    ),
-                  ]
-                : null,
-          ),
-          child: Text(
-            line.text.isEmpty ? '♪' : line.text,
-            softWrap: true,
-          ),
+          child: content,
         ),
       ),
     );
   }
 
-  /// Word-level synced line with Metrolist-style bouncy karaoke animation & isolated word repaints
+  /// Word-level synced line with Metrolist-style bouncy karaoke animation, isolated word repaints, and smooth fade transitions
   Widget _buildWordSyncLine({
     required LyricLine line,
     required int index,
@@ -808,6 +906,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
     required int dist,
     required Color textColor,
     required Color accentColor,
+    required int nextStart,
   }) {
     final isBg = line.isBackground;
     final fontSize = isBg
@@ -826,37 +925,89 @@ class _LyricsViewState extends ConsumerState<LyricsView>
       lineAlpha = 0.15;
     }
 
+    final targetOpacity = isBg ? 0.35 : lineAlpha;
     final dimColor = textColor.withValues(alpha: isBg ? 0.35 : lineAlpha);
+
+    Widget content = AnimatedContainer(
+      key: _lineKeys[index],
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+      alignment: isBg ? Alignment.center : Alignment.centerLeft,
+      padding: EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: isBg ? 4 : (isCurrentLine ? 10 : 8),
+      ),
+      child: Wrap(
+        alignment: isBg ? WrapAlignment.center : WrapAlignment.start,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: line.words!.asMap().entries.map((entry) {
+          final wordIdx = entry.key;
+          final word = entry.value;
+          final isLastWord = wordIdx == line.words!.length - 1;
+
+          return KaraokeWord(
+            word: word,
+            isLastWord: isLastWord,
+            isCurrentLine: isCurrentLine,
+            positionNotifier: _smoothPositionNotifier,
+            fontSize: fontSize,
+            isBg: isBg,
+            textColor: textColor,
+            accentColor: accentColor,
+            dimColor: dimColor,
+          );
+        }).toList(),
+      ),
+    );
+
+    if (isCurrentLine) {
+      content = AnimatedBuilder(
+        animation: _smoothPositionNotifier,
+        builder: (context, child) {
+          final pos = _smoothPositionNotifier.value;
+          double vocalAlpha = 1.0;
+
+          if (line.hasKnownEnd) {
+            final vocalEnd = line.endMs;
+            if (pos > vocalEnd) {
+              final elapsed = pos - vocalEnd;
+              vocalAlpha = (1.0 - (elapsed / 350.0)).clamp(0.0, 1.0);
+            }
+            final remaining = nextStart - pos;
+            if (remaining < 350) {
+              final nextFade = (remaining / 350.0).clamp(0.0, 1.0);
+              if (nextFade < vocalAlpha) vocalAlpha = nextFade;
+            }
+          } else if (nextStart > line.timeInMs) {
+            final remaining = nextStart - pos;
+            if (remaining < 350) {
+              vocalAlpha = (remaining / 350.0).clamp(0.0, 1.0);
+            }
+          }
+
+          final effectiveAlpha = (0.45 + (0.55 * vocalAlpha)).clamp(0.45, 1.0);
+
+          return Opacity(
+            opacity: effectiveAlpha,
+            child: child,
+          );
+        },
+        child: content,
+      );
+    }
 
     return GestureDetector(
       onTap: () => _seekToLyric(line.timeInMs),
-      child: Container(
-        key: _lineKeys[index],
+      child: AnimatedScale(
+        scale: isCurrentLine ? 1.04 : 1.0,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
         alignment: isBg ? Alignment.center : Alignment.centerLeft,
-        padding: EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: isBg ? 4 : (isCurrentLine ? 10 : 8),
-        ),
-        child: Wrap(
-          alignment: isBg ? WrapAlignment.center : WrapAlignment.start,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: line.words!.asMap().entries.map((entry) {
-            final wordIdx = entry.key;
-            final word = entry.value;
-            final isLastWord = wordIdx == line.words!.length - 1;
-
-            return KaraokeWord(
-              word: word,
-              isLastWord: isLastWord,
-              isCurrentLine: isCurrentLine,
-              positionNotifier: _smoothPositionNotifier,
-              fontSize: fontSize,
-              isBg: isBg,
-              textColor: textColor,
-              accentColor: accentColor,
-              dimColor: dimColor,
-            );
-          }).toList(),
+        child: AnimatedOpacity(
+          opacity: isCurrentLine ? 1.0 : targetOpacity,
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeOutCubic,
+          child: content,
         ),
       ),
     );

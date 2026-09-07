@@ -20,7 +20,7 @@ import 'jams_panel.dart';
 
 /// Track options bottom sheet
 /// Displays categorized, uniform options in glass section cards
-class TrackOptionsSheet extends ConsumerWidget {
+class TrackOptionsSheet extends ConsumerStatefulWidget {
   final Track track;
   final String? sourcePlaylistId;
   final bool isLocalPlaylist;
@@ -51,7 +51,26 @@ class TrackOptionsSheet extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<TrackOptionsSheet> createState() => _TrackOptionsSheetState();
+}
+
+class _TrackOptionsSheetState extends ConsumerState<TrackOptionsSheet> {
+  bool _isDismissing = false;
+  double _dragOffset = 0.0;
+
+  Track get track => widget.track;
+
+  void _safeDismiss() {
+    if (_isDismissing || !mounted) return;
+    _isDismissing = true;
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final track = widget.track;
+    final sourcePlaylistId = widget.sourcePlaylistId;
+    final isLocalPlaylist = widget.isLocalPlaylist;
     final l10n = context.l10n;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final albumColors = ref.watch(albumColorsProvider);
@@ -77,44 +96,126 @@ class TrackOptionsSheet extends ConsumerWidget {
           borderRadius: BorderRadius.circular(28),
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-            child: Container(
-              decoration: BoxDecoration(
-                color: sheetBg,
-                borderRadius: BorderRadius.circular(28),
-                border: Border.all(
-                  color: accentColor.withValues(alpha: 0.22),
-                  width: 1.0,
+            child: AnimatedSlide(
+              offset: Offset(0, _dragOffset / 400.0),
+              duration: _dragOffset == 0.0
+                  ? const Duration(milliseconds: 200)
+                  : Duration.zero,
+              curve: Curves.easeOutCubic,
+              child: Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.85,
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.35),
-                    blurRadius: 32,
-                    spreadRadius: 4,
+                decoration: BoxDecoration(
+                  color: sheetBg,
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(
+                    color: accentColor.withValues(alpha: 0.22),
+                    width: 1.0,
                   ),
-                ],
-              ),
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Handle
-                      Center(
-                        child: Container(
-                          width: 36,
-                          height: 4,
-                          margin: const EdgeInsets.only(bottom: 12),
-                          decoration: BoxDecoration(
-                            color: textColor.withValues(alpha: 0.25),
-                            borderRadius: BorderRadius.circular(2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.35),
+                      blurRadius: 32,
+                      spreadRadius: 4,
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Interactive Top Drag Handle & Header Card
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onVerticalDragUpdate: (details) {
+                        if (_isDismissing) return;
+                        if (details.primaryDelta != null) {
+                          setState(() {
+                            _dragOffset = (_dragOffset + details.primaryDelta!)
+                                .clamp(0.0, 300.0);
+                          });
+                        }
+                      },
+                      onVerticalDragEnd: (details) {
+                        if (_isDismissing) return;
+                        final velocity = details.primaryVelocity ?? 0;
+                        if (_dragOffset > 75 || velocity > 200) {
+                          _safeDismiss();
+                        } else {
+                          setState(() {
+                            _dragOffset = 0.0;
+                          });
+                        }
+                      },
+                      onVerticalDragCancel: () {
+                        if (!_isDismissing && mounted && _dragOffset > 0) {
+                          setState(() {
+                            _dragOffset = 0.0;
+                          });
+                        }
+                      },
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Handle
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.only(top: 14, bottom: 8),
+                            alignment: Alignment.center,
+                            child: Container(
+                              width: 42,
+                              height: 4.5,
+                              decoration: BoxDecoration(
+                                color: textColor.withValues(alpha: 0.30),
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
 
-                      // Track Info Header Card
-                      _buildHeaderCard(accentColor, textColor, secondaryColor),
+                          // Track Info Header Card
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: _buildHeaderCard(
+                              accentColor,
+                              textColor,
+                              secondaryColor,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+                      ),
+                    ),
+
+                    // Scrollable Content
+                    Flexible(
+                      child: NotificationListener<ScrollNotification>(
+                        onNotification: (notification) {
+                          if (_isDismissing) return false;
+                          if (notification is OverscrollNotification &&
+                              notification.overscroll < 0) {
+                            if (notification.velocity > 250 ||
+                                notification.overscroll < -30) {
+                              _safeDismiss();
+                              return true;
+                            }
+                          } else if (notification is ScrollEndNotification) {
+                            if (notification.metrics.pixels < -35) {
+                              _safeDismiss();
+                              return true;
+                            }
+                          }
+                          return false;
+                        },
+                        child: SingleChildScrollView(
+                          physics: const BouncingScrollPhysics(
+                            parent: AlwaysScrollableScrollPhysics(),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
 
                       const SizedBox(height: 16),
 
@@ -355,7 +456,7 @@ class TrackOptionsSheet extends ConsumerWidget {
                                 if (isLocalPlaylist) {
                                   ref
                                       .read(localPlaylistsProvider.notifier)
-                                      .removeTrackFromPlaylist(sourcePlaylistId!, track.id);
+                                      .removeTrackFromPlaylist(sourcePlaylistId, track.id);
                                   Navigator.pop(context);
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(content: Text(l10n.removedFromPlaylist)),
@@ -365,14 +466,14 @@ class TrackOptionsSheet extends ConsumerWidget {
                                   final scaffoldMessenger = ScaffoldMessenger.of(context);
                                   final localL10n = l10n;
                                   final ytAction = container.read(ytMusicPlaylistActionProvider);
-                                  final notifier = container.read(ytMusicPlaylistProvider(sourcePlaylistId!).notifier);
+                                  final notifier = container.read(ytMusicPlaylistProvider(sourcePlaylistId).notifier);
 
                                   Navigator.pop(context);
-                                  final success = await ytAction.removeSong(sourcePlaylistId!, track.id, track.setVideoId!);
+                                  final success = await ytAction.removeSong(sourcePlaylistId, track.id, track.setVideoId!);
 
                                   if (success) {
                                     await notifier.removeTrackOptimistically(track.id);
-                                    container.invalidate(ytMusicPlaylistProvider(sourcePlaylistId!));
+                                    container.invalidate(ytMusicPlaylistProvider(sourcePlaylistId));
                                     scaffoldMessenger.showSnackBar(
                                       SnackBar(content: Text(localL10n.removedFromPlaylist)),
                                     );
@@ -486,9 +587,14 @@ class TrackOptionsSheet extends ConsumerWidget {
               ),
             ),
           ),
-        ),
+        ],
       ),
-    );
+    ),
+  ),
+),
+),
+),
+);
   }
 
   Widget _buildHeaderCard(Color accentColor, Color textColor, Color secondaryColor) {

@@ -26,7 +26,6 @@ import 'track_options_sheet.dart';
 import 'lyrics_view.dart';
 import 'karaoke_word.dart';
 import 'ytm_drawer.dart';
-import 'jams_panel.dart';
 import 'home_shelves.dart' show TrackListShelf;
 import '../../services/local_artwork_service.dart';
 import 'track_artwork_view.dart';
@@ -138,62 +137,64 @@ class _NowPlayingProgressBarState
         : position.inMilliseconds.toDouble().clamp(0.0, maxMs);
     final displayPosition = Duration(milliseconds: displayMs.toInt());
 
-    return Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: horizontalPadding,
-        vertical: verticalPadding,
-      ),
-      child: Column(
-        children: [
-          AnimatedBuilder(
-            animation: _scaleController,
-            builder: (context, child) {
-              return SliderTheme(
-                data: SliderThemeData(
-                  trackHeight: _trackHeightAnim.value,
-                  thumbShape: RoundSliderThumbShape(
-                    enabledThumbRadius: _thumbRadiusAnim.value,
+    return RepaintBoundary(
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: horizontalPadding,
+          vertical: verticalPadding,
+        ),
+        child: Column(
+          children: [
+            AnimatedBuilder(
+              animation: _scaleController,
+              builder: (context, child) {
+                return SliderTheme(
+                  data: SliderThemeData(
+                    trackHeight: _trackHeightAnim.value,
+                    thumbShape: RoundSliderThumbShape(
+                      enabledThumbRadius: _thumbRadiusAnim.value,
+                    ),
+                    overlayShape: RoundSliderOverlayShape(
+                      overlayRadius: widget.isCompact ? 10 : 14,
+                    ),
+                    activeTrackColor: widget.accentColor,
+                    inactiveTrackColor:
+                        widget.textColor.withValues(alpha: 0.2),
+                    thumbColor: widget.textColor,
+                    overlayColor:
+                        widget.accentColor.withValues(alpha: 0.2),
                   ),
-                  overlayShape: RoundSliderOverlayShape(
-                    overlayRadius: widget.isCompact ? 10 : 14,
+                  child: Slider(
+                    value: displayMs.clamp(0.0, maxMs),
+                    min: 0,
+                    max: maxMs,
+                    onChangeStart: _onSeekStart,
+                    onChanged: _onSeekChanged,
+                    onChangeEnd: _onSeekEnd,
                   ),
-                  activeTrackColor: widget.accentColor,
-                  inactiveTrackColor:
-                      widget.textColor.withValues(alpha: 0.2),
-                  thumbColor: widget.textColor,
-                  overlayColor:
-                      widget.accentColor.withValues(alpha: 0.2),
-                ),
-                child: Slider(
-                  value: displayMs.clamp(0.0, maxMs),
-                  min: 0,
-                  max: maxMs,
-                  onChangeStart: _onSeekStart,
-                  onChanged: _onSeekChanged,
-                  onChangeEnd: _onSeekEnd,
-                ),
-              );
-            },
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  _formatDuration(displayPosition),
-                  style: TextStyle(
-                      fontSize: 12, color: widget.secondaryColor),
-                ),
-                Text(
-                  _formatDuration(widget.duration ?? Duration.zero),
-                  style: TextStyle(
-                      fontSize: 12, color: widget.secondaryColor),
-                ),
-              ],
+                );
+              },
             ),
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _formatDuration(displayPosition),
+                    style: TextStyle(
+                        fontSize: 12, color: widget.secondaryColor),
+                  ),
+                  Text(
+                    _formatDuration(widget.duration ?? Duration.zero),
+                    style: TextStyle(
+                        fontSize: 12, color: widget.secondaryColor),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -202,6 +203,21 @@ class _NowPlayingProgressBarState
     final minutes = d.inMinutes.remainder(60);
     final seconds = d.inSeconds.remainder(60);
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+}
+
+/// Isolated lyrics container that watches [positionStreamProvider] without
+/// causing the parent NowPlayingScreen widget tree to rebuild on audio ticks.
+class _IsolatedLyricsView extends ConsumerWidget {
+  const _IsolatedLyricsView();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final position =
+        ref.watch(positionStreamProvider).valueOrNull ?? Duration.zero;
+    return RepaintBoundary(
+      child: LyricsView(currentPosition: position),
+    );
   }
 }
 
@@ -981,10 +997,19 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       final activeTabIndex = _tabController.index;
 
       if (currentOrientation == Orientation.landscape) {
-        // Ensure stage view controller is at the current active tab
+        // Horizontal/landscape view always shows Lyrics tab (index 1) first
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && _stageViewPageController.hasClients) {
-            _stageViewPageController.jumpToPage(activeTabIndex);
+          if (mounted) {
+            if (_stageViewPageController.hasClients) {
+              _stageViewPageController.jumpToPage(1);
+            }
+            if (_tabController.index != 1) {
+              _tabController.animateTo(1);
+            }
+            setState(() {
+              _showQueue = false;
+              _showLyrics = true;
+            });
           }
         });
       } else {
@@ -1005,6 +1030,23 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
         });
       }
     } else {
+      if (_lastOrientation == null && currentOrientation == Orientation.landscape) {
+        // Initially launched in landscape: ensure tab controller and stage view are on Lyrics (index 1)
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            if (_stageViewPageController.hasClients) {
+              _stageViewPageController.jumpToPage(1);
+            }
+            if (_tabController.index != 1) {
+              _tabController.animateTo(1);
+            }
+            setState(() {
+              _showQueue = false;
+              _showLyrics = true;
+            });
+          }
+        });
+      }
       _lastOrientation = currentOrientation;
     }
 
@@ -1237,13 +1279,15 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
               nowPlayingContent: SafeArea(
                 top: true,
                 bottom: false,
-                child: _buildFullAlbumView(
-                  track,
-                  state,
-                  playerService,
-                  textColor,
-                  secondaryTextColor,
-                  accentColor,
+                child: RepaintBoundary(
+                  child: _buildFullAlbumView(
+                    track,
+                    state,
+                    playerService,
+                    textColor,
+                    secondaryTextColor,
+                    accentColor,
+                  ),
                 ),
               ),
               // Up Next header (mini player style)
@@ -1257,10 +1301,12 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
               // Tabs bar - persists between header and content
               tabsWidget: _buildBottomTabs(textColor, accentColor),
               // Tab content - switches based on selected tab
-              upNextContent: _buildTabContent(
-                textColor,
-                secondaryTextColor,
-                colors.surface,
+              upNextContent: RepaintBoundary(
+                child: _buildTabContent(
+                  textColor,
+                  secondaryTextColor,
+                  colors.surface,
+                ),
               ),
             ),
           ),
@@ -1395,45 +1441,47 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
         child: Row(
           children: [
             // Left Panel: Album Art, Track Info, Progress & Controls (30% width)
-            SizedBox(
-              width: MediaQuery.of(context).size.width * 0.30,
-              child: Column(
-                children: [
-                  // Prominent Large Swipeable Album Art
-                  Expanded(
-                    child: Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(2.0),
-                        child: AspectRatio(
-                          aspectRatio: 1.0,
-                          child: _buildSwipeableAlbumArt(track, accentColor),
+            RepaintBoundary(
+              child: SizedBox(
+                width: MediaQuery.of(context).size.width * 0.30,
+                child: Column(
+                  children: [
+                    // Prominent Large Swipeable Album Art
+                    Expanded(
+                      child: Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(2.0),
+                          child: AspectRatio(
+                            aspectRatio: 1.0,
+                            child: _buildSwipeableAlbumArt(track, accentColor),
+                          ),
                         ),
                       ),
                     ),
-                  ),
 
-                  const SizedBox(height: 4),
+                    const SizedBox(height: 4),
 
-                  // Minimal Track Title & Artist
-                  _buildMinimalTrackInfo(track, textColor, secondaryTextColor),
+                    // Minimal Track Title & Artist
+                    _buildMinimalTrackInfo(track, textColor, secondaryTextColor),
 
-                  // Compact Progress Bar & Duration
-                  _NowPlayingProgressBar(
-                    duration: state.duration,
-                    textColor: textColor,
-                    secondaryColor: secondaryTextColor,
-                    accentColor: accentColor,
-                    isCompact: true,
-                  ),
+                    // Compact Progress Bar & Duration
+                    _NowPlayingProgressBar(
+                      duration: state.duration,
+                      textColor: textColor,
+                      secondaryColor: secondaryTextColor,
+                      accentColor: accentColor,
+                      isCompact: true,
+                    ),
 
-                  // Minimal Controls (Previous, Play/Pause, Next)
-                  _buildMinimalControls(
-                    state,
-                    playerService,
-                    textColor,
-                    accentColor,
-                  ),
-                ],
+                    // Minimal Controls (Previous, Play/Pause, Next)
+                    _buildMinimalControls(
+                      state,
+                      playerService,
+                      textColor,
+                      accentColor,
+                    ),
+                  ],
+                ),
               ),
             ),
 
@@ -1441,35 +1489,36 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
 
             // Right Panel: Borderless Swipeable PageView (Up Next / Lyrics [default] / Related)
             Expanded(
-              child: Stack(
-                alignment: Alignment.topCenter,
-                children: [
-                  PageView(
-                    controller: _stageViewPageController,
-                    physics: const BouncingScrollPhysics(),
-                    onPageChanged: (index) {
-                      if (_tabController.index != index) {
-                        _tabController.animateTo(index);
-                      }
-                      setState(() {
-                        _showQueue = index == 0;
-                        _showLyrics = index == 1;
-                      });
-                      if (_pageController.hasClients &&
-                          _pageController.page?.round() != index) {
-                        _pageController.jumpToPage(index);
-                      }
-                    },
-                    children: [
-                      _buildQueueContent(
-                        textColor,
-                        secondaryTextColor,
-                        surfaceColor,
-                      ),
-                      _buildLyricsView(ref),
-                      _buildRelatedContent(textColor, secondaryTextColor),
-                    ],
-                  ),
+              child: RepaintBoundary(
+                child: Stack(
+                  alignment: Alignment.topCenter,
+                  children: [
+                    PageView(
+                      controller: _stageViewPageController,
+                      physics: const BouncingScrollPhysics(),
+                      onPageChanged: (index) {
+                        if (_tabController.index != index) {
+                          _tabController.animateTo(index);
+                        }
+                        setState(() {
+                          _showQueue = index == 0;
+                          _showLyrics = index == 1;
+                        });
+                        if (_pageController.hasClients &&
+                            _pageController.page?.round() != index) {
+                          _pageController.jumpToPage(index);
+                        }
+                      },
+                      children: [
+                        _buildQueueContent(
+                          textColor,
+                          secondaryTextColor,
+                          surfaceColor,
+                        ),
+                        _buildLyricsView(),
+                        _buildRelatedContent(textColor, secondaryTextColor),
+                      ],
+                    ),
 
                   // Ultra-minimal floating page indicator dots (Up Next • Lyrics • Related)
                   Positioned(
@@ -1511,7 +1560,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                 ],
               ),
             ),
-          ],
+          ),
+        ],
         ),
       ),
     );
@@ -2411,7 +2461,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       },
       children: [
         _buildQueueContent(textColor, secondaryColor, surfaceColor),
-        _buildLyricsView(ref),
+        _buildLyricsView(),
         _buildRelatedContent(textColor, secondaryColor),
       ],
     );
@@ -3466,11 +3516,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     );
   }
 
-  Widget _buildLyricsView(WidgetRef ref) {
-    // Get current position for synced lyrics
-    final position =
-        ref.watch(positionStreamProvider).valueOrNull ?? Duration.zero;
-    return LyricsView(currentPosition: position);
+  Widget _buildLyricsView() {
+    return const _IsolatedLyricsView();
   }
 
   Widget _buildAlbumArtContent(Track? displayTrack, Color accentColor) {
@@ -3706,35 +3753,37 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
         child: Stack(
           alignment: Alignment.center,
           children: [
-            Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  // Ambient glow (YT Music style)
-                  BoxShadow(
-                    color: accentColor.withValues(alpha: 0.55),
-                    blurRadius: 90,
-                    spreadRadius: 24,
-                    offset: const Offset(0, 26),
-                  ),
-                  BoxShadow(
-                    color: accentColor.withValues(alpha: 0.25),
-                    blurRadius: 140,
-                    spreadRadius: 40,
-                    offset: const Offset(0, 36),
-                  ),
-                  // Depth shadow for contrast
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.35),
-                    blurRadius: 30,
-                    spreadRadius: 5,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: _buildAlbumArtContent(track, accentColor),
+            RepaintBoundary(
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    // Ambient glow (YT Music style)
+                    BoxShadow(
+                      color: accentColor.withValues(alpha: 0.55),
+                      blurRadius: 90,
+                      spreadRadius: 24,
+                      offset: const Offset(0, 26),
+                    ),
+                    BoxShadow(
+                      color: accentColor.withValues(alpha: 0.25),
+                      blurRadius: 140,
+                      spreadRadius: 40,
+                      offset: const Offset(0, 36),
+                    ),
+                    // Depth shadow for contrast
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.35),
+                      blurRadius: 30,
+                      spreadRadius: 5,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: _buildAlbumArtContent(track, accentColor),
+                ),
               ),
             ),
             _buildHeartOverlay(),
@@ -3784,37 +3833,39 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            // Ambient glow (YT Music style)
-                            BoxShadow(
-                              color: accentColor.withValues(alpha: 0.55),
-                              blurRadius: 90,
-                              spreadRadius: 24,
-                              offset: const Offset(0, 26),
+                      RepaintBoundary(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              // Ambient glow (YT Music style)
+                              BoxShadow(
+                                color: accentColor.withValues(alpha: 0.55),
+                                blurRadius: 90,
+                                spreadRadius: 24,
+                                offset: const Offset(0, 26),
+                              ),
+                              BoxShadow(
+                                color: accentColor.withValues(alpha: 0.25),
+                                blurRadius: 140,
+                                spreadRadius: 40,
+                                offset: const Offset(0, 36),
+                              ),
+                              // Depth shadow for contrast
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.35),
+                                blurRadius: 30,
+                                spreadRadius: 5,
+                                offset: const Offset(0, 10),
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: _buildAlbumArtContent(
+                              displayTrack,
+                              accentColor,
                             ),
-                            BoxShadow(
-                              color: accentColor.withValues(alpha: 0.25),
-                              blurRadius: 140,
-                              spreadRadius: 40,
-                              offset: const Offset(0, 36),
-                            ),
-                            // Depth shadow for contrast
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.35),
-                              blurRadius: 30,
-                              spreadRadius: 5,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: _buildAlbumArtContent(
-                            displayTrack,
-                            accentColor,
                           ),
                         ),
                       ),
@@ -4000,139 +4051,6 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   void _openArtist(Track track) {
     if (track.artistId.isEmpty) return;
     ArtistScreen.open(context, artistId: track.artistId, name: track.artist);
-  }
-
-  /// Micro-compact Jams button for capsule bar
-  Widget _buildJamsCompactButton(Color textColor, Color accentColor) {
-    final isInSession = ref.watch(isInJamSessionProvider);
-    final session = ref.watch(currentJamSessionProvider).valueOrNull;
-
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        InkWell(
-          borderRadius: BorderRadius.circular(10),
-          onTap: () {
-            final albumColors = ref.read(albumColorsProvider);
-            final isDark = Theme.of(context).brightness == Brightness.dark;
-            final bgColor = isDark
-                ? albumColors.backgroundPrimary
-                : InzxColors.background;
-            final txtColor = isDark
-                ? albumColors.onBackground
-                : InzxColors.textPrimary;
-            JamsPanel.show(
-              context,
-              backgroundColor: bgColor,
-              textColor: txtColor,
-              accentColor: albumColors.accent,
-            );
-          },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 9.0,
-              vertical: 7.0,
-            ),
-            child: Icon(
-              Iconsax.profile_2user,
-              color: isInSession ? accentColor : textColor.withValues(alpha: 0.9),
-              size: 21,
-            ),
-          ),
-        ),
-        if (isInSession && session != null)
-          Positioned(
-            right: 2,
-            top: 2,
-            child: Container(
-              width: 6,
-              height: 6,
-              decoration: const BoxDecoration(
-                color: Colors.green,
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  /// Jams icon button with active session indicator
-  Widget _buildJamsButton(
-    Color textColor,
-    Color accentColor, {
-    double iconSize = 24,
-    BoxConstraints? constraints,
-  }) {
-    final isInSession = ref.watch(isInJamSessionProvider);
-    final session = ref.watch(currentJamSessionProvider).valueOrNull;
-
-    return Stack(
-      children: [
-        IconButton(
-          constraints: constraints,
-          padding: constraints != null ? EdgeInsets.zero : null,
-          onPressed: () {
-            final albumColors = ref.read(albumColorsProvider);
-            final isDark = Theme.of(context).brightness == Brightness.dark;
-            // Use album colors in dark mode, plain white in light mode
-            final bgColor = isDark
-                ? albumColors.backgroundPrimary
-                : InzxColors.background;
-            final txtColor = isDark
-                ? albumColors.onBackground
-                : InzxColors.textPrimary;
-            JamsPanel.show(
-              context,
-              backgroundColor: bgColor,
-              textColor: txtColor,
-              accentColor: albumColors.accent,
-            );
-          },
-          icon: Icon(
-            Iconsax.profile_2user,
-            color: isInSession ? accentColor : textColor.withValues(alpha: 0.9),
-            size: iconSize,
-          ),
-          tooltip: context.l10n.jams,
-        ),
-        // Active session indicator
-        if (isInSession && session != null)
-          Positioned(
-            right: constraints != null ? 4 : 8,
-            top: constraints != null ? 4 : 8,
-            child: Container(
-              width: 8,
-              height: 8,
-              decoration: const BoxDecoration(
-                color: Colors.green,
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-        // Participant count badge
-        if (isInSession && session != null && session.participantCount > 1)
-          Positioned(
-            right: 4,
-            bottom: 4,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-              decoration: BoxDecoration(
-                color: accentColor,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                '${session.participantCount}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
   }
 
   Widget _buildControls(
