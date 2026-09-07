@@ -16,6 +16,7 @@ import 'album_screen.dart' hide albumColorsProvider;
 import 'artist_screen.dart';
 import 'playlist_picker_sheet.dart';
 import 'track_artwork_view.dart';
+import 'jams_panel.dart';
 
 /// Track options bottom sheet
 /// Displays categorized, uniform options in glass section cards
@@ -442,6 +443,36 @@ class TrackOptionsSheet extends ConsumerWidget {
                                 ShareParams(
                                   text: l10n.shareTrackText(track.title, track.artist, url),
                                 ),
+                              );
+                            },
+                          ),
+
+                          // Listen Together (Jam)
+                          Builder(
+                            builder: (context) {
+                              final isInSession = ref.watch(isInJamSessionProvider);
+                              return _buildOptionTile(
+                                icon: Iconsax.profile_2user,
+                                iconColor: accentColor,
+                                title: isInSession ? 'Jam Session' : 'Listen Together',
+                                textColor: textColor,
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  final isDark = Theme.of(context).brightness == Brightness.dark;
+                                  final albumColors = ref.read(albumColorsProvider);
+                                  final bgColor = isDark
+                                      ? albumColors.backgroundPrimary
+                                      : InzxColors.background;
+                                  final txtColor = isDark
+                                      ? albumColors.onBackground
+                                      : InzxColors.textPrimary;
+                                  JamsPanel.show(
+                                    context,
+                                    backgroundColor: bgColor,
+                                    textColor: txtColor,
+                                    accentColor: albumColors.accent,
+                                  );
+                                },
                               );
                             },
                           ),

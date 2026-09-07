@@ -9,9 +9,7 @@ import 'package:iconsax/iconsax.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:marquee/marquee.dart';
 import 'package:skeletonizer/skeletonizer.dart';
-import 'package:share_plus/share_plus.dart';
 import '../../providers/providers.dart';
-import '../../services/deep_link_handler.dart';
 import '../../services/jams/jams_models.dart';
 import '../../models/models.dart';
 import '../../services/audio_player_service.dart' as player;
@@ -3597,11 +3595,12 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     return fallback;
   }
 
+  bool _lastDoubleTapWasLike = true;
+
   void _triggerDoubleTapLike(Track track) {
     final isLiked = ref.read(isTrackLikedProvider(track.id));
-    if (!isLiked) {
-      _toggleLikeTrack(track);
-    }
+    _lastDoubleTapWasLike = !isLiked;
+    _toggleLikeTrack(track);
     _heartAnimController.forward(from: 0.0);
   }
 
@@ -3616,18 +3615,31 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
               opacity: _heartOpacityAnimation.value.clamp(0.0, 1.0),
               child: Transform.scale(
                 scale: _heartScaleAnimation.value,
-                child: Icon(
-                  Icons.favorite_rounded,
-                  color: Colors.redAccent,
-                  size: 96,
-                  shadows: [
-                    BoxShadow(
-                      color: Colors.redAccent.withValues(alpha: 0.7),
-                      blurRadius: 36,
-                      spreadRadius: 12,
-                    ),
-                  ],
-                ),
+                child: _lastDoubleTapWasLike
+                    ? Icon(
+                        Icons.favorite_rounded,
+                        color: Colors.redAccent,
+                        size: 96,
+                        shadows: [
+                          BoxShadow(
+                            color: Colors.redAccent.withValues(alpha: 0.7),
+                            blurRadius: 36,
+                            spreadRadius: 12,
+                          ),
+                        ],
+                      )
+                    : Icon(
+                        Icons.heart_broken_rounded,
+                        color: Colors.redAccent,
+                        size: 96,
+                        shadows: [
+                          BoxShadow(
+                            color: Colors.redAccent.withValues(alpha: 0.7),
+                            blurRadius: 36,
+                            spreadRadius: 12,
+                          ),
+                        ],
+                      ),
               ),
             ),
           ),
@@ -3921,96 +3933,6 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                     enableMarquee: true,
                   ),
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          // Action Buttons Capsule (Like, Share, Jam)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            decoration: BoxDecoration(
-              color: textColor.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(
-                color: accentColor.withValues(alpha: 0.38),
-                width: 1.2,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Like button
-                Builder(
-                  builder: (context) {
-                    final isLiked = ref.watch(isTrackLikedProvider(track.id));
-                    return BouncyTouch(
-                      style: BouncyStyle.heartPop,
-                      customScale: 0.85,
-                      onTap: () => _toggleLikeTrack(track),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 9.0,
-                          vertical: 7.0,
-                        ),
-                        child: Icon(
-                          isLiked ? Iconsax.heart5 : Iconsax.heart,
-                          color: isLiked
-                              ? Colors.red
-                              : textColor.withValues(alpha: 0.9),
-                          size: 21,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-
-                const SizedBox(width: 5),
-                Container(
-                  width: 1,
-                  height: 22,
-                  color: textColor.withValues(alpha: 0.15),
-                ),
-                const SizedBox(width: 5),
-
-                // Share button
-                BouncyTouch(
-                  style: BouncyStyle.button,
-                  customScale: 0.92,
-                  onTap: () {
-                    final url = DeepLinkHandler.createShareUrl('song', track.id);
-                    SharePlus.instance.share(
-                      ShareParams(
-                        text: context.l10n.shareTrackText(
-                          track.title,
-                          track.artist,
-                          url,
-                        ),
-                      ),
-                    );
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 9.0,
-                      vertical: 7.0,
-                    ),
-                    child: Icon(
-                      Icons.share_rounded,
-                      color: textColor.withValues(alpha: 0.9),
-                      size: 20,
-                    ),
-                  ),
-                ),
-
-                const SizedBox(width: 5),
-                Container(
-                  width: 1,
-                  height: 22,
-                  color: textColor.withValues(alpha: 0.15),
-                ),
-                const SizedBox(width: 5),
-
-                // Jams button - listen together
-                _buildJamsCompactButton(textColor, accentColor),
               ],
             ),
           ),
