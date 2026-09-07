@@ -81,6 +81,7 @@ class Track extends Equatable {
     bool? isLiked,
     DateTime? addedAt,
     String? setVideoId,
+    String? localFilePath,
   }) {
     return Track(
       id: id ?? this.id,
@@ -96,6 +97,7 @@ class Track extends Equatable {
       isLiked: isLiked ?? this.isLiked,
       addedAt: addedAt ?? this.addedAt,
       setVideoId: setVideoId ?? this.setVideoId,
+      localFilePath: localFilePath ?? this.localFilePath,
     );
   }
 

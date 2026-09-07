@@ -1,7 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/design_system/design_system.dart';
 import '../../core/l10n/app_localizations_x.dart';
 import '../../l10n/generated/app_localizations.dart';
@@ -11,6 +10,7 @@ import '../../services/local_music_scanner.dart';
 import '../../services/download_service.dart';
 import '../widgets/track_options_sheet.dart';
 import '../widgets/now_playing_screen.dart';
+import '../widgets/track_artwork_view.dart';
 
 enum SongFilter { all, liked, local, downloaded }
 
@@ -767,18 +767,13 @@ class _MusicSongsTabState extends ConsumerState<MusicSongsTab> {
           height: 52,
           child: Stack(
             children: [
-              track.thumbnailUrl != null
-                  ? CachedNetworkImage(
-                      imageUrl: track.thumbnailUrl!,
-                      fit: BoxFit.cover,
-                      width: 52,
-                      height: 52,
-                      placeholder: (_, _) =>
-                          _defaultArtwork(colorScheme, accentColor),
-                      errorWidget: (_, _, _) =>
-                          _defaultArtwork(colorScheme, accentColor),
-                    )
-                  : _defaultArtwork(colorScheme, accentColor),
+              TrackArtworkView(
+                track: track,
+                width: 52,
+                height: 52,
+                borderRadius: BorderRadius.circular(8),
+                fallback: _defaultArtwork(colorScheme, accentColor),
+              ),
               if (isCurrentTrack)
                 Container(
                   color: Colors.black45,

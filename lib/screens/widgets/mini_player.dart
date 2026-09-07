@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:iconsax/iconsax.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/design_system/design_system.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
 import 'package:marquee/marquee.dart';
+import 'track_artwork_view.dart';
 
 
 
@@ -109,25 +109,18 @@ class _CircularAlbumArtWithProgress extends ConsumerWidget {
               child: SizedBox(
                 width: 42,
                 height: 42,
-                child: track.thumbnailUrl != null
-                    ? CachedNetworkImage(
-                        imageUrl: track.thumbnailUrl!,
-                        fit: BoxFit.cover,
-                        errorWidget: (_, _, _) => _defaultArt(accentColor),
-                      )
-                    : _defaultArt(accentColor),
+                child: TrackArtworkView(
+                  track: track,
+                  width: 42,
+                  height: 42,
+                  fallbackColor: accentColor.withValues(alpha: 0.2),
+                  fallbackIcon: Iconsax.music,
+                ),
               ),
             ),
           ),
         ),
       ),
-    );
-  }
-
-  Widget _defaultArt(Color accentColor) {
-    return Container(
-      color: accentColor.withValues(alpha: 0.2),
-      child: Icon(Iconsax.music, color: accentColor, size: 20),
     );
   }
 }

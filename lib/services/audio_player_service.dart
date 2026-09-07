@@ -15,6 +15,9 @@ import 'ytmusic_api_service.dart';
 import 'queue_persistence_service.dart';
 import 'lyrics/lyrics_service.dart';
 import 'album_color_extractor.dart';
+import 'package:audio_metadata_reader/audio_metadata_reader.dart';
+import 'package:hive/hive.dart';
+import '../data/entities/download_entity.dart';
 
 /// Key for persisting streaming quality preference
 const String kStreamingQualityKey = 'streaming_quality';
@@ -183,24 +186,6 @@ class PlaybackState {
   String get qualityInfo {
     if (currentPlaybackData != null) {
       return currentPlaybackData!.statsSummary;
-    }
-    if (currentTrack?.localFilePath != null) {
-      final path = currentTrack!.localFilePath!.toLowerCase();
-      String codec = '';
-      if (path.endsWith('.mp3')) {
-        codec = 'MP3 • ';
-      } else if (path.endsWith('.flac')) {
-        codec = 'FLAC • ';
-      } else if (path.endsWith('.m4a') || path.endsWith('.aac')) {
-        codec = 'AAC • ';
-      } else if (path.endsWith('.opus')) {
-        codec = 'Opus • ';
-      } else if (path.endsWith('.wav')) {
-        codec = 'WAV • ';
-      } else if (path.endsWith('.ogg')) {
-        codec = 'OGG • ';
-      }
-      return '${codec}Local';
     }
     return '';
   }
@@ -740,6 +725,109 @@ class AudioPlayerService {
     unawaited(_setVolumeSafely(_player, 1.0, context: 'runtime-recovery'));
   }
 
+  Future<PlaybackData?> _resolvePlaybackDataForLocalTrack(
+    Track track,
+    File file,
+    int fileSize,
+  ) async {
+    try {
+      final path = file.path.toLowerCase();
+      String codec = 'Audio';
+      String mimeType = 'audio/unknown';
+      if (path.endsWith('.mp3')) {
+        codec = 'MP3';
+        mimeType = 'audio/mpeg';
+      } else if (path.endsWith('.m4a') || path.endsWith('.aac')) {
+        codec = 'AAC';
+        mimeType = 'audio/mp4';
+      } else if (path.endsWith('.opus')) {
+        codec = 'Opus';
+        mimeType = 'audio/opus';
+      } else if (path.endsWith('.webm')) {
+        codec = 'Opus';
+        mimeType = 'audio/webm';
+      } else if (path.endsWith('.flac')) {
+        codec = 'FLAC';
+        mimeType = 'audio/flac';
+      } else if (path.endsWith('.wav')) {
+        codec = 'WAV';
+        mimeType = 'audio/wav';
+      } else if (path.endsWith('.ogg')) {
+        codec = 'Vorbis';
+        mimeType = 'audio/ogg';
+      }
+
+      int? bitrateBps;
+
+      // 1. Try reading from audio metadata (ID3, Vorbis, RIFF, MP4)
+      try {
+        final metadata = readMetadata(file, getImage: false);
+        if (metadata.bitrate != null && metadata.bitrate! > 0) {
+          bitrateBps = metadata.bitrate! > 1000
+              ? metadata.bitrate!
+              : metadata.bitrate! * 1000;
+        }
+      } catch (_) {}
+
+      // 2. Check if this file is a known download entity
+      bool isDownloaded = false;
+      try {
+        if (!Hive.isBoxOpen('downloads')) {
+          await Hive.openBox<DownloadEntity>('downloads');
+        }
+        final box = Hive.box<DownloadEntity>('downloads');
+        final normPath = file.path.replaceAll('\\', '/').toLowerCase();
+        for (final entity in box.values) {
+          final entityNorm =
+              entity.localPath.replaceAll('\\', '/').toLowerCase();
+          if (entityNorm == normPath || entity.trackId == track.id) {
+            isDownloaded = true;
+            if (bitrateBps == null && entity.durationMs > 0 && fileSize > 0) {
+              final seconds = entity.durationMs / 1000.0;
+              if (seconds > 0) {
+                final kbps = ((fileSize * 8) / seconds / 1000).round();
+                if (kbps > 0) bitrateBps = kbps * 1000;
+              }
+            }
+            break;
+          }
+        }
+      } catch (_) {}
+
+      // 3. If bitrate still not detected from metadata/entity, check track duration
+      if (bitrateBps == null && track.duration > Duration.zero && fileSize > 0) {
+        final seconds = track.duration.inMilliseconds / 1000.0;
+        if (seconds > 0) {
+          final kbps = ((fileSize * 8) / seconds / 1000).round();
+          if (kbps > 0) bitrateBps = kbps * 1000;
+        }
+      }
+
+      // If no bitrate info is present, return null so stats for nerds does not show
+      if (bitrateBps == null || bitrateBps <= 0) {
+        return null;
+      }
+
+      final source = isDownloaded ? 'Downloaded' : 'Local';
+      final format = AudioFormat(
+        mimeType: mimeType,
+        bitrate: bitrateBps,
+        codecs: codec,
+        contentLength: fileSize,
+      );
+
+      return PlaybackData(
+        format: format,
+        streamUrl: file.uri.toString(),
+        streamExpiresInSeconds: 86400 * 365,
+        fetchedAt: DateTime.now(),
+        audioSource: source,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<({AudioSource source, PlaybackData? playbackData})>
   _buildSourceForTrack(Track track) async {
     if (track.localFilePath != null) {
@@ -747,9 +835,14 @@ class AudioPlayerService {
       if (await localFile.exists()) {
         final fileSize = await localFile.length();
         if (fileSize >= 10000) {
+          final playbackData = await _resolvePlaybackDataForLocalTrack(
+            track,
+            localFile,
+            fileSize,
+          );
           return (
             source: AudioSource.uri(Uri.file(track.localFilePath!), tag: track),
-            playbackData: null,
+            playbackData: playbackData,
           );
         }
       }
@@ -2987,12 +3080,25 @@ class AudioPlayerService {
                 print('AudioPlayerService: Using file URI: $fileUri');
               }
 
+              final localPlaybackData = await _resolvePlaybackDataForLocalTrack(
+                _currentTrack!,
+                localFile,
+                fileSize,
+              );
+              _currentPlaybackData = localPlaybackData;
+
               await _player.setAudioSource(
                 AudioSource.uri(fileUri, tag: _currentTrack),
               );
               _activeSourceQueueIndices = <int>[_currentIndex];
-              _activeSourcePlaybackDataByQueueIndex =
-                  const <int, PlaybackData>{};
+              if (localPlaybackData != null) {
+                _activeSourcePlaybackDataByQueueIndex = <int, PlaybackData>{
+                  _currentIndex: localPlaybackData,
+                };
+              } else {
+                _activeSourcePlaybackDataByQueueIndex =
+                    const <int, PlaybackData>{};
+              }
               if (_pendingSeekPosition != null &&
                   _pendingSeekTrackId == _currentTrack!.id) {
                 await _player.seek(_pendingSeekPosition);
@@ -3002,7 +3108,11 @@ class AudioPlayerService {
                 _pendingSeekTrackId = null;
               }
               _player.play();
-              _updateState(isLoading: false);
+              _updateState(
+                isLoading: false,
+                currentPlaybackData: localPlaybackData,
+                resetCurrentPlaybackData: localPlaybackData == null,
+              );
               _prefetchNextTrack();
               return;
             } catch (e) {

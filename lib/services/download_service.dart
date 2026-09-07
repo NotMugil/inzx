@@ -14,10 +14,17 @@ import '../data/entities/downloaded_playlist_entity.dart';
 import 'playback/yt_player_utils.dart';
 import 'playback/playback_data.dart';
 import 'notification_service.dart';
+import 'jiosaavn/jiosaavn_service.dart';
+import 'audio_player_service.dart' show kJioSaavnEnabledKey;
+import 'tagger/media_tagger.dart';
+import 'lyrics/lyrics_models.dart';
+import 'lyrics/lrclib_provider.dart';
+import 'lyrics/betterlyrics_provider.dart';
 
 const String kDownloadQualityKey = 'download_quality';
 const String kDownloadParallelPartCountKey = 'download_parallel_part_count';
 const String kDownloadParallelMinSizeMbKey = 'download_parallel_min_size_mb';
+const String kCustomDownloadPathKey = 'custom_download_path';
 const int kDefaultParallelDownloadPartCount = 4;
 const int kMinParallelDownloadPartCount = 2;
 const int kMaxParallelDownloadPartCount = 8;
@@ -26,10 +33,25 @@ const int kMinParallelDownloadMinSizeMb = 1;
 const int kMaxParallelDownloadMinSizeMb = 32;
 const int kMaxTransientDownloadRetries = 8;
 
-/// Get downloads directory path - uses app-private storage (OuterTune style)
-/// This avoids permission issues and keeps files app-contained
+/// Get downloads directory path - checks custom path first, then app-private storage
 Future<String> _getDownloadsDirPath() async {
-  // Use app-private external storage (OuterTune style)
+  // 1. Check custom path selected by user
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final customPath = prefs.getString(kCustomDownloadPathKey);
+    if (customPath != null && customPath.trim().isNotEmpty) {
+      final customDir = Directory(customPath.trim());
+      if (await customDir.exists()) {
+        return customDir.path;
+      }
+    }
+  } catch (e) {
+    if (kDebugMode) {
+      print('DownloadService: Error reading custom download path: $e');
+    }
+  }
+
+  // 2. Use app-private external storage (OuterTune style)
   // Path: /Android/data/<package>/files/audio/
   try {
     final externalDir = await getExternalStorageDirectory();
@@ -46,7 +68,7 @@ Future<String> _getDownloadsDirPath() async {
     }
   }
 
-  // Ultimate fallback: app documents directory
+  // 3. Ultimate fallback: app documents directory
   final appDir = await getApplicationDocumentsDirectory();
   final downloadsDir = Directory('${appDir.path}/audio');
   if (!await downloadsDir.exists()) {
@@ -55,10 +77,47 @@ Future<String> _getDownloadsDirPath() async {
   return downloadsDir.path;
 }
 
-/// Provider for download path - uses app-private storage
-/// Returns the current download directory path
-final downloadPathProvider = FutureProvider<String>((ref) async {
-  return await _getDownloadsDirPath();
+/// Information about current download path and whether it is a user-chosen custom path
+class DownloadPathInfo {
+  final String path;
+  final bool isCustom;
+  const DownloadPathInfo({required this.path, required this.isCustom});
+}
+
+/// State notifier for download path allowing custom path selection
+class DownloadPathNotifier extends StateNotifier<AsyncValue<DownloadPathInfo>> {
+  DownloadPathNotifier() : super(const AsyncValue.loading()) {
+    loadPath();
+  }
+
+  Future<void> loadPath() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final custom = prefs.getString(kCustomDownloadPathKey);
+      final hasCustom = custom != null && custom.trim().isNotEmpty;
+      final path = await _getDownloadsDirPath();
+      state = AsyncValue.data(DownloadPathInfo(path: path, isCustom: hasCustom));
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+    }
+  }
+
+  Future<void> setCustomPath(String? path) async {
+    state = const AsyncValue.loading();
+    final prefs = await SharedPreferences.getInstance();
+    if (path == null || path.trim().isEmpty) {
+      await prefs.remove(kCustomDownloadPathKey);
+    } else {
+      await prefs.setString(kCustomDownloadPathKey, path.trim());
+    }
+    await loadPath();
+  }
+}
+
+/// Provider for download path
+final downloadPathProvider =
+    StateNotifierProvider<DownloadPathNotifier, AsyncValue<DownloadPathInfo>>((ref) {
+  return DownloadPathNotifier();
 });
 
 /// Provider for download quality preference
@@ -635,6 +694,36 @@ class DownloadManagerNotifier extends StateNotifier<DownloadManagerState> {
       }
     }
 
+    // Duplicate check: check Hive and disk before queueing
+    try {
+      final hiveEntity = HiveService.downloadsBox.get(track.id);
+      if (hiveEntity != null && hiveEntity.localPath.isNotEmpty) {
+        final existingFile = File(hiveEntity.localPath);
+        if (await existingFile.exists() &&
+            await existingFile.length() >= 50 * 1024) {
+          if (kDebugMode) {
+            print(
+              'DownloadService: Track ${track.title} already downloaded at ${existingFile.path}',
+            );
+          }
+          final completedTask = DownloadTask(
+            trackId: track.id,
+            track: track,
+            status: DownloadStatus.completed,
+            progress: 1.0,
+            localPath: hiveEntity.localPath,
+            downloadedBytes: hiveEntity.totalBytes,
+            totalBytes: hiveEntity.totalBytes,
+            startedAt: hiveEntity.downloadedAt,
+          );
+          final newTasks = Map<String, DownloadTask>.from(state.tasks);
+          newTasks[track.id] = completedTask;
+          state = state.copyWith(tasks: newTasks);
+          return;
+        }
+      }
+    } catch (_) {}
+
     final task = DownloadTask(
       trackId: track.id,
       track: track,
@@ -879,67 +968,88 @@ class DownloadManagerNotifier extends StateNotifier<DownloadManagerState> {
     return false;
   }
 
-  Future<void> _downloadCoverArtForTrack({
-    required String trackId,
-    required String? thumbnailUrl,
-    required String audioFilePath,
-  }) async {
+  /// Concurrently fetch lyrics for a track during download (BitChord style)
+  Future<String?> _fetchLyricsForTrack(Track track) async {
+    try {
+      // 1. Check Hive cache first
+      final cached = HiveService.lyricsBox.get(track.id);
+      if (cached != null && !cached.isExpired && cached.hasLyrics) {
+        return cached.syncedLyrics ?? cached.plainLyrics;
+      }
+
+      // 2. Query lyrics provider with short timeouts so it never blocks downloads
+      final info = LyricsSearchInfo(
+        videoId: track.id,
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        durationSeconds: track.duration.inSeconds,
+      );
+
+      final lrclib = LRCLibProvider();
+      LyricResult? result = await lrclib.search(info).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => null,
+      );
+
+      if (result == null || !result.hasLyrics) {
+        final betterLyrics = BetterLyricsProvider();
+        result = await betterLyrics.search(info).timeout(
+          const Duration(seconds: 4),
+          onTimeout: () => null,
+        );
+      }
+
+      if (result != null && result.hasLyrics) {
+        if (result.lines != null && result.lines!.isNotEmpty) {
+          return result.lines!
+              .map((l) => '[${l.formattedTime}]${l.text}')
+              .join('\n');
+        }
+        return result.lyrics;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('DownloadService: Parallel lyrics lookup error: $e');
+      }
+    }
+    return null;
+  }
+
+  /// Concurrently fetch cover art image bytes during download (BitChord style)
+  Future<Uint8List?> _fetchCoverArtBytes(String? thumbnailUrl) async {
     final rawUrl = thumbnailUrl?.trim();
-    if (rawUrl == null || rawUrl.isEmpty) return;
+    if (rawUrl == null || rawUrl.isEmpty) return null;
 
     final candidates = <String>[
+      rawUrl.replaceAll('w120-h120', 'w800-h800'),
       rawUrl.replaceAll('w120-h120', 'w600-h600'),
       rawUrl,
     ];
-    final tried = <String>{};
-    final coverFile = File('$audioFilePath.cover.jpg');
 
     for (final url in candidates) {
-      final candidate = url.trim();
-      if (candidate.isEmpty || !tried.add(candidate)) continue;
       try {
-        final uri = Uri.tryParse(candidate);
+        final uri = Uri.tryParse(url);
         if (uri == null) continue;
-
         final client = HttpClient()
-          ..connectionTimeout = const Duration(seconds: 12);
+          ..connectionTimeout = const Duration(seconds: 8);
         try {
-          final request = await client.getUrl(uri);
-          request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
-          request.headers.set(HttpHeaders.connectionHeader, 'close');
-          final response = await request.close();
-          if (response.statusCode != HttpStatus.ok) continue;
-
-          final bytesBuilder = BytesBuilder(copy: false);
-          await for (final chunk in response) {
-            if (_isTaskCancelled(trackId)) {
-              throw const _DownloadCancelledException();
+          final req = await client.getUrl(uri);
+          final res = await req.close();
+          if (res.statusCode == HttpStatus.ok) {
+            final builder = BytesBuilder(copy: false);
+            await for (final chunk in res) {
+              builder.add(chunk);
             }
-            bytesBuilder.add(chunk);
+            final bytes = builder.takeBytes();
+            if (bytes.length >= 1024) return bytes;
           }
-
-          final bytes = bytesBuilder.takeBytes();
-          if (bytes.length < 1024) continue;
-          await coverFile.writeAsBytes(bytes, flush: true);
-          if (kDebugMode) {
-            print(
-              'DownloadService: Saved cover art for $trackId (${(bytes.length / 1024).toStringAsFixed(1)} KB)',
-            );
-          }
-          return;
         } finally {
           client.close(force: true);
         }
-      } on _DownloadCancelledException {
-        rethrow;
-      } catch (_) {
-        // Try next candidate URL.
-      }
+      } catch (_) {}
     }
-
-    if (kDebugMode) {
-      print('DownloadService: Could not save cover art for $trackId');
-    }
+    return null;
   }
 
   Future<int?> _downloadWithParallelRanges({
@@ -1116,29 +1226,65 @@ class DownloadManagerNotifier extends StateNotifier<DownloadManagerState> {
     );
 
     try {
-      // Get stream format - prefer Opus/WebM (more reliable for YouTube downloads)
-      final result = await _playerUtils.playerResponseForDownload(
-        task.trackId,
-        quality: _downloadQuality,
-      );
-      if (result.isFailure || result.data == null) {
-        throw Exception(result.error ?? 'Failed to get stream URL');
+      String streamUrl;
+      String extension;
+      int expectedTotal = 0;
+
+      // Check JioSaavn for 320 kbps stream if enabled and high/max quality
+      final prefs = await SharedPreferences.getInstance();
+      final jioSaavnEnabled = prefs.getBool(kJioSaavnEnabledKey) ?? true;
+      JioSaavnStream? saavnStream;
+
+      if (jioSaavnEnabled &&
+          (_downloadQuality == AudioQuality.high ||
+              _downloadQuality == AudioQuality.max)) {
+        try {
+          saavnStream =
+              await JioSaavnService.instance.getBestStreamForTrack(task.track);
+        } catch (e) {
+          if (kDebugMode) {
+            print('DownloadService: JioSaavn lookup error: $e');
+          }
+        }
       }
 
-      final streamUrl = result.data!.streamUrl;
-      final format = result.data!.format;
+      if (saavnStream != null && saavnStream.url.isNotEmpty) {
+        streamUrl = saavnStream.url;
+        extension = saavnStream.format.toLowerCase().contains('mp3')
+            ? '.mp3'
+            : '.m4a';
+        if (kDebugMode) {
+          print(
+            'DownloadService: Downloading ${task.track.title} via JioSaavn ${saavnStream.kbps ?? 320}kbps ($extension)',
+          );
+        }
+      } else {
+        // Fallback to YouTube
+        final result = await _playerUtils.playerResponseForDownload(
+          task.trackId,
+          quality: _downloadQuality,
+        );
+        if (result.isFailure || result.data == null) {
+          throw Exception(result.error ?? 'Failed to get stream URL');
+        }
 
-      // Determine correct file extension based on actual format
-      String extension = '.opus'; // Default - prefer Opus
-      if (format.mimeType.contains('mp4') || format.mimeType.contains('m4a')) {
-        extension = '.m4a';
-      } else if (format.mimeType.contains('webm') ||
-          format.mimeType.contains('opus')) {
-        extension = '.opus';
-      }
+        streamUrl = result.data!.streamUrl;
+        final format = result.data!.format;
+        expectedTotal = format.contentLength ?? 0;
 
-      if (kDebugMode) {
-        print('DownloadService: Downloading ${format.mimeType} as $extension');
+        // Determine correct file extension based on actual format
+        extension = '.opus'; // Default - prefer Opus
+        if (format.mimeType.contains('mp4') ||
+            format.mimeType.contains('m4a')) {
+          extension = '.m4a';
+        } else if (format.mimeType.contains('webm') ||
+            format.mimeType.contains('opus')) {
+          extension = '.opus';
+        }
+
+        if (kDebugMode) {
+          print('DownloadService: Downloading ${format.mimeType} as $extension');
+        }
       }
 
       // Create file with proper naming: "Artist - Title.ext"
@@ -1149,11 +1295,57 @@ class DownloadManagerNotifier extends StateNotifier<DownloadManagerState> {
       final filePath = '${dir.path}/$fileName';
       final file = File(filePath);
 
+      // Duplicate prevention (BitChord style)
+      // Check if file already exists with this name (or any common audio extension)
+      final possibleExtensions = [extension, '.m4a', '.mp3', '.opus', '.webm'];
+      File? existingFile;
+      for (final ext in possibleExtensions) {
+        final candidate = File(
+          '${dir.path}/$sanitizedArtist - $sanitizedTitle$ext',
+        );
+        if (await candidate.exists() && await candidate.length() >= 50 * 1024) {
+          existingFile = candidate;
+          break;
+        }
+      }
+
+      if (existingFile != null) {
+        final existingSize = await existingFile.length();
+        if (kDebugMode) {
+          print(
+            'DownloadService: ${existingFile.path} already exists on disk ($existingSize bytes); adopting it',
+          );
+        }
+        final completedTask = task.copyWith(
+          status: DownloadStatus.completed,
+          progress: 1.0,
+          downloadedBytes: existingSize,
+          totalBytes: existingSize,
+          localPath: existingFile.path,
+        );
+        _updateTask(task.trackId, completedTask);
+        _transientRetryAttempts.remove(task.trackId);
+        await _persistDownload(completedTask);
+        _ref.read(downloadedTracksRefreshProvider.notifier).state++;
+        await _notificationService.showDownloadCompleted(
+          task.trackId,
+          task.track.title,
+        );
+        final newQueue = List<String>.from(state.queue);
+        newQueue.remove(task.trackId);
+        state = state.copyWith(queue: newQueue, isDownloading: false);
+        _processQueue();
+        return;
+      }
+
+      // Launch parallel lyrics & cover art lookups (BitChord style)
+      final lyricsFuture = _fetchLyricsForTrack(task.track);
+      final coverArtFuture = _fetchCoverArtBytes(task.track.thumbnailUrl);
+
       // === DOWNLOAD STRATEGY ===
       // 1) Try segmented parallel range download when content length is known.
       // 2) Fallback to the existing robust sequential + range continuation flow.
       int totalDownloaded = 0;
-      int expectedTotal = result.data!.format.contentLength ?? 0;
       int retryCount = 0;
       const maxRetries = 5;
       const maxRangeAttempts = 10; // Max range continuation attempts
@@ -1419,19 +1611,27 @@ class DownloadManagerNotifier extends StateNotifier<DownloadManagerState> {
       }
       // === END VALIDATION ===
 
-      // Save cover art next to audio file for offline-safe now playing artwork.
-      await _downloadCoverArtForTrack(
-        trackId: task.trackId,
-        thumbnailUrl: task.track.thumbnailUrl,
-        audioFilePath: filePath,
+      // Await parallel lyrics and cover art (already fetched while streaming)
+      final lyricsLrc = await lyricsFuture;
+      final coverBytes = await coverArtFuture;
+
+      // In-file metadata tagging (BitChord style)
+      // Embeds Title, Artist, Album, Synced Lyrics, and Artwork directly into the audio container
+      await MediaTagger.tagFile(
+        audioFile: downloadedFile,
+        track: task.track,
+        lyrics: lyricsLrc,
+        coverArtBytes: coverBytes,
       );
+
+      final finalFileSize = await downloadedFile.length();
 
       // Mark as completed
       final completedTask = task.copyWith(
         status: DownloadStatus.completed,
         progress: 1.0,
-        downloadedBytes: actualFileSize,
-        totalBytes: actualFileSize,
+        downloadedBytes: finalFileSize,
+        totalBytes: finalFileSize,
         localPath: filePath,
       );
       _updateTask(task.trackId, completedTask);

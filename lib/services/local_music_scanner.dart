@@ -8,6 +8,8 @@ import '../models/models.dart';
 import '../core/services/cache/hive_service.dart';
 import '../data/entities/track_entity.dart';
 import '../data/entities/download_entity.dart';
+import 'package:audio_metadata_reader/audio_metadata_reader.dart';
+import 'local_artwork_service.dart';
 
 /// Provider for scanned local music folders
 final localMusicFoldersProvider =
@@ -280,6 +282,60 @@ class LocalTracksNotifier extends StateNotifier<List<Track>> {
     HiveService.localMusicTracksBox.clear();
   }
 
+  /// Delete a single track: removes from state, removes from Hive, and optionally deletes the file from disk
+  Future<bool> deleteTrack(Track track, {bool deleteFileFromDisk = true}) async {
+    state = state.where((t) => t.id != track.id).toList();
+    try {
+      await HiveService.localMusicTracksBox.delete(track.id);
+    } catch (e) {
+      if (kDebugMode) {
+        print('LocalTracksNotifier: Hive delete error: $e');
+      }
+    }
+
+    // If it's also a downloaded track in Hive, delete from DownloadService/Hive
+    try {
+      if (Hive.isBoxOpen('downloads')) {
+        final box = Hive.box<DownloadEntity>('downloads');
+        final matchingKeys = <dynamic>[];
+        for (final entry in box.toMap().entries) {
+          if (entry.value.trackId == track.id ||
+              (track.localFilePath != null &&
+                  _normalizePath(entry.value.localPath).toLowerCase() ==
+                      _normalizePath(track.localFilePath!).toLowerCase())) {
+            matchingKeys.add(entry.key);
+          }
+        }
+        if (matchingKeys.isNotEmpty) {
+          await box.deleteAll(matchingKeys);
+        }
+      }
+    } catch (_) {}
+
+    // Delete file from disk if requested
+    if (deleteFileFromDisk && track.localFilePath != null && track.localFilePath!.isNotEmpty) {
+      try {
+        final file = File(track.localFilePath!);
+        if (await file.exists()) {
+          await file.delete();
+        }
+        // Also delete legacy .cover.jpg if present
+        final legacyCover = File('${track.localFilePath}.cover.jpg');
+        if (await legacyCover.exists()) {
+          await legacyCover.delete();
+        }
+        // Evict artwork cache
+        LocalArtworkService.evict(track.localFilePath!);
+      } catch (e) {
+        if (kDebugMode) {
+          print('LocalTracksNotifier: File delete error: $e');
+        }
+        return false;
+      }
+    }
+    return true;
+  }
+
   void removeTracksInFolder(String folderPath) {
     final normalizedFolder = _normalizePath(folderPath);
     final folderWithSep = '$normalizedFolder/';
@@ -453,45 +509,77 @@ class LocalMusicScanner {
         await Hive.openBox<DownloadEntity>('downloads');
       }
       final box = Hive.box<DownloadEntity>('downloads');
-      return {for (final e in box.values) e.localPath: e};
+      final map = <String, DownloadEntity>{};
+      for (final e in box.values) {
+        map[e.localPath] = e;
+        map[_normalizePath(e.localPath).toLowerCase()] = e;
+      }
+      return map;
     } catch (e) {
       return {};
     }
   }
 
-  /// Convert a file path to a Track (synchronous, uses pre-built lookup)
+  /// Convert a file path to a Track (synchronous, uses pre-built lookup & metadata reading)
   static Track? _fileToTrackSync(
     String filePath,
     Map<String, DownloadEntity> downloadLookup,
   ) {
     try {
-      // Check if this file is a known download
-      final entity = downloadLookup[filePath];
+      // Check if this file is a known download (by exact path or normalized lowercase)
+      final entity = downloadLookup[filePath] ??
+          downloadLookup[_normalizePath(filePath).toLowerCase()];
       if (entity != null) {
         return Track(
           id: entity.trackId,
           title: entity.title,
           artist: entity.artist,
+          album: entity.album,
           duration: Duration(milliseconds: entity.durationMs),
           thumbnailUrl: entity.thumbnailUrl,
           localFilePath: filePath,
         );
       }
 
-      // Fall back to parsing filename
+      // Try reading metadata directly from the audio file
+      String? metaTitle;
+      String? metaArtist;
+      String? metaAlbum;
+      Duration? metaDuration;
+
+      try {
+        final audioFile = File(filePath);
+        final metadata = readMetadata(audioFile, getImage: false);
+        if (metadata.title != null && metadata.title!.trim().isNotEmpty) {
+          metaTitle = metadata.title!.trim();
+        }
+        if (metadata.artist != null && metadata.artist!.trim().isNotEmpty) {
+          metaArtist = metadata.artist!.trim();
+        }
+        if (metadata.album != null && metadata.album!.trim().isNotEmpty) {
+          metaAlbum = metadata.album!.trim();
+        }
+        if (metadata.duration != null && metadata.duration! > Duration.zero) {
+          metaDuration = metadata.duration;
+        }
+      } catch (_) {}
+
+      // Fall back to parsing filename if title/artist not fully extracted
       final fileName = filePath.split(Platform.pathSeparator).last;
       final nameWithoutExt = fileName.replaceAll(RegExp(r'\.[^.]+$'), '');
 
-      String title;
-      String artist;
+      String title = metaTitle ?? '';
+      String artist = metaArtist ?? '';
 
-      if (nameWithoutExt.contains(' - ')) {
-        final parts = nameWithoutExt.split(' - ');
-        artist = parts[0].trim();
-        title = parts.sublist(1).join(' - ').trim();
-      } else {
-        title = nameWithoutExt;
-        artist = 'Unknown Artist';
+      if (title.isEmpty || artist.isEmpty) {
+        if (nameWithoutExt.contains(' - ')) {
+          final parts = nameWithoutExt.split(' - ');
+          if (artist.isEmpty) artist = parts[0].trim();
+          if (title.isEmpty) title = parts.sublist(1).join(' - ').trim();
+        } else {
+          if (title.isEmpty) title = nameWithoutExt;
+          if (artist.isEmpty) artist = 'Unknown Artist';
+        }
       }
 
       final id = 'local_${filePath.hashCode}';
@@ -500,7 +588,8 @@ class LocalMusicScanner {
         id: id,
         title: title,
         artist: artist,
-        duration: const Duration(minutes: 3),
+        album: metaAlbum,
+        duration: metaDuration ?? const Duration(minutes: 3),
         thumbnailUrl: null,
         localFilePath: filePath,
       );

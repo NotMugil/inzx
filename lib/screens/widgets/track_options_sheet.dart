@@ -2,7 +2,6 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:iconsax/iconsax.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:marquee/marquee.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../core/design_system/design_system.dart';
@@ -12,9 +11,11 @@ import '../../core/l10n/app_localizations_x.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
 import '../../services/download_service.dart';
+import '../../services/local_music_scanner.dart';
 import 'album_screen.dart' hide albumColorsProvider;
 import 'artist_screen.dart';
 import 'playlist_picker_sheet.dart';
+import 'track_artwork_view.dart';
 
 /// Track options bottom sheet
 /// Displays categorized, uniform options in glass section cards
@@ -284,34 +285,31 @@ class TrackOptionsSheet extends ConsumerWidget {
                             },
                           ),
 
-                          // Download / Remove Download
+                          // Download / Remove Download / Delete Local File
                           Consumer(
                             builder: (context, ref, child) {
                               final isDownloaded = ref.watch(
                                 isTrackDownloadedProvider(track.id),
                               );
+                              final isLocalFile = track.localFilePath != null &&
+                                  track.localFilePath!.trim().isNotEmpty;
                               final progress = ref.watch(
                                 trackDownloadProgressProvider(track.id),
                               );
 
-                              if (isDownloaded) {
+                              if (isDownloaded || isLocalFile) {
                                 return _buildOptionTile(
                                   icon: Iconsax.trash,
                                   iconColor: Colors.redAccent,
-                                  title: l10n.removeDownload,
+                                  title: isDownloaded
+                                      ? l10n.deleteDownload
+                                      : l10n.delete,
                                   textColor: textColor,
-                                  onTap: () async {
-                                    Navigator.pop(context);
-                                    await ref
-                                        .read(downloadManagerProvider.notifier)
-                                        .removeDownload(track.id);
-                                    if (context.mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                          content: Text(l10n.removeDownload),
-                                        ),
-                                      );
-                                    }
+                                  onTap: () {
+                                    _showDeleteTrackConfirmation(
+                                      context,
+                                      track,
+                                    );
                                   },
                                 );
                               }
@@ -492,18 +490,19 @@ class TrackOptionsSheet extends ConsumerWidget {
               child: SizedBox(
                 width: 52,
                 height: 52,
-                child: track.thumbnailUrl != null
-                    ? CachedNetworkImage(
-                        imageUrl: track.thumbnailUrl!,
-                        fit: BoxFit.cover,
-                      )
-                    : Container(
-                        color: accentColor.withValues(alpha: 0.2),
-                        child: Icon(
-                          Iconsax.music,
-                          color: accentColor,
-                        ),
-                      ),
+                child: TrackArtworkView(
+                  track: track,
+                  width: 52,
+                  height: 52,
+                  borderRadius: BorderRadius.circular(12),
+                  fallback: Container(
+                    color: accentColor.withValues(alpha: 0.2),
+                    child: Icon(
+                      Iconsax.music,
+                      color: accentColor,
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
@@ -723,5 +722,101 @@ class TrackOptionsSheet extends ConsumerWidget {
       ref.invalidate(ytMusicPlaylistProvider('LM'));
       ref.invalidate(ytMusicPlaylistProvider('liked'));
     }
+  }
+
+  void _showDeleteTrackConfirmation(
+    BuildContext context,
+    Track track,
+  ) {
+    final l10n = context.l10n;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => Consumer(
+        builder: (dialogContext, dialogRef, child) {
+          final isDownloaded = dialogRef.watch(
+            isTrackDownloadedProvider(track.id),
+          );
+
+          return AlertDialog(
+            backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Text(
+              isDownloaded ? l10n.deleteDownloadQuestion : l10n.delete,
+              style: TextStyle(
+                color: isDark ? Colors.white : InzxColors.textPrimary,
+              ),
+            ),
+            content: Text(
+              l10n.deleteDownloadWarning(track.title),
+              style: TextStyle(
+                color: isDark ? Colors.white70 : InzxColors.textSecondary,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(
+                  l10n.cancel,
+                  style:
+                      TextStyle(color: isDark ? Colors.white54 : Colors.grey),
+                ),
+              ),
+              FilledButton(
+                onPressed: () async {
+                  final playerService =
+                      dialogRef.read(audioPlayerServiceProvider);
+                  final localTracksNotifier =
+                      dialogRef.read(localTracksProvider.notifier);
+                  final downloadManagerNotifier =
+                      dialogRef.read(downloadManagerProvider.notifier);
+
+                  Navigator.pop(dialogContext);
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                  }
+
+                  final queueIndex = playerService.queue.indexWhere((t) =>
+                      t.id == track.id ||
+                      (track.localFilePath != null &&
+                          t.localFilePath == track.localFilePath));
+                  if (queueIndex != -1) {
+                    playerService.removeFromQueue(queueIndex);
+                  } else if (playerService.currentTrack?.id == track.id ||
+                      (track.localFilePath != null &&
+                          playerService.currentTrack?.localFilePath ==
+                              track.localFilePath)) {
+                    playerService.stop();
+                  }
+
+                  await localTracksNotifier.deleteTrack(
+                    track,
+                    deleteFileFromDisk: true,
+                  );
+
+                  await downloadManagerNotifier.removeDownload(track.id);
+
+                  scaffoldMessenger.showSnackBar(
+                    SnackBar(
+                      content: Text(l10n.deletedTrack(track.title)),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                },
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                ),
+                child: Text(isDownloaded ? l10n.deleteDownload : l10n.delete),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 }

@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:iconsax/iconsax.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/l10n/app_localizations_x.dart';
 import '../../core/design_system/design_system.dart';
 import '../services/download_service.dart';
 import '../providers/providers.dart';
 import 'widgets/track_options_sheet.dart';
+import 'widgets/track_artwork_view.dart';
 
 /// Downloads screen showing download queue and completed downloads
 class DownloadsScreen extends ConsumerWidget {
@@ -276,15 +276,16 @@ class DownloadsScreen extends ConsumerWidget {
             child: SizedBox(
               width: 48,
               height: 48,
-              child: track.thumbnailUrl != null
-                  ? CachedNetworkImage(
-                      imageUrl: track.thumbnailUrl!,
-                      fit: BoxFit.cover,
-                    )
-                  : Container(
-                      color: colorScheme.primaryContainer,
-                      child: Icon(Iconsax.music, color: colorScheme.primary),
-                    ),
+              child: TrackArtworkView(
+                track: track,
+                width: 48,
+                height: 48,
+                borderRadius: BorderRadius.circular(8),
+                fallback: Container(
+                  color: colorScheme.primaryContainer,
+                  child: Icon(Iconsax.music, color: colorScheme.primary),
+                ),
+              ),
             ),
           ),
           // Download indicator overlay

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:iconsax/iconsax.dart';
 import '../../core/l10n/app_localizations_x.dart';
 import '../../core/design_system/design_system.dart';
@@ -18,6 +19,7 @@ class DownloadSettingsScreen extends ConsumerWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final albumColors = ref.watch(albumColorsProvider);
     final hasAlbumColors = !albumColors.isDefault;
+    final jioSaavnEnabled = ref.watch(jioSaavnEnabledProvider);
 
     // Dynamic colors - plain white background in light mode
     final backgroundColor = (hasAlbumColors && isDark)
@@ -57,7 +59,11 @@ class DownloadSettingsScreen extends ConsumerWidget {
           const SizedBox(height: 16),
 
           // Download quality selector
-          _DownloadQualitySetting(isDark: isDark, accentColor: accentColor),
+          _DownloadQualitySetting(
+            isDark: isDark,
+            accentColor: accentColor,
+            jioSaavnEnabled: jioSaavnEnabled,
+          ),
 
           const SizedBox(height: 32),
 
@@ -85,7 +91,7 @@ class DownloadSettingsScreen extends ConsumerWidget {
           const SizedBox(height: 32),
 
           // Data usage info
-          _buildDataUsageInfo(context, isDark, accentColor),
+          _buildDataUsageInfo(context, isDark, accentColor, jioSaavnEnabled),
 
           const SizedBox(height: 32),
 
@@ -121,6 +127,7 @@ class DownloadSettingsScreen extends ConsumerWidget {
     BuildContext context,
     bool isDark,
     Color accentColor,
+    bool jioSaavnEnabled,
   ) {
     final l10n = context.l10n;
     return Container(
@@ -156,23 +163,23 @@ class DownloadSettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
           _buildDataRow(
-            l10n.qualityLowChip,
-            l10n.approxMegabytesValue('3'),
+            '${l10n.qualityLowChip} (~48–64 kbps)',
+            '~1.5 – 2 MB',
             isDark,
           ),
           _buildDataRow(
-            l10n.qualityMediumChip,
-            l10n.approxMegabytesValue('6'),
+            '${l10n.qualityMediumChip} (~70–128 kbps)',
+            '~3 – 4 MB',
             isDark,
           ),
           _buildDataRow(
-            l10n.qualityHighChip,
-            l10n.approxMegabytesValue('12'),
+            '${l10n.qualityHighChip} (${jioSaavnEnabled ? '~160–320 kbps' : '~160 kbps'})',
+            jioSaavnEnabled ? '~4 – 8 MB' : '~4 – 5 MB',
             isDark,
           ),
           _buildDataRow(
-            l10n.qualityMaxChip,
-            l10n.approxMegabytesValue('25+'),
+            '${l10n.qualityMaxChip} (${jioSaavnEnabled ? '320 kbps' : '~160 kbps'})',
+            jioSaavnEnabled ? '~8 – 10 MB' : '~4 – 5 MB',
             isDark,
           ),
         ],
@@ -208,10 +215,12 @@ class DownloadSettingsScreen extends ConsumerWidget {
 class _DownloadQualitySetting extends ConsumerWidget {
   final bool isDark;
   final Color accentColor;
+  final bool jioSaavnEnabled;
 
   const _DownloadQualitySetting({
     required this.isDark,
     required this.accentColor,
+    required this.jioSaavnEnabled,
   });
 
   @override
@@ -274,7 +283,7 @@ class _DownloadQualitySetting extends ConsumerWidget {
                 ref,
                 AudioQuality.low,
                 l10n.qualityLowChip,
-                l10n.approxKbpsValue('64'),
+                '~48–64 kbps',
                 downloadQuality,
               ),
               _buildQualityChip(
@@ -282,7 +291,7 @@ class _DownloadQualitySetting extends ConsumerWidget {
                 ref,
                 AudioQuality.medium,
                 l10n.qualityMediumChip,
-                l10n.approxKbpsValue('128'),
+                '~70–128 kbps',
                 downloadQuality,
               ),
               _buildQualityChip(
@@ -290,7 +299,7 @@ class _DownloadQualitySetting extends ConsumerWidget {
                 ref,
                 AudioQuality.high,
                 l10n.qualityHighChip,
-                l10n.approxKbpsValue('256'),
+                jioSaavnEnabled ? '~160–320 kbps' : '~160 kbps',
                 downloadQuality,
               ),
               _buildQualityChip(
@@ -298,7 +307,7 @@ class _DownloadQualitySetting extends ConsumerWidget {
                 ref,
                 AudioQuality.max,
                 l10n.qualityMaxChip,
-                l10n.qualityHighest,
+                jioSaavnEnabled ? 'Up to 320 kbps' : '~160 kbps',
                 downloadQuality,
               ),
             ],
@@ -309,18 +318,21 @@ class _DownloadQualitySetting extends ConsumerWidget {
   }
 
   String _getQualityDescription(BuildContext context, AudioQuality quality) {
-    final l10n = context.l10n;
     switch (quality) {
       case AudioQuality.auto:
-        return l10n.qualityDescriptionAuto;
+        return 'Automatic quality based on connection';
       case AudioQuality.low:
-        return l10n.qualityDescriptionLow;
+        return 'Saves storage & data (~48–64 kbps)';
       case AudioQuality.medium:
-        return l10n.qualityDescriptionMedium;
+        return 'Standard quality (~70–128 kbps)';
       case AudioQuality.high:
-        return l10n.qualityDescriptionHigh;
+        return jioSaavnEnabled
+            ? 'High fidelity (~160–320 kbps with JioSaavn)'
+            : 'Best standard quality (~160 kbps YouTube)';
       case AudioQuality.max:
-        return l10n.qualityDescriptionMax;
+        return jioSaavnEnabled
+            ? 'Studio quality 320 kbps AAC (JioSaavn) or highest available'
+            : 'Highest available YouTube stream (~160 kbps)';
     }
   }
 
@@ -402,6 +414,7 @@ class _DownloadPathSetting extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Icon(Iconsax.folder_2, color: accentColor, size: 24),
               const SizedBox(width: 12),
@@ -409,17 +422,51 @@ class _DownloadPathSetting extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      l10n.storageLocation,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: isDark ? Colors.white : InzxColors.textPrimary,
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          l10n.storageLocation,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: isDark ? Colors.white : InzxColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        downloadPathAsync.maybeWhen(
+                          data: (info) => Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: info.isCustom
+                                  ? accentColor.withValues(alpha: 0.2)
+                                  : (isDark
+                                      ? Colors.white12
+                                      : Colors.grey.shade300),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              info.isCustom ? 'Custom' : 'Default',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: info.isCustom
+                                    ? accentColor
+                                    : (isDark
+                                        ? Colors.white70
+                                        : Colors.black54),
+                              ),
+                            ),
+                          ),
+                          orElse: () => const SizedBox.shrink(),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 4),
                     downloadPathAsync.when(
-                      data: (path) => Text(
-                        path,
+                      data: (info) => Text(
+                        info.path,
                         style: TextStyle(
                           fontSize: 12,
                           color: isDark
@@ -453,12 +500,94 @@ class _DownloadPathSetting extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            l10n.privateStorageDownloadsNote,
+            downloadPathAsync.maybeWhen(
+              data: (info) => info.isCustom
+                  ? 'Tracks are saved directly to your selected directory and can be accessed by media players and file managers.'
+                  : l10n.privateStorageDownloadsNote,
+              orElse: () => l10n.privateStorageDownloadsNote,
+            ),
             style: TextStyle(
               fontSize: 11,
               color: isDark ? Colors.white38 : InzxColors.textSecondary,
               fontStyle: FontStyle.italic,
             ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              ElevatedButton.icon(
+                onPressed: () async {
+                  final selected = await FilePicker.platform.getDirectoryPath(
+                    dialogTitle: 'Select Download Folder',
+                  );
+                  if (selected != null && selected.trim().isNotEmpty) {
+                    await ref
+                        .read(downloadPathProvider.notifier)
+                        .setCustomPath(selected.trim());
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Download storage location updated'),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  }
+                },
+                icon: const Icon(Iconsax.folder_add, size: 16),
+                label: const Text(
+                  'Change Location',
+                  style: TextStyle(fontSize: 12),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: accentColor,
+                  foregroundColor: InzxColors.contrastTextOn(accentColor),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+              const SizedBox(width: 8),
+              downloadPathAsync.maybeWhen(
+                data: (info) => info.isCustom
+                    ? TextButton.icon(
+                        onPressed: () async {
+                          await ref
+                              .read(downloadPathProvider.notifier)
+                              .setCustomPath(null);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Storage location reset to default app storage',
+                                ),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.restore, size: 16),
+                        label: const Text(
+                          'Reset to Default',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        style: TextButton.styleFrom(
+                          foregroundColor: isDark
+                              ? Colors.white70
+                              : Colors.black87,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+                orElse: () => const SizedBox.shrink(),
+              ),
+            ],
           ),
         ],
       ),

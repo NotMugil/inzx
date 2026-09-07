@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show compute, kDebugMode;
 import 'package:flutter/material.dart';
@@ -50,10 +51,10 @@ class AlbumColorExtractor {
     return null;
   }
 
-  /// Extract colors from album art URL using OuterTune's approach
+  /// Extract colors from album art URL or local file path using OuterTune's approach
   /// 1. Check fast cache (memory + Hive)
-  /// 2. Try loading cached image bytes from disk (DefaultCacheManager)
-  /// 3. Download image bytes if not on disk
+  /// 2. Try loading cached image bytes from disk (DefaultCacheManager or local File)
+  /// 3. Download image bytes if remote and not on disk
   /// 4. Scale to tiny size (16x16) in isolate to get dominant colors
   /// 5. Save to memory and Hive caches
   static Future<AlbumColors> extractFromUrl(String? imageUrl) async {
@@ -70,30 +71,58 @@ class AlbumColorExtractor {
     try {
       Uint8List? bytes;
 
-      // Try local disk cache from CachedNetworkImage / DefaultCacheManager
-      try {
-        final fileInfo =
-            await DefaultCacheManager().getFileFromCache(imageUrl);
-        if (fileInfo != null && await fileInfo.file.exists()) {
-          bytes = await fileInfo.file.readAsBytes();
-        }
-      } catch (_) {}
+      final isRemote = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
 
-      // Fallback to HTTP download if not in disk cache
-      if (bytes == null || bytes.isEmpty) {
-        final response = await http
-            .get(Uri.parse(imageUrl))
-            .timeout(const Duration(seconds: 3));
+      if (isRemote) {
+        // Try local disk cache from CachedNetworkImage / DefaultCacheManager
+        try {
+          final fileInfo =
+              await DefaultCacheManager().getFileFromCache(imageUrl);
+          if (fileInfo != null && await fileInfo.file.exists()) {
+            bytes = await fileInfo.file.readAsBytes();
+          }
+        } catch (_) {}
 
-        if (response.statusCode == 200) {
-          bytes = response.bodyBytes;
+        // Fallback to HTTP download if not in disk cache
+        if (bytes == null || bytes.isEmpty) {
+          final response = await http
+              .get(Uri.parse(imageUrl))
+              .timeout(const Duration(seconds: 3));
+
+          if (response.statusCode == 200) {
+            bytes = response.bodyBytes;
+          }
         }
+      } else {
+        // Local file path
+        try {
+          final file = File(imageUrl);
+          if (await file.exists()) {
+            bytes = await file.readAsBytes();
+          }
+        } catch (_) {}
       }
 
       if (bytes == null || bytes.isEmpty) {
         return AlbumColors.defaultColors();
       }
 
+      return await extractFromBytes(bytes, cacheKey: imageUrl);
+    } catch (e) {
+      return AlbumColors.defaultColors();
+    }
+  }
+
+  /// Extract colors directly from image bytes with optional cache key
+  static Future<AlbumColors> extractFromBytes(Uint8List bytes, {String? cacheKey}) async {
+    if (bytes.isEmpty) return AlbumColors.defaultColors();
+
+    if (cacheKey != null && cacheKey.isNotEmpty) {
+      final fast = getFast(cacheKey);
+      if (fast != null) return fast;
+    }
+
+    try {
       // Process in isolate and convert back to AlbumColors
       final rawColors = await compute(
         _extractColorsIsolate,
@@ -101,15 +130,17 @@ class AlbumColorExtractor {
       );
       final colors = _rawColorsToAlbumColors(rawColors);
 
-      // Cache result in memory
-      _cache[imageUrl] = colors;
+      if (cacheKey != null && cacheKey.isNotEmpty) {
+        // Cache result in memory
+        _cache[cacheKey] = colors;
 
-      // Save to Hive for instant access in future sessions
-      _saveToHive(imageUrl, colors);
+        // Save to Hive for instant access in future sessions
+        _saveToHive(cacheKey, colors);
 
-      // Limit in-memory cache size
-      if (_cache.length > 50) {
-        _cache.remove(_cache.keys.first);
+        // Limit in-memory cache size
+        if (_cache.length > 50) {
+          _cache.remove(_cache.keys.first);
+        }
       }
 
       return colors;

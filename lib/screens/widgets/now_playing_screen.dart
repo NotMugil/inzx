@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:math' as math;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:iconsax/iconsax.dart';
@@ -26,6 +27,8 @@ import 'lyrics_view.dart';
 import 'ytm_drawer.dart';
 import 'jams_panel.dart';
 import 'home_shelves.dart' show TrackListShelf;
+import '../../services/local_artwork_service.dart';
+import 'track_artwork_view.dart';
 
 /// Progress bar widget that only rebuilds on position changes (isolated)
 class _NowPlayingProgressBar extends ConsumerWidget {
@@ -1087,21 +1090,13 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       child: Row(
         children: [
           // Album art thumbnail
-          ClipRRect(
+          TrackArtworkView(
+            track: track,
+            width: 56,
+            height: 56,
             borderRadius: BorderRadius.circular(8),
-            child: SizedBox(
-              width: 56,
-              height: 56,
-              child: track.thumbnailUrl != null
-                  ? CachedNetworkImage(
-                      imageUrl: track.thumbnailUrl!,
-                      fit: BoxFit.cover,
-                    )
-                  : Container(
-                      color: accentColor.withValues(alpha: 0.3),
-                      child: Icon(Iconsax.music, color: textColor),
-                    ),
-            ),
+            fallbackColor: accentColor.withValues(alpha: 0.3),
+            fallbackIcon: Iconsax.music,
           ),
           const SizedBox(width: 12),
           // Title and artist
@@ -1652,7 +1647,6 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     Widget? subtitleWidget,
     Widget? trailingWidget,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final playbackState = ref.watch(playbackStateProvider).valueOrNull;
     final isPlaying = isCurrent && (playbackState?.isPlaying ?? false);
 
@@ -1683,22 +1677,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                   Stack(
                     alignment: Alignment.center,
                     children: [
-                      ClipRRect(
+                      TrackArtworkView(
+                        track: track,
+                        width: 48,
+                        height: 48,
                         borderRadius: BorderRadius.circular(8),
-                        child: SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: track.thumbnailUrl != null
-                              ? CachedNetworkImage(
-                                  imageUrl: track.thumbnailUrl!,
-                                  fit: BoxFit.cover,
-                                  memCacheWidth: 96,
-                                  memCacheHeight: 96,
-                                  fadeInDuration: Duration.zero,
-                                  fadeOutDuration: Duration.zero,
-                                )
-                              : Container(color: Colors.grey.shade800),
-                        ),
                       ),
                       if (isCurrent)
                         Container(
@@ -2872,6 +2855,21 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   Widget _buildAlbumArtContent(Track? displayTrack, Color accentColor) {
     final localAudioPath = displayTrack?.localFilePath?.trim();
     if (localAudioPath != null && localAudioPath.isNotEmpty) {
+      // 1. Fast synchronous check for memory-cached bytes
+      final cachedBytes = LocalArtworkService.getCachedBytes(localAudioPath);
+      if (cachedBytes != null && cachedBytes.isNotEmpty) {
+        return Image.memory(
+          cachedBytes,
+          fit: BoxFit.cover,
+          alignment: Alignment.center,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stackTrace) {
+            return _defaultArt(accentColor);
+          },
+        );
+      }
+
+      // 2. Legacy companion .cover.jpg if present
       final localCoverFile = File('$localAudioPath.cover.jpg');
       if (localCoverFile.existsSync()) {
         return Image.file(
@@ -2883,8 +2881,38 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
           },
         );
       }
+
+      // 3. Asynchronously load embedded artwork with fallback to network
+      return FutureBuilder<Uint8List?>(
+        future: LocalArtworkService.getArtworkBytes(localAudioPath),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.done &&
+              snapshot.hasData &&
+              snapshot.data != null &&
+              snapshot.data!.isNotEmpty) {
+            return Image.memory(
+              snapshot.data!,
+              fit: BoxFit.cover,
+              alignment: Alignment.center,
+              gaplessPlayback: true,
+              errorBuilder: (context, error, stackTrace) {
+                return _defaultArt(accentColor);
+              },
+            );
+          }
+          if (displayTrack?.thumbnailUrl != null &&
+              displayTrack!.thumbnailUrl!.trim().isNotEmpty) {
+            return _buildNetworkArtwork(displayTrack, accentColor);
+          }
+          return _defaultArt(accentColor);
+        },
+      );
     }
 
+    return _buildNetworkArtwork(displayTrack, accentColor);
+  }
+
+  Widget _buildNetworkArtwork(Track? displayTrack, Color accentColor) {
     final rawThumbnail = displayTrack?.thumbnailUrl?.trim();
     if (rawThumbnail == null || rawThumbnail.isEmpty) {
       return _defaultArt(accentColor);

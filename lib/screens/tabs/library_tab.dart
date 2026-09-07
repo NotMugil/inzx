@@ -16,6 +16,7 @@ import '../widgets/history_screen.dart';
 import '../widgets/artist_page_screen.dart';
 import '../widgets/album_screen.dart';
 import '../widgets/track_options_sheet.dart';
+import '../widgets/track_artwork_view.dart';
 import '../search_screen.dart';
 
 /// Library tab with albums, artists, and playlists
@@ -2290,25 +2291,22 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
     return ListTile(
       leading: ClipRRect(
         borderRadius: BorderRadius.circular(4),
-        child: task.track.thumbnailUrl != null
-            ? CachedNetworkImage(
-                imageUrl: task.track.thumbnailUrl!,
-                width: 48,
-                height: 48,
-                fit: BoxFit.cover,
-                placeholder: (_, _) => Container(
-                  width: 48,
-                  height: 48,
-                  color: isDark ? Colors.white12 : Colors.grey.shade200,
-                  child: const Icon(Icons.music_note),
-                ),
-              )
-            : Container(
-                width: 48,
-                height: 48,
-                color: isDark ? Colors.white12 : Colors.grey.shade200,
-                child: const Icon(Icons.music_note),
-              ),
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: TrackArtworkView(
+            track: task.track,
+            width: 48,
+            height: 48,
+            borderRadius: BorderRadius.circular(4),
+            fallback: Container(
+              width: 48,
+              height: 48,
+              color: isDark ? Colors.white12 : Colors.grey.shade200,
+              child: const Icon(Icons.music_note),
+            ),
+          ),
+        ),
       ),
       title: Text(
         task.track.title,
@@ -2388,25 +2386,22 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
       contentPadding: const EdgeInsets.fromLTRB(16, 2, 4, 2),
       leading: ClipRRect(
         borderRadius: BorderRadius.circular(4),
-        child: track.thumbnailUrl != null
-            ? CachedNetworkImage(
-                imageUrl: track.thumbnailUrl!,
-                width: 48,
-                height: 48,
-                fit: BoxFit.cover,
-                placeholder: (_, _) => Container(
-                  width: 48,
-                  height: 48,
-                  color: isDark ? Colors.white12 : Colors.grey.shade200,
-                  child: const Icon(Icons.music_note),
-                ),
-              )
-            : Container(
-                width: 48,
-                height: 48,
-                color: isDark ? Colors.white12 : Colors.grey.shade200,
-                child: const Icon(Icons.music_note),
-              ),
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: TrackArtworkView(
+            track: track,
+            width: 48,
+            height: 48,
+            borderRadius: BorderRadius.circular(4),
+            fallback: Container(
+              width: 48,
+              height: 48,
+              color: isDark ? Colors.white12 : Colors.grey.shade200,
+              child: const Icon(Icons.music_note),
+            ),
+          ),
+        ),
       ),
       title: Text(
         track.title,

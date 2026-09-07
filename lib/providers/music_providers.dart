@@ -142,7 +142,10 @@ final albumColorsProvider =
       // Listen to track changes and extract colors automatically
       // Use fireImmediately: false to prevent modification during initialization
       ref.listen<Track?>(currentTrackProvider, (previous, next) {
-        if (next != null && next.thumbnailUrl != previous?.thumbnailUrl) {
+        if (next != null &&
+            (next.id != previous?.id ||
+                next.thumbnailUrl != previous?.thumbnailUrl ||
+                next.localFilePath != previous?.localFilePath)) {
           notifier.updateForTrack(next);
         }
       }, fireImmediately: false);
@@ -163,20 +166,39 @@ class AlbumColorsNotifier extends StateNotifier<AlbumColors> {
   AlbumColorsNotifier() : super(AlbumColors.defaultColors());
 
   Future<void> updateForTrack(Track track) async {
+    // 1. If track has a local file path, check embedded artwork
+    final localPath = track.localFilePath;
+    if (localPath != null && localPath.isNotEmpty) {
+      final fastColors = AlbumColorExtractor.getFast(localPath);
+      if (fastColors != null) {
+        state = fastColors;
+        return;
+      }
+      final artBytes = await LocalArtworkService.getArtworkBytes(localPath);
+      if (artBytes != null && artBytes.isNotEmpty) {
+        final colors = await AlbumColorExtractor.extractFromBytes(
+          artBytes,
+          cacheKey: localPath,
+        );
+        state = colors;
+        return;
+      }
+    }
+
     final url = track.thumbnailUrl;
     if (url == null || url.isEmpty) {
       state = AlbumColors.defaultColors();
       return;
     }
 
-    // 1. Fast synchronous lookup from RAM / Hive cache (0ms delay)
+    // 2. Fast synchronous lookup from RAM / Hive cache (0ms delay)
     final fastColors = AlbumColorExtractor.getFast(url);
     if (fastColors != null) {
       state = fastColors;
       return;
     }
 
-    // 2. Async extraction fallback (cache miss)
+    // 3. Async extraction fallback (cache miss)
     final colors = await AlbumColorExtractor.extractFromUrl(url);
     state = colors;
   }
@@ -497,14 +519,62 @@ final likedSongsRepositoryProvider = FutureProvider<List<Track>>((ref) async {
 /// Provider for recently played tracks
 final recentlyPlayedProvider =
     StateNotifierProvider<RecentlyPlayedNotifier, List<Track>>((ref) {
-      return RecentlyPlayedNotifier();
+      final authState = ref.watch(ytMusicAuthStateProvider);
+      return RecentlyPlayedNotifier(isLoggedIn: authState.isLoggedIn);
     });
 
-/// Notifier for recently played
+/// Notifier for recently played with local persistence for non-logged-in devices
 class RecentlyPlayedNotifier extends StateNotifier<List<Track>> {
-  static const _maxRecent = 50;
+  static const String _storageKey = 'recently_played';
+  static const int _maxRecent = 50;
+  final bool isLoggedIn;
 
-  RecentlyPlayedNotifier() : super([]);
+  RecentlyPlayedNotifier({this.isLoggedIn = false}) : super([]) {
+    // Only non-logged-in devices persist local history,
+    // as YouTube Music maintains its own cloud history when logged in.
+    if (!isLoggedIn) {
+      _loadFromStorage();
+    }
+  }
+
+  Future<void> _loadFromStorage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonList = prefs.getStringList(_storageKey);
+      if (jsonList != null && jsonList.isNotEmpty) {
+        final tracks = jsonList
+            .map((j) => Track.fromJson(jsonDecode(j) as Map<String, dynamic>))
+            .toList();
+        state = tracks;
+        return;
+      }
+      final jsonStr = prefs.getString(_storageKey);
+      if (jsonStr != null && jsonStr.isNotEmpty) {
+        final List<dynamic> list = jsonDecode(jsonStr);
+        final tracks = list
+            .map((j) => Track.fromJson(j as Map<String, dynamic>))
+            .toList();
+        state = tracks;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error loading recently played: $e');
+      }
+    }
+  }
+
+  Future<void> _saveToStorage() async {
+    if (isLoggedIn) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonList = state.map((t) => jsonEncode(t.toJson())).toList();
+      await prefs.setStringList(_storageKey, jsonList);
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error saving recently played: $e');
+      }
+    }
+  }
 
   void replaceAll(List<Track> tracks) {
     final seen = <String>{};
@@ -516,9 +586,12 @@ class RecentlyPlayedNotifier extends StateNotifier<List<Track>> {
       if (normalized.length >= _maxRecent) break;
     }
     state = normalized;
+    if (!isLoggedIn) {
+      _saveToStorage();
+    }
   }
 
-  void addTrack(Track track) {
+  Future<void> addTrack(Track track) async {
     // Remove if already exists
     final newList = state.where((t) => t.id != track.id).toList();
 
@@ -531,10 +604,26 @@ class RecentlyPlayedNotifier extends StateNotifier<List<Track>> {
     }
 
     state = newList;
+    if (!isLoggedIn) {
+      await _saveToStorage();
+    }
   }
 
-  void clearHistory() {
+  Future<void> removeTrack(String trackId) async {
+    state = state.where((t) => t.id != trackId).toList();
+    if (!isLoggedIn) {
+      await _saveToStorage();
+    }
+  }
+
+  Future<void> clearHistory() async {
     state = [];
+    if (!isLoggedIn) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(_storageKey);
+      } catch (_) {}
+    }
   }
 }
 

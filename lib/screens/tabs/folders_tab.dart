@@ -6,7 +6,9 @@ import '../../core/l10n/app_localizations_x.dart';
 import '../../providers/providers.dart';
 import '../../models/models.dart';
 import '../../services/local_music_scanner.dart';
+import '../../services/download_service.dart';
 import '../widgets/track_options_sheet.dart';
+import '../widgets/track_artwork_view.dart';
 
 /// Folders tab for local file browsing
 class MusicFoldersTab extends ConsumerStatefulWidget {
@@ -226,7 +228,7 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
                                 child: ListView.separated(
                                   shrinkWrap: true,
                                   itemCount: folders.length,
-                                  separatorBuilder: (_, __) =>
+                                  separatorBuilder: (_, _) =>
                                       const SizedBox(height: 8),
                                   itemBuilder: (context, index) {
                                     final folder = folders[index];
@@ -585,54 +587,61 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
             itemCount: tracks.length,
             itemBuilder: (context, index) {
               final track = tracks[index];
-              return ListTile(
-                contentPadding: const EdgeInsets.fromLTRB(16, 2, 4, 2),
-                leading: Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: accentColor.withValues(
-                      alpha: isDark ? 0.22 : 0.14,
-                    ),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: accentColor.withValues(alpha: 0.18),
-                      width: 0.8,
-                    ),
-                  ),
-                  child: Icon(
-                    Icons.music_note_rounded,
-                    color: accentColor,
+              return Dismissible(
+                key: ValueKey('folder_track_${track.id}_${track.localFilePath ?? ''}'),
+                direction: DismissDirection.endToStart,
+                background: Container(
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.only(right: 20),
+                  color: Colors.red.shade700,
+                  child: const Icon(
+                    Icons.delete_outline_rounded,
+                    color: Colors.white,
                     size: 24,
                   ),
                 ),
-                title: Text(
-                  track.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: isDark ? Colors.white : Colors.black87,
+                confirmDismiss: (_) => _confirmDeleteTrack(track),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.fromLTRB(16, 2, 4, 2),
+                  leading: TrackArtworkView(
+                    track: track,
+                    width: 48,
+                    height: 48,
+                    borderRadius: BorderRadius.circular(8),
+                    fallbackColor: accentColor.withValues(
+                      alpha: isDark ? 0.22 : 0.14,
+                    ),
+                    fallbackIcon: Icons.music_note_rounded,
                   ),
-                ),
-                subtitle: Text(
-                  track.artist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: isDark ? Colors.white54 : Colors.black54,
+                  title: Text(
+                    track.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
                   ),
-                ),
-                trailing: IconButton(
-                  icon: Icon(
-                    Icons.more_vert,
-                    color: isDark ? Colors.white54 : Colors.black54,
+                  subtitle: Text(
+                    track.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isDark ? Colors.white54 : Colors.black54,
+                    ),
                   ),
-                  onPressed: () => TrackOptionsSheet.show(context, track),
-                ),
-                onTap: () => playerService.playQueue(
-                  tracks,
-                  startIndex: index,
-                  sourceTitle: l10n.folders,
+                  trailing: IconButton(
+                    icon: Icon(
+                      Icons.more_vert,
+                      color: isDark ? Colors.white54 : Colors.black54,
+                    ),
+                    onPressed: () => TrackOptionsSheet.show(context, track),
+                  ),
+                  onTap: () => playerService.playQueue(
+                    tracks,
+                    startIndex: index,
+                    sourceTitle: l10n.folders,
+                  ),
+                  onLongPress: () => _confirmDeleteTrack(track),
                 ),
               );
             },
@@ -640,6 +649,80 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
         ),
       ],
     );
+  }
+
+  Future<bool> _confirmDeleteTrack(Track track) async {
+    final l10n = context.l10n;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          l10n.delete,
+          style: TextStyle(
+            color: isDark ? Colors.white : InzxColors.textPrimary,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Text(
+          l10n.deleteDownloadWarning(track.title),
+          style: TextStyle(
+            color: isDark ? Colors.white70 : InzxColors.textSecondary,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(
+              l10n.cancel,
+              style: TextStyle(color: isDark ? Colors.white54 : Colors.grey),
+            ),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: Text(l10n.delete),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      final playerService = ref.read(audioPlayerServiceProvider);
+      final localTracksNotifier = ref.read(localTracksProvider.notifier);
+      final downloadManagerNotifier = ref.read(downloadManagerProvider.notifier);
+      final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+      final queueIndex = playerService.queue.indexWhere((t) =>
+          t.id == track.id ||
+          (track.localFilePath != null &&
+              t.localFilePath == track.localFilePath));
+      if (queueIndex != -1) {
+        playerService.removeFromQueue(queueIndex);
+      } else if (playerService.currentTrack?.id == track.id ||
+          (track.localFilePath != null &&
+              playerService.currentTrack?.localFilePath == track.localFilePath)) {
+        playerService.stop();
+      }
+
+      await localTracksNotifier.deleteTrack(track, deleteFileFromDisk: true);
+      await downloadManagerNotifier.removeDownload(track.id);
+
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text(l10n.deletedTrack(track.title)),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return true;
+    }
+    return false;
   }
 
   Future<void> _pickFolder() async {
