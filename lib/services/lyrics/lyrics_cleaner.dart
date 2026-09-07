@@ -73,6 +73,22 @@ class LyricsCleaner {
         .first
         .trim();
 
-    return primary.isNotEmpty ? primary : artist.trim();
+    final result = primary.isNotEmpty ? primary : artist.trim();
+    final lower = result.toLowerCase();
+    const invalidArtists = {
+      'song',
+      'songs',
+      'video',
+      'videos',
+      'track',
+      'single',
+      'unknown artist',
+      'unknown',
+    };
+    if (invalidArtists.contains(lower)) {
+      return '';
+    }
+
+    return result;
   }
 }

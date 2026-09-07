@@ -36,6 +36,9 @@ class HomeShelfItem extends Equatable {
   final String? playlistId; // For playable playlists
   final String? videoId; // For playable tracks
   final String? artistId; // Artist channel ID for "Go to Artist" navigation
+  final Duration? duration;
+  final String? album;
+  final String? albumId;
 
   const HomeShelfItem({
     required this.id,
@@ -48,23 +51,28 @@ class HomeShelfItem extends Equatable {
     this.playlistId,
     this.videoId,
     this.artistId,
+    this.duration,
+    this.album,
+    this.albumId,
   });
 
   @override
-  List<Object?> get props => [id];
+  List<Object?> get props => [id, album, albumId];
 
   /// Convert to Track if it's a song
   Track? toTrack() {
     if (itemType != HomeShelfItemType.song) return null;
     final artistName = _extractArtistFromSubtitle(subtitle);
-    final duration = _extractDurationFromSubtitle(subtitle);
+    final resolvedDuration = duration ?? _extractDurationFromSubtitle(subtitle);
     return Track(
       id: videoId ?? id,
       title: title,
       artist: artistName,
       artistId: artistId ?? '',
+      album: album,
+      albumId: albumId,
       thumbnailUrl: thumbnailUrl,
-      duration: duration,
+      duration: resolvedDuration,
     );
   }
 
@@ -72,10 +80,44 @@ class HomeShelfItem extends Equatable {
     final raw = subtitle?.trim();
     if (raw == null || raw.isEmpty) return 'Unknown Artist';
 
-    // YT Music often uses bullets to separate artist / album / duration.
-    final parts = raw.split(RegExp(r'\s[\u2022\u00B7\u22C5]\s'));
-    final artistPart = parts.isNotEmpty ? parts.first.trim() : raw;
-    return artistPart.isNotEmpty ? artistPart : raw;
+    // Handle both proper bullets and mojibake bullets.
+    final normalized = raw.replaceAll('â€¢', '•');
+    final parts = normalized
+        .split(RegExp(r'\s*[•·|]\s*'))
+        .map((p) => p.trim())
+        .where((p) => p.isNotEmpty)
+        .toList();
+
+    const ignoredTokens = {
+      'song',
+      'songs',
+      'video',
+      'videos',
+      'track',
+      'single',
+      'album',
+      'artist',
+      'explicit',
+      'e',
+    };
+
+    for (final part in parts) {
+      final lower = part.toLowerCase();
+      if (ignoredTokens.contains(lower)) continue;
+      // Duration token (e.g. 3:20 or 1:05:30)
+      if (RegExp(r'^\d{1,2}:\d{2}(:\d{2})?$').hasMatch(part)) continue;
+      // Year token (e.g. 2024)
+      if (RegExp(r'^\d{4}$').hasMatch(part)) continue;
+      // Views token (e.g. 1.2M views, 500K plays)
+      if (RegExp(r'^\d+(\.\d+)?[kmb]?\s+(views|plays)$', caseSensitive: false)
+          .hasMatch(part)) {
+        continue;
+      }
+
+      return part;
+    }
+
+    return parts.isNotEmpty ? parts.first : raw;
   }
 
   static Duration _extractDurationFromSubtitle(String? subtitle) {
@@ -141,6 +183,9 @@ class HomeShelfItem extends Equatable {
     'playlistId': playlistId,
     'videoId': videoId,
     'artistId': artistId,
+    if (album != null) 'album': album,
+    if (albumId != null) 'albumId': albumId,
+    if (duration != null) 'durationMs': duration!.inMilliseconds,
   };
 
   factory HomeShelfItem.fromJson(Map<String, dynamic> json) => HomeShelfItem(
@@ -157,6 +202,11 @@ class HomeShelfItem extends Equatable {
     playlistId: json['playlistId'] as String?,
     videoId: json['videoId'] as String?,
     artistId: json['artistId'] as String?,
+    album: json['album'] as String?,
+    albumId: json['albumId'] as String?,
+    duration: json['durationMs'] != null
+        ? Duration(milliseconds: json['durationMs'] as int)
+        : null,
   );
 }
 

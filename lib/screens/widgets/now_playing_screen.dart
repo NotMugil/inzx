@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
@@ -16,6 +17,7 @@ import '../../models/models.dart';
 import '../../services/audio_player_service.dart' as player;
 import '../../services/lyrics/lyrics_service.dart';
 import '../../services/lyrics/lyrics_models.dart';
+import '../../services/lyrics/instrumental_gaps.dart';
 import '../../core/design_system/design_system.dart';
 import '../../core/services/cache/hive_service.dart';
 import '../../core/l10n/app_localizations_x.dart';
@@ -24,6 +26,7 @@ import 'album_screen.dart' show AlbumScreen;
 import 'playlist_screen.dart' show PlaylistScreen;
 import 'track_options_sheet.dart';
 import 'lyrics_view.dart';
+import 'karaoke_word.dart';
 import 'ytm_drawer.dart';
 import 'jams_panel.dart';
 import 'home_shelves.dart' show TrackListShelf;
@@ -31,7 +34,7 @@ import '../../services/local_artwork_service.dart';
 import 'track_artwork_view.dart';
 
 /// Progress bar widget that only rebuilds on position changes (isolated)
-class _NowPlayingProgressBar extends ConsumerWidget {
+class _NowPlayingProgressBar extends ConsumerStatefulWidget {
   final Duration? duration;
   final Color textColor;
   final Color secondaryColor;
@@ -47,13 +50,95 @@ class _NowPlayingProgressBar extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_NowPlayingProgressBar> createState() =>
+      _NowPlayingProgressBarState();
+}
+
+class _NowPlayingProgressBarState
+    extends ConsumerState<_NowPlayingProgressBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _scaleController;
+  late final Animation<double> _trackHeightAnim;
+  late final Animation<double> _thumbRadiusAnim;
+  bool _isSeeking = false;
+  double _dragPositionMs = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _scaleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+
+    final baseTrackHeight = widget.isCompact ? 3.0 : 4.0;
+    final expandedTrackHeight = widget.isCompact ? 5.0 : 7.0;
+    final baseThumbRadius = widget.isCompact ? 4.0 : 6.0;
+    final expandedThumbRadius = widget.isCompact ? 7.0 : 9.0;
+
+    _trackHeightAnim = Tween<double>(
+      begin: baseTrackHeight,
+      end: expandedTrackHeight,
+    ).animate(CurvedAnimation(
+      parent: _scaleController,
+      curve: Curves.easeOutCubic,
+    ));
+
+    _thumbRadiusAnim = Tween<double>(
+      begin: baseThumbRadius,
+      end: expandedThumbRadius,
+    ).animate(CurvedAnimation(
+      parent: _scaleController,
+      curve: Curves.easeOutCubic,
+    ));
+  }
+
+  @override
+  void dispose() {
+    _scaleController.dispose();
+    super.dispose();
+  }
+
+  void _onSeekStart(double value) {
+    setState(() {
+      _isSeeking = true;
+      _dragPositionMs = value;
+    });
+    _scaleController.forward();
+  }
+
+  void _onSeekChanged(double value) {
+    setState(() {
+      _dragPositionMs = value;
+    });
+  }
+
+  void _onSeekEnd(double value) {
+    final playerService = ref.read(audioPlayerServiceProvider);
+    playerService.seek(Duration(milliseconds: value.toInt()));
+    setState(() {
+      _isSeeking = false;
+    });
+    _scaleController.reverse();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final position =
         ref.watch(positionStreamProvider).valueOrNull ?? Duration.zero;
-    final playerService = ref.watch(audioPlayerServiceProvider);
 
-    final verticalPadding = isCompact ? 2.0 : 16.0;
-    final horizontalPadding = isCompact ? 16.0 : 24.0;
+    final verticalPadding = widget.isCompact ? 2.0 : 16.0;
+    final horizontalPadding = widget.isCompact ? 16.0 : 24.0;
+
+    final maxMs = (widget.duration?.inMilliseconds ?? 0) > 0
+        ? widget.duration!.inMilliseconds.toDouble()
+        : 1.0;
+
+    // Use local drag position during seek, stream position otherwise
+    final double displayMs = _isSeeking
+        ? _dragPositionMs
+        : position.inMilliseconds.toDouble().clamp(0.0, maxMs);
+    final displayPosition = Duration(milliseconds: displayMs.toInt());
 
     return Padding(
       padding: EdgeInsets.symmetric(
@@ -62,33 +147,35 @@ class _NowPlayingProgressBar extends ConsumerWidget {
       ),
       child: Column(
         children: [
-          SliderTheme(
-            data: SliderThemeData(
-              trackHeight: isCompact ? 3 : 4,
-              thumbShape: RoundSliderThumbShape(
-                enabledThumbRadius: isCompact ? 4 : 6,
-              ),
-              overlayShape: RoundSliderOverlayShape(
-                overlayRadius: isCompact ? 10 : 14,
-              ),
-              activeTrackColor: accentColor,
-              inactiveTrackColor: textColor.withValues(alpha: 0.2),
-              thumbColor: textColor,
-              overlayColor: accentColor.withValues(alpha: 0.2),
-            ),
-            child: Slider(
-              value: position.inMilliseconds.toDouble().clamp(
-                0,
-                (duration?.inMilliseconds ?? 1).toDouble(),
-              ),
-              min: 0,
-              max: (duration?.inMilliseconds ?? 0) > 0
-                  ? duration!.inMilliseconds.toDouble()
-                  : 1,
-              onChanged: (value) {
-                playerService.seek(Duration(milliseconds: value.toInt()));
-              },
-            ),
+          AnimatedBuilder(
+            animation: _scaleController,
+            builder: (context, child) {
+              return SliderTheme(
+                data: SliderThemeData(
+                  trackHeight: _trackHeightAnim.value,
+                  thumbShape: RoundSliderThumbShape(
+                    enabledThumbRadius: _thumbRadiusAnim.value,
+                  ),
+                  overlayShape: RoundSliderOverlayShape(
+                    overlayRadius: widget.isCompact ? 10 : 14,
+                  ),
+                  activeTrackColor: widget.accentColor,
+                  inactiveTrackColor:
+                      widget.textColor.withValues(alpha: 0.2),
+                  thumbColor: widget.textColor,
+                  overlayColor:
+                      widget.accentColor.withValues(alpha: 0.2),
+                ),
+                child: Slider(
+                  value: displayMs.clamp(0.0, maxMs),
+                  min: 0,
+                  max: maxMs,
+                  onChangeStart: _onSeekStart,
+                  onChanged: _onSeekChanged,
+                  onChangeEnd: _onSeekEnd,
+                ),
+              );
+            },
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -96,12 +183,14 @@ class _NowPlayingProgressBar extends ConsumerWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  _formatDuration(position),
-                  style: TextStyle(fontSize: 12, color: secondaryColor),
+                  _formatDuration(displayPosition),
+                  style: TextStyle(
+                      fontSize: 12, color: widget.secondaryColor),
                 ),
                 Text(
-                  _formatDuration(duration ?? Duration.zero),
-                  style: TextStyle(fontSize: 12, color: secondaryColor),
+                  _formatDuration(widget.duration ?? Duration.zero),
+                  style: TextStyle(
+                      fontSize: 12, color: widget.secondaryColor),
                 ),
               ],
             ),
@@ -119,6 +208,516 @@ class _NowPlayingProgressBar extends ConsumerWidget {
 }
 
 // NOTE: albumColorsProvider is now defined in music_providers.dart for app-wide access
+
+const double _syncedLyricPreviewHeight = 72.0;
+
+/// Isolated synced lyric preview widget that renders word-level karaoke sync under album art
+@visibleForTesting
+class SyncedLyricPreview extends ConsumerStatefulWidget {
+  final Color textColor;
+  final Color accentColor;
+  final VoidCallback onTap;
+
+  const SyncedLyricPreview({
+    super.key,
+    required this.textColor,
+    required this.accentColor,
+    required this.onTap,
+  });
+
+  @override
+  ConsumerState<SyncedLyricPreview> createState() => _SyncedLyricPreviewState();
+}
+
+class _SyncedLyricPreviewState extends ConsumerState<SyncedLyricPreview>
+    with SingleTickerProviderStateMixin {
+  late final Ticker _ticker;
+  final ValueNotifier<int> _smoothPositionNotifier = ValueNotifier<int>(0);
+  int _lastAudioMs = 0;
+  int _lastSyncEpochMs = 0;
+  int _currentLineIndex = -1;
+  bool _inMidSongBreak = false;
+  String? _lastVideoId;
+
+  @override
+  void initState() {
+    super.initState();
+    final initialPos =
+        ref.read(positionStreamProvider).valueOrNull ?? Duration.zero;
+    _lastAudioMs = initialPos.inMilliseconds;
+    _lastSyncEpochMs = DateTime.now().millisecondsSinceEpoch;
+    _smoothPositionNotifier.value = _lastAudioMs;
+
+    _ticker = createTicker((_) {
+      if (!mounted) return;
+      final isPlaying = ref.read(isPlayingProvider);
+      if (isPlaying) {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final elapsed = now - _lastSyncEpochMs;
+        final current = _lastAudioMs + elapsed;
+        if (_smoothPositionNotifier.value != current) {
+          _smoothPositionNotifier.value = current;
+          _checkLineIndexChange(current);
+        }
+      } else if (_smoothPositionNotifier.value != _lastAudioMs) {
+        _smoothPositionNotifier.value = _lastAudioMs;
+        _checkLineIndexChange(_lastAudioMs);
+      }
+    });
+    _ticker.start();
+  }
+
+  void _checkLineIndexChange(int currentPositionMs) {
+    final lyricsState = ref.read(lyricsProvider);
+    final lines = lyricsState.currentLyrics?.lines;
+    if (lines == null || lines.isEmpty) {
+      if (_currentLineIndex != -1 || _inMidSongBreak) {
+        _safeSetState(() {
+          _currentLineIndex = -1;
+          _inMidSongBreak = false;
+        });
+      }
+      return;
+    }
+
+    int newIdx = -1;
+    for (int i = 0; i < lines.length; i++) {
+      if (lines[i].timeInMs <= currentPositionMs) {
+        newIdx = i;
+      } else {
+        break;
+      }
+    }
+
+    bool shouldBeInBreak = false;
+    if (newIdx >= 0 && newIdx < lines.length) {
+      final cur = lines[newIdx];
+      if (!cur.isGap) {
+        final nextLineStart = (newIdx + 1 < lines.length)
+            ? lines[newIdx + 1].timeInMs
+            : null;
+        if (nextLineStart != null) {
+          final int vocalEnd = cur.hasKnownEnd
+              ? cur.endMs
+              : (cur.timeInMs +
+                  (cur.text.trim().split(RegExp(r'\s+')).length * 300)
+                      .clamp(2500, 4500));
+          if ((nextLineStart - vocalEnd) >= 3500 &&
+              currentPositionMs >= (vocalEnd + 800) &&
+              currentPositionMs < nextLineStart) {
+            shouldBeInBreak = true;
+          }
+        }
+      }
+    }
+
+    if (newIdx != _currentLineIndex || shouldBeInBreak != _inMidSongBreak) {
+      _safeSetState(() {
+        _currentLineIndex = newIdx;
+        _inMidSongBreak = shouldBeInBreak;
+      });
+    }
+  }
+
+  void _safeSetState(VoidCallback fn) {
+    if (!mounted) return;
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(fn);
+        }
+      });
+    } else {
+      setState(fn);
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    _smoothPositionNotifier.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Synchronize play/pause state
+    ref.listen<bool>(isPlayingProvider, (prev, isPlaying) {
+      if (isPlaying) {
+        _lastSyncEpochMs = DateTime.now().millisecondsSinceEpoch;
+      }
+    });
+
+    // Synchronize audio stream ticks / seeks without rebuilding widget tree
+    ref.listen<AsyncValue<Duration>>(positionStreamProvider, (prev, next) {
+      final newMs = next.valueOrNull?.inMilliseconds;
+      if (newMs == null) return;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final estimatedCurrent = _lastAudioMs + (now - _lastSyncEpochMs);
+      final drift = (newMs - estimatedCurrent).abs();
+
+      if (drift > 80 || newMs < _lastAudioMs || (newMs - _lastAudioMs) > 1000) {
+        _lastAudioMs = newMs;
+        _lastSyncEpochMs = now;
+        _smoothPositionNotifier.value = newMs;
+        _checkLineIndexChange(newMs);
+      }
+    });
+
+    final lyricsState = ref.watch(lyricsProvider);
+    if (lyricsState.videoId != _lastVideoId) {
+      _lastVideoId = lyricsState.videoId;
+      _currentLineIndex = -1;
+      _inMidSongBreak = false;
+      _lastAudioMs = 0;
+      _lastSyncEpochMs = DateTime.now().millisecondsSinceEpoch;
+      _smoothPositionNotifier.value = 0;
+    }
+
+    final result = lyricsState.currentLyrics;
+    final isFetching =
+        lyricsState.currentStatus.state == LyricsProviderState.fetching;
+    final hasSynced = result != null && result.hasSyncedLyrics;
+    final lines = hasSynced ? result.lines! : const <LyricLine>[];
+
+    // Initialize line index if not set and synced lyrics are ready
+    if (hasSynced && _currentLineIndex == -1 && lines.isNotEmpty) {
+      final pos = _smoothPositionNotifier.value;
+      for (int i = 0; i < lines.length; i++) {
+        if (lines[i].timeInMs <= pos) {
+          _currentLineIndex = i;
+        } else {
+          break;
+        }
+      }
+    }
+
+    final bool showPreview = hasSynced || isFetching;
+
+    Widget content;
+    final String switcherKey;
+    bool isInstrumental = false;
+    bool isIntro = false;
+    int firstSungIdx = -1;
+    LyricLine? activeLine;
+
+    if (isFetching) {
+      final currentTrack = ref.watch(currentTrackProvider);
+      final seed = currentTrack?.id.hashCode ?? 0;
+      final loadingText = LyricsLoadingTexts.getText(seed);
+      switcherKey = 'loading_${lyricsState.videoId}';
+      content = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.music_note_rounded,
+            size: 16,
+            color: widget.accentColor.withValues(alpha: 0.85),
+            shadows: [
+              Shadow(
+                color: widget.accentColor.withValues(alpha: 0.3),
+                blurRadius: 8,
+              ),
+            ],
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              loadingText,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 14,
+                fontStyle: FontStyle.italic,
+                fontWeight: FontWeight.w500,
+                color: widget.textColor.withValues(alpha: 0.65),
+                letterSpacing: 0.2,
+              ),
+            ),
+          ),
+        ],
+      );
+    } else if (hasSynced && lines.isNotEmpty) {
+      final pos = _smoothPositionNotifier.value;
+      final currentLine =
+          (_currentLineIndex >= 0 && _currentLineIndex < lines.length)
+              ? lines[_currentLineIndex]
+              : null;
+      activeLine = currentLine;
+
+      // Determine whether the player is currently in an instrumental passage:
+      // 1. Before the first sung line (intro)
+      // 2. An explicit gap line or musical symbol line
+      // 3. After the current vocal has finished singing and the next line is ahead
+      firstSungIdx = lines.indexWhere((l) => !l.isGap);
+      isIntro = _currentLineIndex == -1 ||
+          (firstSungIdx >= 0 && _currentLineIndex < firstSungIdx);
+
+      final bool isExplicitGap = currentLine != null && currentLine.isGap;
+
+      final bool isMidSongBreak = !isExplicitGap &&
+          (_inMidSongBreak ||
+              (currentLine != null &&
+                  pos >=
+                      (currentLine.hasKnownEnd
+                          ? (currentLine.endMs + 1000)
+                          : (currentLine.timeInMs + 3500)) &&
+                  (_currentLineIndex + 1 < lines.length &&
+                      lines[_currentLineIndex + 1].timeInMs - pos >= 2500)));
+
+      isInstrumental = isIntro || isExplicitGap || isMidSongBreak;
+
+      if (isInstrumental) {
+        final currentTrack = ref.watch(currentTrackProvider);
+        final seed = (currentLine != null && currentLine.timeInMs > 0)
+            ? currentLine.timeInMs
+            : (currentTrack?.id.hashCode ?? pos);
+
+        final String gapText;
+        if (isIntro) {
+          gapText = (currentLine != null &&
+                  currentLine.text.trim().isNotEmpty &&
+                  !LyricLine.isMusicalSymbol(currentLine.text))
+              ? currentLine.text.trim()
+              : InstrumentalGapTexts.getIntroText(seed);
+        } else {
+          gapText = (isExplicitGap &&
+                  currentLine.text.trim().isNotEmpty &&
+                  !LyricLine.isMusicalSymbol(currentLine.text))
+              ? currentLine.text.trim()
+              : InstrumentalGapTexts.getBreakText(seed);
+        }
+
+        switcherKey = 'gap_${_currentLineIndex}_${isIntro ? "intro" : "break"}';
+        content = Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.music_note_rounded,
+              size: 18,
+              color: widget.accentColor.withValues(alpha: 0.9),
+              shadows: [
+                Shadow(
+                  color: widget.accentColor.withValues(alpha: 0.35),
+                  blurRadius: 10,
+                ),
+              ],
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                gapText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontStyle: FontStyle.italic,
+                  fontWeight: FontWeight.w600,
+                  color: widget.accentColor.withValues(alpha: 0.9),
+                  letterSpacing: 0.3,
+                  shadows: [
+                    Shadow(
+                      color: widget.accentColor.withValues(alpha: 0.3),
+                      blurRadius: 8,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      } else if (currentLine != null) {
+        if (currentLine.hasWordSync) {
+          switcherKey = 'words_$_currentLineIndex';
+          content = Wrap(
+            alignment: WrapAlignment.start,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: currentLine.words!.asMap().entries.map((entry) {
+              final wordIdx = entry.key;
+              final word = entry.value;
+              final isLastWord = wordIdx == currentLine.words!.length - 1;
+
+              return KaraokeWord(
+                word: word,
+                isLastWord: isLastWord,
+                isCurrentLine: true,
+                positionNotifier: _smoothPositionNotifier,
+                fontSize: 15.0,
+                isBg: currentLine.isBackground,
+                textColor: widget.textColor,
+                accentColor: widget.accentColor,
+                dimColor: widget.textColor.withValues(alpha: 0.5),
+              );
+            }).toList(),
+          );
+        } else {
+          // Standard line sync
+          switcherKey = 'line_$_currentLineIndex';
+          content = Text(
+            currentLine.text.trim(),
+            maxLines: 3,
+            overflow: TextOverflow.clip,
+            softWrap: true,
+            textAlign: TextAlign.left,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: widget.textColor.withValues(alpha: 0.90),
+              fontStyle:
+                  currentLine.isBackground ? FontStyle.italic : FontStyle.normal,
+            ),
+          );
+        }
+      } else {
+        switcherKey = 'empty';
+        content = const SizedBox.shrink();
+      }
+    } else {
+      switcherKey = 'empty';
+      content = const SizedBox.shrink();
+    }
+
+    final int widgetLineIndex = _currentLineIndex;
+    final LyricLine? widgetLine = activeLine;
+    final bool widgetIsInstrumental = isInstrumental;
+    final bool widgetIsIntro = isIntro;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: widget.onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+        height: showPreview ? _syncedLyricPreviewHeight : 0.0,
+        child: ClipRect(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 6, 24, 6),
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 360),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              layoutBuilder: (currentChild, previousChildren) {
+                return Stack(
+                  alignment: Alignment.centerLeft,
+                  children: [
+                    ...previousChildren,
+                    if (currentChild != null) currentChild,
+                  ],
+                );
+              },
+              transitionBuilder: (child, animation) {
+                final isIncoming = child.key == ValueKey(switcherKey);
+                if (isIncoming) {
+                  final inCurved = CurvedAnimation(
+                    parent: animation,
+                    curve: const Interval(0.40, 1.0, curve: Curves.easeOutCubic),
+                  );
+                  return FadeTransition(
+                    opacity: inCurved,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0, 0.025),
+                        end: Offset.zero,
+                      ).animate(inCurved),
+                      child: child,
+                    ),
+                  );
+                } else {
+                  final outCurved = CurvedAnimation(
+                    parent: animation,
+                    curve: const Interval(0.60, 1.0, curve: Curves.easeInCubic),
+                  );
+                  return FadeTransition(
+                    opacity: outCurved,
+                    child: child,
+                  );
+                }
+              },
+              child: Align(
+                key: ValueKey(switcherKey),
+                alignment: Alignment.centerLeft,
+                child: AnimatedBuilder(
+                  animation: _smoothPositionNotifier,
+                  builder: (context, child) {
+                    final pos = _smoothPositionNotifier.value;
+                    double lineAlpha = 1.0;
+
+                    if (widgetIsInstrumental) {
+                      // Instrumental gap or intro:
+                      final int? nextSungIdx;
+                      if (widgetIsIntro) {
+                        nextSungIdx = firstSungIdx >= 0 ? firstSungIdx : null;
+                      } else {
+                        nextSungIdx = (widgetLineIndex + 1 < lines.length)
+                            ? widgetLineIndex + 1
+                            : null;
+                      }
+
+                      if (nextSungIdx != null && nextSungIdx < lines.length) {
+                        final nextStart = lines[nextSungIdx].timeInMs;
+                        if (pos >= nextStart) {
+                          lineAlpha = 0.0;
+                        } else {
+                          final remaining = nextStart - pos;
+                          if (remaining < 350) {
+                            lineAlpha = (remaining / 350.0).clamp(0.0, 1.0);
+                          }
+                        }
+                      }
+                    } else if (widgetLine != null) {
+                      // Vocal lyric line:
+                      final int nextStart = (widgetLineIndex + 1 < lines.length)
+                          ? lines[widgetLineIndex + 1].timeInMs
+                          : (widgetLine.timeInMs + 1000000);
+
+                      if (pos >= nextStart) {
+                        // CRITICAL: Once playback has reached or passed the next line,
+                        // this retiring line must stay at 0.0 opacity so it never flashes back!
+                        lineAlpha = 0.0;
+                      } else if (widgetLine.hasKnownEnd) {
+                        final vocalEnd = widgetLine.endMs;
+                        if (pos > vocalEnd) {
+                          final elapsed = pos - vocalEnd;
+                          lineAlpha = (1.0 - (elapsed / 350.0)).clamp(0.0, 1.0);
+                        }
+                        final remaining = nextStart - pos;
+                        if (remaining < 350) {
+                          final nextFade =
+                              (remaining / 350.0).clamp(0.0, 1.0);
+                          if (nextFade < lineAlpha) {
+                            lineAlpha = nextFade;
+                          }
+                        }
+                      } else if (widgetLineIndex + 1 < lines.length) {
+                        final remaining = nextStart - pos;
+                        if (remaining < 350) {
+                          lineAlpha = (remaining / 350.0).clamp(0.0, 1.0);
+                        }
+                      } else {
+                        final lineEnd = widgetLine.timeInMs + 4000;
+                        if (pos > lineEnd) {
+                          final elapsed = pos - lineEnd;
+                          lineAlpha = (1.0 - (elapsed / 400.0)).clamp(0.0, 1.0);
+                        }
+                      }
+                    }
+
+                    return Opacity(
+                      opacity: lineAlpha,
+                      child: child,
+                    );
+                  },
+                  child: content,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// Full-screen now playing screen with OuterTune-style dynamic theming
 /// NO TRANSLUCENCY - Solid, well-filtered colors only
@@ -161,7 +760,6 @@ class NowPlayingScreen extends ConsumerStatefulWidget {
 
 class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     with TickerProviderStateMixin {
-  static const double _syncedLyricPreviewHeight = 72;
   late AnimationController _colorAnimController;
   late TabController _tabController;
   late PageController _pageController;
@@ -171,6 +769,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   AlbumColors _currentColors = AlbumColors.defaultColors();
   AlbumColors _targetColors = AlbumColors.defaultColors();
   String? _lastLyricsTrackId;
+  int? _lastLyricsDurationSeconds;
+  String? _lastLyricsArtist;
   String? _lastRelatedTrackId; // Cache key for related tracks
   Future<WatchRelatedContent>? _relatedContentFuture;
   // ignore: unused_field - reserved for future panel toggle features
@@ -450,9 +1050,31 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
 
     // Track change for lyrics fetch
     final trackId = currentTrack?.id;
+    final currentDurationSec = currentTrack?.duration.inSeconds ?? 0;
+    final currentArtist = currentTrack?.artist ?? '';
     final isNewTrack = trackId != _lastLyricsTrackId && currentTrack != null;
-    if (isNewTrack) {
+
+    final lyricsState = ref.watch(lyricsProvider);
+    final hasSyncedLyrics =
+        lyricsState.currentLyrics?.lines?.any((l) => l.timeInMs > 0) ?? false;
+
+    // Trigger re-fetch if duration or artist were missing/placeholder and are now enriched with no synced lyrics yet
+    final isEnriched = !isNewTrack &&
+        currentTrack != null &&
+        !hasSyncedLyrics &&
+        (((_lastLyricsDurationSeconds ?? 0) == 0 && currentDurationSec > 0) ||
+            ((_lastLyricsArtist == null ||
+                    _lastLyricsArtist == 'Song' ||
+                    _lastLyricsArtist == 'Unknown Artist' ||
+                    _lastLyricsArtist!.isEmpty) &&
+                currentArtist.isNotEmpty &&
+                currentArtist != 'Song' &&
+                currentArtist != 'Unknown Artist'));
+
+    if (isNewTrack || isEnriched) {
       _lastLyricsTrackId = trackId;
+      _lastLyricsDurationSeconds = currentDurationSec;
+      _lastLyricsArtist = currentArtist;
 
       // Fetch lyrics for new track
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -466,6 +1088,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                   artist: currentTrack.artist,
                   album: currentTrack.album,
                   durationSeconds: currentTrack.duration.inSeconds,
+                  localFilePath: currentTrack.localFilePath,
                 ),
               );
         }
@@ -719,7 +1342,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                     child: Column(
                       children: [
                         // Current synced lyric line (shown only when synced lyrics are available)
-                        _buildSyncedLyricPreview(textColor),
+                        _buildSyncedLyricPreview(textColor, accentColor),
 
                         // Track info
                         _buildTrackInfo(
@@ -3195,33 +3818,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     );
   }
 
-  Widget _buildSyncedLyricPreview(Color textColor) {
-    final lyricsState = ref.watch(lyricsProvider);
-    final result = lyricsState.currentLyrics;
-
-    final hasSynced = result != null && result.hasSyncedLyrics;
-    final position =
-        ref.watch(positionStreamProvider).valueOrNull ?? Duration.zero;
-    final positionMs = position.inMilliseconds;
-    final lines = hasSynced ? result.lines! : const <LyricLine>[];
-
-    int currentIdx = -1;
-    if (hasSynced) {
-      for (int i = 0; i < lines.length; i++) {
-        if (lines[i].timeInMs <= positionMs) {
-          currentIdx = i;
-        } else {
-          break;
-        }
-      }
-    }
-
-    final bool showPreview = hasSynced;
-    final text = (currentIdx >= 0 && currentIdx < lines.length)
-        ? lines[currentIdx].text.trim()
-        : '';
-
-    return GestureDetector(
+  Widget _buildSyncedLyricPreview(Color textColor, Color accentColor) {
+    return SyncedLyricPreview(
+      textColor: textColor,
+      accentColor: accentColor,
       onTap: () {
         _tabController.animateTo(1);
         if (_pageController.hasClients) {
@@ -3229,57 +3829,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
         }
         _drawerKey.currentState?.expand();
       },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeOutCubic,
-        height: showPreview ? _syncedLyricPreviewHeight : 0.0,
-      child: ClipRect(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 6, 24, 6),
-          child: text.isEmpty
-              ? const SizedBox.shrink()
-              : AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 380),
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeOutCubic,
-                  transitionBuilder: (child, animation) {
-                    final curved = CurvedAnimation(
-                      parent: animation,
-                      curve: Curves.easeOutCubic,
-                    );
-                    return SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, 0.06),
-                        end: Offset.zero,
-                      ).animate(curved),
-                      child: child,
-                    );
-                  },
-                  layoutBuilder: (currentChild, previousChildren) {
-                    return currentChild ?? const SizedBox.shrink();
-                  },
-                  child: Align(
-                    key: ValueKey('lyric_$currentIdx'),
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      text,
-                      maxLines: 3,
-                      overflow: TextOverflow.clip,
-                      softWrap: true,
-                      textAlign: TextAlign.left,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: textColor.withValues(alpha: 0.90),
-                      ),
-                    ),
-                  ),
-                ),
-        ),
-      ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildTrackInfo(
     Track track,

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'lyrics_models.dart';
+import 'instrumental_gaps.dart';
 
 /// Local LRC file provider
 /// Reads .lrc files from the same directory as the audio file
@@ -97,7 +98,7 @@ class LocalLyricsProvider implements LyricsProvider {
     return LyricResult(
       title: info.title,
       artists: [info.artist],
-      lines: lyricLines.isNotEmpty ? lyricLines : null,
+      lines: lyricLines.isNotEmpty ? lyricLines.withInstrumentalGaps() : null,
       lyrics: plainText,
       source: 'Local .lrc file',
     );

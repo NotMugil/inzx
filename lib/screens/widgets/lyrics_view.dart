@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +8,8 @@ import '../../providers/music_providers.dart';
 import '../../providers/providers.dart';
 import '../../services/lyrics/lyrics_service.dart';
 import '../../services/lyrics/lyrics_models.dart';
+import '../../services/lyrics/instrumental_gaps.dart';
+import 'karaoke_word.dart';
 
 /// Preview duration before auto-scroll resumes after manual scrolling (matching Metrolist)
 const _lyricsPreviewTimeMs = 8000;
@@ -212,6 +213,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
     final textColor = colors.onBackground;
     final secondaryColor = textColor.withValues(alpha: 0.5);
     final accentColor = isDark ? albumColors.accentLight : albumColors.accent;
+    final showNerdStats = ref.watch(showNerdStatsProvider);
 
     // Reset scroll and line index when switching tracks or lyrics
     ref.listen(currentTrackProvider, (previous, next) {
@@ -251,6 +253,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
       textColor,
       secondaryColor,
       accentColor,
+      showNerdStats,
     );
   }
 
@@ -261,21 +264,65 @@ class _LyricsViewState extends ConsumerState<LyricsView>
     Color textColor,
     Color secondaryColor,
     Color accentColor,
+    bool showNerdStats,
   ) {
     final l10n = context.l10n;
     final status = lyricsState.currentStatus;
 
     // Loading state
     if (status.state == LyricsProviderState.fetching) {
+      final currentTrack = ref.watch(currentTrackProvider);
+      final seed = currentTrack?.id.hashCode ?? 0;
+      final phrase = LyricsLoadingTexts.getText(seed);
+
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CircularProgressIndicator(color: textColor),
-            const SizedBox(height: 16),
+            SizedBox(
+              width: 36,
+              height: 36,
+              child: CircularProgressIndicator(
+                color: accentColor,
+                strokeWidth: 2.8,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.music_note_rounded,
+                  size: 22,
+                  color: accentColor,
+                  shadows: [
+                    Shadow(
+                      color: accentColor.withValues(alpha: 0.4),
+                      blurRadius: 10,
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  phrase,
+                  style: TextStyle(
+                    color: textColor.withValues(alpha: 0.90),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
             Text(
-              l10n.searchingForLyrics,
-              style: TextStyle(color: secondaryColor),
+              lyricsState.currentProvider.displayName,
+              style: TextStyle(
+                color: secondaryColor,
+                fontSize: 13,
+                fontWeight: FontWeight.w400,
+              ),
             ),
           ],
         ),
@@ -294,6 +341,17 @@ class _LyricsViewState extends ConsumerState<LyricsView>
               l10n.failedToLoadLyrics,
               style: TextStyle(color: secondaryColor),
             ),
+            if (showNerdStats) ...[
+              const SizedBox(height: 10),
+              _buildNerdProviderChip(
+                context,
+                lyricsState,
+                isDark,
+                textColor,
+                secondaryColor,
+                accentColor,
+              ),
+            ],
             const SizedBox(height: 8),
             TextButton(
               onPressed: () => ref.read(lyricsProvider.notifier).nextProvider(),
@@ -313,6 +371,17 @@ class _LyricsViewState extends ConsumerState<LyricsView>
             Icon(Iconsax.music, size: 48, color: secondaryColor),
             const SizedBox(height: 16),
             Text(l10n.noLyricsFound, style: TextStyle(color: secondaryColor)),
+            if (showNerdStats) ...[
+              const SizedBox(height: 10),
+              _buildNerdProviderChip(
+                context,
+                lyricsState,
+                isDark,
+                textColor,
+                secondaryColor,
+                accentColor,
+              ),
+            ],
             const SizedBox(height: 8),
             TextButton(
               onPressed: () => ref.read(lyricsProvider.notifier).nextProvider(),
@@ -325,19 +394,54 @@ class _LyricsViewState extends ConsumerState<LyricsView>
 
     final result = status.data!;
 
+    final Widget lyricsBody;
     // Synced lyrics
     if (result.hasSyncedLyrics) {
-      return _buildSyncedLyrics(
+      lyricsBody = _buildSyncedLyrics(
         result.lines!,
         isDark,
         textColor,
         secondaryColor,
         accentColor,
+        showNerdStats: showNerdStats,
+        result: result,
+      );
+    } else {
+      // Plain lyrics
+      lyricsBody = _buildPlainLyrics(
+        result.lyrics!,
+        isDark,
+        textColor,
+        showNerdStats: showNerdStats,
+        result: result,
       );
     }
 
-    // Plain lyrics
-    return _buildPlainLyrics(result.lyrics!, isDark, textColor);
+    if (!showNerdStats) {
+      return lyricsBody;
+    }
+
+    return Stack(
+      children: [
+        lyricsBody,
+        Positioned(
+          top: 10,
+          left: 16,
+          right: 16,
+          child: Center(
+            child: _buildNerdStatsBadge(
+              context,
+              result,
+              lyricsState,
+              isDark,
+              textColor,
+              secondaryColor,
+              accentColor,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildSyncedLyrics(
@@ -345,8 +449,10 @@ class _LyricsViewState extends ConsumerState<LyricsView>
     bool isDark,
     Color textColor,
     Color secondaryColor,
-    Color accentColor,
-  ) {
+    Color accentColor, {
+    bool showNerdStats = false,
+    LyricResult? result,
+  }) {
     if (_lineKeys.length != lines.length) {
       _lineKeys = List.generate(lines.length, (_) => GlobalKey());
       _currentLineIndex = -1;
@@ -391,11 +497,49 @@ class _LyricsViewState extends ConsumerState<LyricsView>
               cacheExtent: 1500.0,
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 96),
-              itemCount: lines.length,
+              itemCount: lines.length + (showNerdStats ? 1 : 0),
               itemBuilder: (context, index) {
+                if (showNerdStats && index == lines.length) {
+                  final providerName = result?.source.isNotEmpty == true
+                      ? result!.source
+                      : 'Unknown';
+                  final syncType = result?.hasWordSync == true
+                      ? 'Word-synced'
+                      : (result?.hasSyncedLyrics == true
+                          ? 'Line-synced'
+                          : 'Plain text');
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 32, bottom: 48),
+                    child: Center(
+                      child: Text(
+                        'Lyrics provided by $providerName ($syncType)',
+                        style: TextStyle(
+                          color: secondaryColor.withValues(alpha: 0.6),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+
                 final line = lines[index];
                 final isCurrentLine = index == currentIdx;
                 final dist = currentIdx >= 0 ? (index - currentIdx).abs() : 999;
+
+                if (line.isGap) {
+                  return RepaintBoundary(
+                    child: _buildInstrumentalGapItem(
+                      line: line,
+                      index: index,
+                      isCurrentLine: isCurrentLine,
+                      dist: dist,
+                      textColor: textColor,
+                      accentColor: accentColor,
+                    ),
+                  );
+                }
 
                 if (line.hasWordSync) {
                   return RepaintBoundary(
@@ -488,6 +632,99 @@ class _LyricsViewState extends ConsumerState<LyricsView>
           ),
         ),
       ],
+    );
+  }
+
+  /// Instrumental gap line (musical pause) with animated glowing note icon, playful gap text, and seek-on-tap
+  Widget _buildInstrumentalGapItem({
+    required LyricLine line,
+    required int index,
+    required bool isCurrentLine,
+    required int dist,
+    required Color textColor,
+    required Color accentColor,
+  }) {
+    final displayText = (line.text.trim().isNotEmpty &&
+            !LyricLine.isMusicalSymbol(line.text.trim()))
+        ? line.text.trim()
+        : (index == 0
+            ? InstrumentalGapTexts.getIntroText(line.timeInMs)
+            : InstrumentalGapTexts.getBreakText(line.timeInMs));
+
+    final double iconSize = isCurrentLine ? 24.0 : 18.0;
+    double opacity;
+    if (isCurrentLine) {
+      opacity = 1.0;
+    } else if (dist == 1) {
+      opacity = 0.50;
+    } else if (dist == 2) {
+      opacity = 0.28;
+    } else {
+      opacity = 0.12;
+    }
+
+    final noteColor = isCurrentLine
+        ? accentColor
+        : textColor.withValues(alpha: opacity);
+
+    return GestureDetector(
+      onTap: () => _seekToLyric(line.timeInMs),
+      child: AnimatedContainer(
+        key: _lineKeys[index],
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.centerLeft,
+        padding: EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: isCurrentLine ? 14 : 8,
+        ),
+        child: AnimatedScale(
+          scale: isCurrentLine ? 1.08 : 1.0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutBack,
+          alignment: Alignment.centerLeft,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.music_note_rounded,
+                size: iconSize,
+                color: noteColor,
+                shadows: isCurrentLine
+                    ? [
+                        Shadow(
+                          color: accentColor.withValues(alpha: 0.45),
+                          blurRadius: 16,
+                        ),
+                      ]
+                    : null,
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  displayText,
+                  style: TextStyle(
+                    fontStyle: FontStyle.italic,
+                    fontSize: isCurrentLine ? 20.0 : 16.0,
+                    fontWeight: isCurrentLine ? FontWeight.w600 : FontWeight.w400,
+                    color: noteColor,
+                    letterSpacing: 0.3,
+                    shadows: isCurrentLine
+                        ? [
+                            Shadow(
+                              color: accentColor.withValues(alpha: 0.35),
+                              blurRadius: 12,
+                            ),
+                          ]
+                        : null,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -608,7 +845,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
             final word = entry.value;
             final isLastWord = wordIdx == line.words!.length - 1;
 
-            return _KaraokeWord(
+            return KaraokeWord(
               word: word,
               isLastWord: isLastWord,
               isCurrentLine: isCurrentLine,
@@ -625,7 +862,13 @@ class _LyricsViewState extends ConsumerState<LyricsView>
     );
   }
 
-  Widget _buildPlainLyrics(String lyrics, bool isDark, Color textColor) {
+  Widget _buildPlainLyrics(
+    String lyrics,
+    bool isDark,
+    Color textColor, {
+    bool showNerdStats = false,
+    LyricResult? result,
+  }) {
     final lines = lyrics
         .split('\n')
         .map((l) => l.trimRight())
@@ -647,8 +890,28 @@ class _LyricsViewState extends ConsumerState<LyricsView>
       child: ListView.builder(
         controller: _scrollController,
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 80),
-        itemCount: lines.length,
+        itemCount: lines.length + (showNerdStats ? 1 : 0),
         itemBuilder: (context, index) {
+          if (showNerdStats && index == lines.length) {
+            final providerName = result?.source.isNotEmpty == true
+                ? result!.source
+                : 'Unknown';
+            return Padding(
+              padding: const EdgeInsets.only(top: 32, bottom: 48),
+              child: Center(
+                child: Text(
+                  'Lyrics provided by $providerName',
+                  style: TextStyle(
+                    color: textColor.withValues(alpha: 0.35),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+            );
+          }
+
           final line = lines[index];
 
           if (line.isEmpty) {
@@ -680,153 +943,413 @@ class _LyricsViewState extends ConsumerState<LyricsView>
       ),
     );
   }
-}
 
-/// Isolated karaoke word widget that repaints smoothly on frame ticks without rebuilding the parent list
-class _KaraokeWord extends StatelessWidget {
-  final LyricWord word;
-  final bool isLastWord;
-  final bool isCurrentLine;
-  final ValueNotifier<int> positionNotifier;
-  final double fontSize;
-  final bool isBg;
-  final Color textColor;
-  final Color accentColor;
-  final Color dimColor;
+  /// Floating badge showing active provider when "Stats for nerds" is enabled
+  Widget _buildNerdStatsBadge(
+    BuildContext context,
+    LyricResult result,
+    LyricsState lyricsState,
+    bool isDark,
+    Color textColor,
+    Color secondaryColor,
+    Color accentColor,
+  ) {
+    final providerName = result.source.isNotEmpty
+        ? result.source
+        : lyricsState.currentProvider.displayName;
 
-  const _KaraokeWord({
-    required this.word,
-    required this.isLastWord,
-    required this.isCurrentLine,
-    required this.positionNotifier,
-    required this.fontSize,
-    required this.isBg,
-    required this.textColor,
-    required this.accentColor,
-    required this.dimColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final wordText = isLastWord ? word.text : '${word.text} ';
-    final duration = (word.endTimeMs - word.startTimeMs).toDouble();
-
-    // Inactive line: render simple static text with zero overhead
-    if (!isCurrentLine) {
-      return Text(
-        wordText,
-        style: TextStyle(
-          fontSize: fontSize,
-          fontWeight: FontWeight.w400,
-          fontStyle: isBg ? FontStyle.italic : FontStyle.normal,
-          color: dimColor,
-          height: 1.3,
-        ),
-      );
-    }
-
-    // Active line: listen to positionNotifier and repaint only this word boundary
-    return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: positionNotifier,
-        builder: (context, _) {
-          final pos = positionNotifier.value;
-          final isWordActive =
-              pos >= word.startTimeMs && pos < word.endTimeMs;
-          final isWordSung = pos >= word.endTimeMs;
-
-          if (isWordActive && duration > 0) {
-            final raw = ((pos - word.startTimeMs) / duration).clamp(0.0, 1.0);
-            // Smooth Hermite cubic interpolation
-            final fillProgress = raw * raw * (3.0 - 2.0 * raw);
-            final glowIntensity = fillProgress * fillProgress;
-            final scalePop =
-                1.0 + (0.04 * math.sin(fillProgress * math.pi));
-
-            return Transform.scale(
-              scale: scalePop,
-              alignment: Alignment.centerLeft,
-              child: ShaderMask(
-                blendMode: BlendMode.srcIn,
-                shaderCallback: (bounds) {
-                  return LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [
-                      accentColor,
-                      accentColor,
-                      accentColor.withValues(alpha: 0.90),
-                      textColor.withValues(alpha: 0.85),
-                      textColor.withValues(alpha: 0.85),
-                    ],
-                    stops: [
-                      0.0,
-                      (fillProgress * 0.92).clamp(0.0, 1.0),
-                      fillProgress,
-                      (fillProgress + 0.08).clamp(0.0, 1.0),
-                      1.0,
-                    ],
-                  ).createShader(bounds);
-                },
-                child: Text(
-                  wordText,
-                  style: TextStyle(
-                    fontSize: fontSize,
-                    fontWeight: FontWeight.w800,
-                    fontStyle: isBg ? FontStyle.italic : FontStyle.normal,
-                    height: 1.3,
-                    letterSpacing: -0.3,
-                    shadows: [
-                      Shadow(
-                        color: accentColor.withValues(
-                          alpha: 0.30 + (0.35 * glowIntensity),
-                        ),
-                        blurRadius: 10 + (14 * glowIntensity),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }
-
-          if (isWordSung) {
-            return Text(
-              wordText,
-              style: TextStyle(
-                fontSize: fontSize,
-                fontWeight: FontWeight.w700,
-                fontStyle: isBg ? FontStyle.italic : FontStyle.normal,
-                color: accentColor,
-                height: 1.3,
-                letterSpacing: -0.3,
-                shadows: [
-                  Shadow(
-                    color: accentColor.withValues(alpha: 0.25),
-                    blurRadius: 8,
-                  ),
-                ],
-              ),
-            );
-          }
-
-          // Upcoming words in active line: rendered in bright white for high visibility
-          return Text(
-            wordText,
-            style: TextStyle(
-              fontSize: fontSize,
-              fontWeight: FontWeight.w600,
-              fontStyle: isBg ? FontStyle.italic : FontStyle.normal,
-              color: textColor.withValues(alpha: 0.90),
-              height: 1.3,
-              letterSpacing: -0.2,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _showProviderSelectionSheet(context, lyricsState),
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color:
+                (isDark ? Colors.black : Colors.white).withValues(alpha: 0.65),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: accentColor.withValues(alpha: 0.35),
+              width: 1,
             ),
-          );
-        },
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.15),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Text(
+            providerName,
+            style: TextStyle(
+              color: textColor.withValues(alpha: 0.9),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ),
       ),
     );
   }
+
+  /// Compact chip for error and empty states showing provider and allowing switch
+  Widget _buildNerdProviderChip(
+    BuildContext context,
+    LyricsState lyricsState,
+    bool isDark,
+    Color textColor,
+    Color secondaryColor,
+    Color accentColor,
+  ) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _showProviderSelectionSheet(context, lyricsState),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color:
+                (isDark ? Colors.white : Colors.black).withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: secondaryColor.withValues(alpha: 0.2),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.tune_rounded, size: 12, color: secondaryColor),
+              const SizedBox(width: 4),
+              Text(
+                lyricsState.currentProvider.displayName,
+                style: TextStyle(
+                  color: secondaryColor,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Bottom sheet showing all lyrics providers with their sync status and allowing on-the-fly switching
+  void _showProviderSelectionSheet(
+    BuildContext context,
+    LyricsState lyricsState,
+  ) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final albumColors = ref.read(albumColorsProvider);
+    final accentColor = isDark ? albumColors.accentLight : albumColors.accent;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return Consumer(
+          builder: (context, sheetRef, _) {
+            final currentLyricsState = sheetRef.watch(lyricsProvider);
+            final sheetBgColor =
+                isDark ? const Color(0xFF1E1E1E) : Colors.white;
+            final textColor =
+                isDark ? Colors.white : const Color(0xFF1A1A1A);
+            final secondaryColor =
+                isDark ? Colors.white60 : Colors.black54;
+
+            return SafeArea(
+              child: Material(
+                color: sheetBgColor,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(24),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Container(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.75,
+                  ),
+                  child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Handle
+                    Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.white24 : Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+
+                    // Header
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 4, 16, 12),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.analytics_outlined,
+                            size: 20,
+                            color: accentColor,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Lyrics Providers',
+                                  style: TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.bold,
+                                    color: textColor,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Stats for nerds • Switch active source',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: secondaryColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: Icon(
+                              Icons.close,
+                              color: secondaryColor,
+                              size: 20,
+                            ),
+                            onPressed: () => Navigator.pop(sheetContext),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const Divider(height: 1),
+
+                    // Provider List
+                    Flexible(
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        itemCount: providerNames.length,
+                        separatorBuilder: (_, _) => Divider(
+                          height: 1,
+                          indent: 56,
+                          endIndent: 16,
+                          color: isDark
+                              ? Colors.white.withValues(alpha: 0.06)
+                              : Colors.black.withValues(alpha: 0.05),
+                        ),
+                        itemBuilder: (context, index) {
+                          final provider = providerNames[index];
+                          final isCurrent =
+                              currentLyricsState.currentProvider == provider;
+                          final status = currentLyricsState.providers[provider];
+                          final data = status?.data;
+
+                          // Compute status info
+                          Widget leadingIcon;
+                          String subtitleText;
+                          Color subtitleColor;
+                          Widget? trailingBadge;
+
+                          if (status == null ||
+                              status.state == LyricsProviderState.idle) {
+                            leadingIcon = Icon(
+                              Icons.cloud_outlined,
+                              size: 20,
+                              color: secondaryColor.withValues(alpha: 0.5),
+                            );
+                            subtitleText = 'Tap to fetch';
+                            subtitleColor =
+                                secondaryColor.withValues(alpha: 0.6);
+                          } else if (status.state ==
+                              LyricsProviderState.fetching) {
+                            leadingIcon = SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: accentColor,
+                              ),
+                            );
+                            subtitleText = 'Fetching lyrics...';
+                            subtitleColor = accentColor;
+                          } else if (status.state ==
+                              LyricsProviderState.error) {
+                            leadingIcon = Icon(
+                              Icons.error_outline_rounded,
+                              size: 20,
+                              color: Colors.redAccent.withValues(alpha: 0.8),
+                            );
+                            subtitleText = status.error != null &&
+                                    status.error!.isNotEmpty
+                                ? 'Error'
+                                : 'Failed to load';
+                            subtitleColor =
+                                Colors.redAccent.withValues(alpha: 0.8);
+                          } else if (data != null && data.hasLyrics) {
+                            if (data.hasWordSync) {
+                              leadingIcon = const Icon(
+                                Icons.bolt_rounded,
+                                size: 22,
+                                color: Color(0xFF10B981),
+                              );
+                              subtitleText =
+                                  'Word-synced • ${data.lines!.length} lines';
+                              subtitleColor = const Color(0xFF10B981);
+                              trailingBadge = Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF10B981)
+                                      .withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text(
+                                  'WORD-SYNC',
+                                  style: TextStyle(
+                                    color: Color(0xFF10B981),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              );
+                            } else if (data.hasSyncedLyrics) {
+                              leadingIcon = Icon(
+                                Icons.sync_rounded,
+                                size: 20,
+                                color: accentColor,
+                              );
+                              subtitleText =
+                                  'Line-synced • ${data.lines!.length} lines';
+                              subtitleColor = secondaryColor;
+                              trailingBadge = Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: accentColor.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  'SYNCED',
+                                  style: TextStyle(
+                                    color: accentColor,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              );
+                            } else {
+                              leadingIcon = Icon(
+                                Icons.notes_rounded,
+                                size: 20,
+                                color: secondaryColor,
+                              );
+                              final lineCount =
+                                  data.lyrics?.split('\n').length ?? 0;
+                              subtitleText = 'Plain text • $lineCount lines';
+                              subtitleColor = secondaryColor;
+                            }
+                          } else {
+                            leadingIcon = Icon(
+                              Icons.remove_circle_outline,
+                              size: 20,
+                              color: secondaryColor.withValues(alpha: 0.4),
+                            );
+                            subtitleText = 'No lyrics found';
+                            subtitleColor =
+                                secondaryColor.withValues(alpha: 0.5);
+                          }
+
+                          return ListTile(
+                            leading: Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: isCurrent
+                                    ? accentColor.withValues(alpha: 0.15)
+                                    : (isDark
+                                        ? Colors.white10
+                                        : Colors.black.withValues(alpha: 0.04)),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Center(child: leadingIcon),
+                            ),
+                            title: Text(
+                              provider.displayName,
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: isCurrent
+                                    ? FontWeight.bold
+                                    : FontWeight.w500,
+                                color: isCurrent ? accentColor : textColor,
+                              ),
+                            ),
+                            subtitle: Text(
+                              subtitleText,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: subtitleColor,
+                              ),
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (trailingBadge != null && !isCurrent)
+                                  trailingBadge,
+                                if (isCurrent) ...[
+                                  if (trailingBadge != null) ...[
+                                    trailingBadge,
+                                    const SizedBox(width: 8),
+                                  ],
+                                  Icon(
+                                    Icons.check_circle_rounded,
+                                    size: 20,
+                                    color: accentColor,
+                                  ),
+                                ],
+                              ],
+                            ),
+                            onTap: () {
+                              ref
+                                  .read(lyricsProvider.notifier)
+                                  .selectProvider(provider);
+                              Navigator.pop(sheetContext);
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+          },
+        );
+      },
+    );
+  }
 }
+
 
 /// Compact lyrics display for mini player or controls area
 class LyricsLine extends ConsumerWidget {

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:http/http.dart' as http;
 import '../ytmusic_api_service.dart';
 import 'lyrics_models.dart';
+import 'instrumental_gaps.dart';
 
 /// YouTube Music official lyrics & YouTube captions provider
 class YouTubeLyricsProvider implements LyricsProvider {
@@ -107,7 +108,7 @@ class YouTubeLyricsProvider implements LyricsProvider {
       return LyricResult(
         title: info.title,
         artists: [info.artist],
-        lines: lines,
+        lines: lines.withInstrumentalGaps(),
         source: 'YouTube Subtitle',
       );
     } catch (_) {

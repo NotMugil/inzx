@@ -4,6 +4,8 @@ import 'package:http/http.dart' as http;
 import 'lyrics_cleaner.dart';
 import 'lyrics_models.dart';
 import 'ttml_parser.dart';
+import 'background_vocals.dart';
+import 'instrumental_gaps.dart';
 
 /// BetterLyrics provider - High quality synced lyrics with word-level timing
 /// API: https://lyrics-api.boidu.dev
@@ -85,20 +87,22 @@ class BetterLyricsProvider implements LyricsProvider {
         return null;
       }
 
+      final processed = lines.withBackgroundVocals().withInstrumentalGaps();
+
       if (kDebugMode) {
-        final wordCount = lines.fold<int>(
+        final wordCount = processed.fold<int>(
           0,
           (sum, line) => sum + (line.words?.length ?? 0),
         );
         print(
-          'BetterLyrics: Parsed ${lines.length} lines, $wordCount words for "${info.title}"',
+          'BetterLyrics: Parsed ${processed.length} lines, $wordCount words for "${info.title}"',
         );
       }
 
       return LyricResult(
         title: info.title,
         artists: [info.artist],
-        lines: lines,
+        lines: processed,
         source: name,
       );
     } catch (e) {

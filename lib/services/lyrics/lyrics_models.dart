@@ -30,22 +30,111 @@ class LyricWord {
 class LyricLine {
   final int timeInMs;
   final int? durationMs;
+  final int? sungUntilMs;
   final String text;
   final List<LyricWord>? words; // Word-level timing for karaoke sync
   final bool isBackground; // Background vocal line
   final List<LyricLine> backgroundLines; // Background vocals for this line
+  final bool? _isGap;
 
   const LyricLine({
     required this.timeInMs,
     this.durationMs,
+    this.sungUntilMs,
     required this.text,
     this.words,
     this.isBackground = false,
     this.backgroundLines = const [],
-  });
+    bool? isGap,
+  }) : _isGap = isGap;
 
-  /// Whether this line has word-level sync data (from BetterLyrics)
+  static final RegExp _instrumentalPattern = RegExp(
+    r'^[\s♪♫♩♬\-–—~•*./\\]+$'
+    r'|^\s*[\(\[\{<].*?(?:instrumental|music|solo|interlude|break|drop|intro|outro).*?[\)\]\}>]\s*$'
+    r'|^\s*(?:instrumental(?:\s+break|\s+solo|\s+interlude)?|solo(?:\s+section)?|(?:guitar|piano|drum|sax|saxophone|violin|trumpet|bass)\s+solo|interlude|music(?:\s+break)?|beat\s+drop|breakdown|intro|outro)\s*$',
+    caseSensitive: false,
+  );
+
+  static const Set<String> _knownGapPhrases = {
+    'let it breathe',
+    'the beat is landing',
+    'the song is starting',
+    'warming up',
+    'setting the mood',
+    'bass first, words later',
+    'wait for it',
+    'feel that build',
+    'just the groove for now',
+    'the hook is on the way',
+    'cue the vocals',
+    'first notes in',
+    'breathing room',
+    'enjoy the groove',
+    'instrumental break',
+    'solo section',
+    'bass & rhythm',
+    'feel the beat',
+    'just the music',
+  };
+
+  /// Whether given text represents an instrumental marker, symbol, or playful gap phrase
+  static bool isInstrumentalText(String t) {
+    final trimmed = t.trim().toLowerCase();
+    if (trimmed.isEmpty) return true;
+    if (_knownGapPhrases.contains(trimmed)) return true;
+    return _instrumentalPattern.hasMatch(trimmed);
+  }
+
+  /// Whether given text is a placeholder musical symbol or bracketed instrumental marker
+  /// (which should be replaced by witty gap copy if displayed)
+  static bool isMusicalSymbol(String t) {
+    final trimmed = t.trim();
+    if (trimmed.isEmpty) return true;
+    if (_knownGapPhrases.contains(trimmed.toLowerCase())) return false;
+    return _instrumentalPattern.hasMatch(trimmed);
+  }
+
+  /// Whether this line is an instrumental gap
+  bool get isGap =>
+      _isGap ?? (text.trim().isEmpty || isInstrumentalText(text));
+
+  /// Whether this line has word-level sync data
   bool get hasWordSync => words != null && words!.isNotEmpty;
+
+  /// Known end time of the vocal/line in milliseconds
+  int get endMs =>
+      sungUntilMs ??
+      (words != null && words!.isNotEmpty
+          ? words!.last.endTimeMs
+          : (durationMs != null && durationMs! > 0
+              ? timeInMs + durationMs!
+              : timeInMs));
+
+  /// Whether the line has a known end time
+  bool get hasKnownEnd =>
+      sungUntilMs != null ||
+      (words != null && words!.isNotEmpty) ||
+      (durationMs != null && durationMs! > 0);
+
+  LyricLine copyWith({
+    int? timeInMs,
+    int? durationMs,
+    int? sungUntilMs,
+    String? text,
+    List<LyricWord>? words,
+    bool? isBackground,
+    List<LyricLine>? backgroundLines,
+    bool? isGap,
+  }) => LyricLine(
+    timeInMs: timeInMs ?? this.timeInMs,
+    durationMs: durationMs ?? this.durationMs,
+    sungUntilMs: sungUntilMs ?? this.sungUntilMs,
+    text: text ?? this.text,
+    words: words ?? this.words,
+    isBackground: isBackground ?? this.isBackground,
+    backgroundLines: backgroundLines ?? this.backgroundLines,
+    isGap: isGap ?? _isGap,
+  );
 
   /// Format time as mm:ss.ms
   String get formattedTime {
@@ -74,16 +163,19 @@ class LyricLine {
   Map<String, dynamic> toJson() => {
     'timeInMs': timeInMs,
     'durationMs': durationMs,
+    if (sungUntilMs != null) 'sungUntilMs': sungUntilMs,
     'text': text,
     if (words != null) 'words': words!.map((w) => w.toJson()).toList(),
     'isBackground': isBackground,
     if (backgroundLines.isNotEmpty)
       'backgroundLines': backgroundLines.map((l) => l.toJson()).toList(),
+    if (_isGap != null) 'isGap': _isGap,
   };
 
   factory LyricLine.fromJson(Map<String, dynamic> json) => LyricLine(
     timeInMs: json['timeInMs'] as int,
     durationMs: json['durationMs'] as int?,
+    sungUntilMs: json['sungUntilMs'] as int?,
     text: json['text'] as String,
     words: (json['words'] as List?)
         ?.map((w) => LyricWord.fromJson(w as Map<String, dynamic>))
@@ -92,6 +184,7 @@ class LyricLine {
     backgroundLines: (json['backgroundLines'] as List?)
         ?.map((l) => LyricLine.fromJson(l as Map<String, dynamic>))
         .toList() ?? const [],
+    isGap: json['isGap'] as bool?,
   );
 }
 
@@ -126,6 +219,7 @@ class LyricsSearchInfo {
   final String artist;
   final String? album;
   final int durationSeconds;
+  final String? localFilePath;
 
   const LyricsSearchInfo({
     required this.videoId,
@@ -133,6 +227,7 @@ class LyricsSearchInfo {
     required this.artist,
     this.album,
     required this.durationSeconds,
+    this.localFilePath,
   });
 }
 

@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart' show compute, kDebugMode;
 import 'package:http/http.dart' as http;
 import 'lyrics_cleaner.dart';
 import 'lyrics_models.dart';
+import 'background_vocals.dart';
+import 'instrumental_gaps.dart';
 
 /// LRCLib provider - Free synced lyrics database
 /// API docs: https://lrclib.net
@@ -156,7 +158,12 @@ class LRCLibProvider implements LyricsProvider {
     // Parse synced lyrics in background isolate to avoid UI jank
     List<LyricLine>? lines;
     if (syncedLyrics != null && syncedLyrics.isNotEmpty) {
-      lines = await compute(_parseLrcIsolate, syncedLyrics);
+      final rawLines = await compute(_parseLrcIsolate, syncedLyrics);
+      if (rawLines.isNotEmpty) {
+        lines = rawLines.withBackgroundVocals().withInstrumentalGaps();
+      } else {
+        lines = rawLines;
+      }
     }
 
     return LyricResult(

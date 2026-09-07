@@ -8,6 +8,7 @@ import 'package:pointycastle/padded_block_cipher/padded_block_cipher_impl.dart';
 import 'package:pointycastle/paddings/pkcs7.dart';
 
 import '../../models/models.dart';
+import 'track_matcher.dart';
 
 /// Decoded stream information from JioSaavn
 class JioSaavnStream {
@@ -29,16 +30,23 @@ class JioSaavnStream {
 }
 
 /// Raw parsed song item from JioSaavn API
-class JioSaavnSong {
+class JioSaavnSong implements TrackMatcherCandidate {
   final String id;
+  @override
   final String title;
+  @override
   final String artist;
+  @override
   final String? album;
   final int durationSeconds;
   final String encryptedMediaUrl;
   final bool supports320;
+  @override
   final bool isExplicit;
   final String? image;
+
+  @override
+  int? get durationSec => durationSeconds > 0 ? durationSeconds : null;
 
   const JioSaavnSong({
     required this.id,
@@ -242,113 +250,41 @@ class JioSaavnService {
     }
   }
 
+  /// The lowest rendition worth taking over YouTube (160kbps Opus).
+  /// Streams <= 96kbps are a downgrade and are rejected.
+  static const int minUsableKbps = 96;
+
   /// Cleans packaging and suffixes from track title
-  static String cleanTitle(String title) {
-    String cleaned = title;
-    // Strip common YouTube Music labels and version tags in brackets
-    cleaned = cleaned.replaceAll(
-      RegExp(
-        r'[\(\[\{](?:official\s*(?:video|audio|music\s*video)|lyric\s*video|audio|video|visualizer|hd|4k|remastered|from\s*"[^"]*")[\)\]\}]',
-        caseSensitive: false,
-      ),
-      '',
-    );
-    // Strip "feat." or "ft."
-    cleaned = cleaned.replaceAll(
-      RegExp(r'\s+(?:feat|ft)\.?\s+.*$', caseSensitive: false),
-      '',
-    );
-    return cleaned.trim();
-  }
+  static String cleanTitle(String title) => TrackMatcher.searchableTitle(title);
 
   /// Extract primary artist name
-  static String primaryArtist(String artist) {
-    if (artist.isEmpty) return '';
-    final parts = artist.split(RegExp(r'[,&/•]|(?:\s+feat\.?\s+)'));
-    return parts.first.trim().toLowerCase();
-  }
+  static String primaryArtist(String artist) => TrackMatcher.primaryArtist(artist);
 
-  /// Match a target track with candidate songs from JioSaavn
+  /// Match a target track with candidate songs from JioSaavn using TrackMatcher
   JioSaavnSong? matchTrack(Track target, List<JioSaavnSong> candidates) {
     if (candidates.isEmpty) return null;
+    final targetModel = TrackMatcherTarget(
+      title: target.title,
+      artist: target.artist,
+      durationSec: target.duration.inSeconds > 0 ? target.duration.inSeconds : null,
+      album: (target.album != null && target.album!.trim().isNotEmpty) ? target.album : null,
+      isExplicit: target.isExplicit,
+    );
 
-    final targetCleanTitle = cleanTitle(target.title).toLowerCase();
-    final targetPrimaryArtist = primaryArtist(target.artist);
-    final targetDurationSec = target.duration.inSeconds;
+    var matches = TrackMatcher.ranked(candidates, targetModel);
+    if (matches.isEmpty) return null;
 
-    JioSaavnSong? bestMatch;
-    int bestScore = -1;
-
-    for (final candidate in candidates) {
-      final candidateCleanTitle = cleanTitle(candidate.title).toLowerCase();
-      final candidatePrimaryArtist = primaryArtist(candidate.artist);
-
-      // 1. Title matching
-      int score = 0;
-      if (candidateCleanTitle == targetCleanTitle) {
-        score += 50;
-      } else if (candidateCleanTitle.contains(targetCleanTitle) ||
-          targetCleanTitle.contains(candidateCleanTitle)) {
-        score += 30;
-      } else {
-        // Words overlap check
-        final targetWords = targetCleanTitle.split(RegExp(r'\s+')).where((w) => w.length > 2).toSet();
-        final candidateWords = candidateCleanTitle.split(RegExp(r'\s+')).where((w) => w.length > 2).toSet();
-        final common = targetWords.intersection(candidateWords);
-        if (common.isEmpty) continue; // No title words in common
-        score += common.length * 10;
-      }
-
-      // 2. Artist matching
-      if (targetPrimaryArtist.isNotEmpty && candidatePrimaryArtist.isNotEmpty) {
-        if (candidatePrimaryArtist.contains(targetPrimaryArtist) ||
-            targetPrimaryArtist.contains(candidatePrimaryArtist)) {
-          score += 40;
-        } else {
-          // Check if candidate artist mentions any of the target artist words
-          final targetArtistParts = targetPrimaryArtist.split(RegExp(r'\s+'));
-          final matchesArtist = targetArtistParts.any(
-            (part) => part.length > 2 && candidatePrimaryArtist.contains(part),
-          );
-          if (matchesArtist) {
-            score += 20;
-          }
-        }
-      }
-
-      // 3. Duration matching (if known)
-      if (targetDurationSec > 0 && candidate.durationSeconds > 0) {
-        final diff = (targetDurationSec - candidate.durationSeconds).abs();
-        if (diff <= 3) {
-          score += 30;
-        } else if (diff <= 6) {
-          score += 15;
-        } else if (diff > 12) {
-          // Large duration discrepancy usually means different edit / remix / music video
-          score -= 30;
-        }
-      }
-
-      // 4. Quality preference
-      if (candidate.supports320) {
-        score += 10;
-      }
-
-      // 5. Explicit flag matching
-      if (target.isExplicit == candidate.isExplicit) {
-        score += 5;
-      }
-
-      if (score > bestScore && score >= 40) {
-        bestScore = score;
-        bestMatch = candidate;
-      }
+    if (TrackMatcher.hasConflictingAlbums(matches, targetModel)) {
+      final canonical = TrackMatcher.uniquelyMostCreditedCloseMatch(matches, targetModel);
+      if (canonical == null) return null;
+      matches = [canonical];
     }
 
-    return bestMatch;
+    return matches.firstOrNull;
   }
 
-  /// Get the best stream for [track] from JioSaavn, using cache when available
+  /// Get the best stream for [track] from JioSaavn, using cache when available.
+  /// Follows BitChord's strict TrackMatcher query & validation pipeline.
   Future<JioSaavnStream?> getBestStreamForTrack(Track track) async {
     // 1. Check in-memory stream cache
     if (_streamCache.containsKey(track.id)) {
@@ -359,39 +295,109 @@ class JioSaavnService {
     }
 
     try {
-      // 2. Build search query
-      final cleanedTitle = cleanTitle(track.title);
-      final primary = primaryArtist(track.artist);
-      final query = primary.isNotEmpty ? '$cleanedTitle $primary' : cleanedTitle;
+      final target = TrackMatcherTarget(
+        title: track.title,
+        artist: track.artist,
+        durationSec: track.duration.inSeconds > 0 ? track.duration.inSeconds : null,
+        album: (track.album != null && track.album!.trim().isNotEmpty) ? track.album : null,
+        isExplicit: track.isExplicit,
+      );
 
-      final results = await searchSongs(query, limit: 8);
-      if (results.isEmpty) {
-        _noMatchTrackIds.add(track.id);
+      final queries = TrackMatcher.queries(target);
+      if (queries.isEmpty) {
+        if (target.durationSec != null) {
+          _noMatchTrackIds.add(track.id);
+        }
         return null;
       }
 
-      // 3. Find best match
-      final matched = matchTrack(track, results);
-      if (matched == null || matched.encryptedMediaUrl.isEmpty) {
-        _noMatchTrackIds.add(track.id);
-        return null;
+      for (final query in queries) {
+        final candidates = await searchSongs(query, limit: 10);
+        if (candidates.isEmpty) continue;
+
+        var matches = TrackMatcher.ranked(candidates, target);
+        if (matches.isEmpty) continue;
+
+        // JioSaavn can return different audio under the same title and
+        // artist on different releases. With no album on the requested
+        // track there is no honest way to choose between those rows;
+        // duration is not enough when the wrong recording is only a
+        // second away. Treat it as this source missing and retain the
+        // known-correct fallback.
+        if (TrackMatcher.hasConflictingAlbums(matches, target)) {
+          final canonical = TrackMatcher.uniquelyMostCreditedCloseMatch(matches, target);
+          if (canonical == null) {
+            // Check if all close matches share the exact same primary artist, title core,
+            // and tight duration (within durationTightSec = 3s). If so, these are simply
+            // multiple releases (e.g. single vs album) of the identical recording, so
+            // picking the top ranked match is safe.
+            final close = target.durationSec != null
+                ? matches.where((c) => TrackMatcher.withinSeconds(c, target, TrackMatcher.durationTightSec)).toList()
+                : <JioSaavnSong>[];
+            final firstClose = close.firstOrNull;
+            final isSafeSameRecording = close.length >= 2 &&
+                firstClose != null &&
+                close.every((c) =>
+                    TrackMatcher.primaryArtist(c.artist) == TrackMatcher.primaryArtist(firstClose.artist) &&
+                    TrackMatcher.parseTitle(c.title).core == TrackMatcher.parseTitle(firstClose.title).core);
+
+            if (isSafeSameRecording) {
+              if (kDebugMode) {
+                print(
+                  'JioSaavnService: multiple releases share identical recording & artist for "${target.title}"; using top match: "${firstClose.album}"',
+                );
+              }
+              matches = [firstClose];
+            } else {
+              if (kDebugMode) {
+                print('JioSaavnService: conflicting albums for "${target.title}"; refusing to guess');
+              }
+              continue;
+            }
+          } else {
+            if (kDebugMode) {
+              print(
+                'JioSaavnService: resolved conflicting albums for "${target.title}" using fullest credit: "${canonical.artist}"',
+              );
+            }
+            matches = [canonical];
+          }
+        }
+
+        final bestMatch = matches.firstOrNull;
+        if (bestMatch == null || bestMatch.encryptedMediaUrl.isEmpty) {
+          continue;
+        }
+
+        final stream = bestStream(bestMatch.encryptedMediaUrl, bestMatch.supports320);
+        if (stream == null || stream.url.isEmpty) {
+          continue;
+        }
+
+        // BitChord MIN_USABLE_KBPS check:
+        // A rendition <= 96kbps is worse than YouTube's ~160kbps Opus stream.
+        if (stream.kbps != null && stream.kbps! <= minUsableKbps) {
+          if (kDebugMode) {
+            print(
+              'JioSaavnService: JioSaavn only offered ${stream.kbps}kbps for ${bestMatch.id}; not worth playing',
+            );
+          }
+          continue;
+        }
+
+        _streamCache[track.id] = stream;
+        if (kDebugMode) {
+          print(
+            'JioSaavnService: Matched "${track.title}" -> "${bestMatch.title}" (${stream.kbps}kbps)',
+          );
+        }
+        return stream;
       }
 
-      // 4. Resolve stream URL
-      final stream = bestStream(matched.encryptedMediaUrl, matched.supports320);
-      if (stream == null || stream.url.isEmpty) {
+      if (target.durationSec != null) {
         _noMatchTrackIds.add(track.id);
-        return null;
       }
-
-      // 5. Cache result
-      _streamCache[track.id] = stream;
-      if (kDebugMode) {
-        print(
-          'JioSaavnService: Matched "${track.title}" -> "${matched.title}" (${stream.kbps}kbps)',
-        );
-      }
-      return stream;
+      return null;
     } catch (e) {
       if (kDebugMode) {
         print('JioSaavnService: getBestStreamForTrack error: $e');

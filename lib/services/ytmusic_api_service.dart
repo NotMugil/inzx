@@ -3618,6 +3618,8 @@ class InnerTubeService {
       String artist = 'Unknown Artist';
       String? artistId;
       Duration? duration;
+      String? album;
+      String? albumId;
 
       if (flexColumns.length > 1) {
         final subtitleRuns =
@@ -3628,6 +3630,19 @@ class InnerTubeService {
           artist = parsed.$1;
           artistId = parsed.$2;
           duration = parsed.$3;
+          album = parsed.$4;
+          albumId = parsed.$5;
+        }
+      }
+
+      if (flexColumns.length > 2 && album == null) {
+        final albumRuns = flexColumns[2]['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'] as List?;
+        if (albumRuns != null && albumRuns.isNotEmpty) {
+          final run = albumRuns.first;
+          if (run is Map) {
+            album = run['text'] as String?;
+            albumId = run['navigationEndpoint']?['browseEndpoint']?['browseId'] as String?;
+          }
         }
       }
 
@@ -3699,6 +3714,8 @@ class InnerTubeService {
         title: title,
         artist: artist,
         artistId: artistId ?? '',
+        album: album,
+        albumId: albumId,
         thumbnailUrl: thumbnailUrl,
         duration: duration ?? Duration.zero,
         isLiked: true,
@@ -3752,11 +3769,14 @@ class InnerTubeService {
 
   /// Extract artist / artistId / duration from subtitle runs.
   ///
-  /// Search subtitle runs can start with type labels (for example: "Song").
-  /// This skips those labels and returns the first meaningful metadata chunk.
-  (String, String?, Duration?) _extractArtistInfoFromSubtitleRuns(List runs) {
-    final chunks = <({String text, String? artistId})>[];
+  /// Search and shelf subtitle runs can contain type labels, artist, album, and duration.
+  /// This extracts (artist, artistId, duration, album, albumId) using browse endpoints
+  /// and pageType detection matching BitChord's creditsOf parser.
+  (String, String?, Duration?, String?, String?) _extractArtistInfoFromSubtitleRuns(List runs) {
+    final chunks = <({String text, String? browseId, String pageType})>[];
     Duration? duration;
+    String? explicitAlbum;
+    String? explicitAlbumId;
 
     for (final run in runs) {
       if (run is! Map) continue;
@@ -3764,8 +3784,20 @@ class InnerTubeService {
       final rawText = run['text'] as String?;
       if (rawText == null || rawText.trim().isEmpty) continue;
 
-      final browseEndpoint = run['navigationEndpoint']?['browseEndpoint'];
-      final runArtistId = browseEndpoint?['browseId'] as String?;
+      final nav = run['navigationEndpoint'];
+      final browseEndpoint = nav?['browseEndpoint'];
+      final runBrowseId = browseEndpoint?['browseId'] as String?;
+      final pageType = (browseEndpoint?['browseEndpointContextSupportedConfigs']
+                  ?['browseEndpointContextMusicConfig']?['pageType'] ??
+              '')
+          .toString()
+          .toUpperCase();
+
+      if (pageType.contains('ALBUM') && explicitAlbum == null) {
+        explicitAlbum = rawText.trim();
+        explicitAlbumId = runBrowseId;
+        continue;
+      }
 
       // Handle both proper bullets and mojibake bullets.
       final normalizedText = rawText.replaceAll('â€¢', '•');
@@ -3779,12 +3811,17 @@ class InnerTubeService {
           duration ??= _parseDuration(part);
           continue;
         }
-        chunks.add((text: part, artistId: runArtistId));
+        chunks.add((text: part, browseId: runBrowseId, pageType: pageType));
       }
     }
 
     final hasMultipleChunks = chunks.length > 1;
-    for (final chunk in chunks) {
+    String artist = 'Unknown Artist';
+    String? artistId;
+    int artistChunkIdx = -1;
+
+    for (var i = 0; i < chunks.length; i++) {
+      final chunk = chunks[i];
       if (_isMetadataTypeToken(
         chunk.text,
         hasMultipleChunks: hasMultipleChunks,
@@ -3792,14 +3829,37 @@ class InnerTubeService {
         continue;
       }
       if (RegExp(r'^\d{4}$').hasMatch(chunk.text)) continue;
-      return (chunk.text, chunk.artistId, duration);
+      artist = chunk.text;
+      artistId = chunk.browseId;
+      artistChunkIdx = i;
+      break;
     }
 
-    if (chunks.isNotEmpty) {
-      return (chunks.first.text, chunks.first.artistId, duration);
+    if (artist == 'Unknown Artist' && chunks.isNotEmpty) {
+      artist = chunks.first.text;
+      artistId = chunks.first.browseId;
+      artistChunkIdx = 0;
     }
 
-    return ('Unknown Artist', null, duration);
+    // If album was not identified by endpoint pageType, look at subsequent chunk
+    String? album = explicitAlbum;
+    String? albumId = explicitAlbumId;
+    if (album == null && artistChunkIdx >= 0) {
+      for (var j = artistChunkIdx + 1; j < chunks.length; j++) {
+        final candidate = chunks[j];
+        if (RegExp(r'^\d{4}$').hasMatch(candidate.text)) continue;
+        if (_isMetadataTypeToken(candidate.text, hasMultipleChunks: true)) continue;
+        if (RegExp(r'^\d+(\.\d+)?[kmb]?\s+(views|plays)$', caseSensitive: false)
+            .hasMatch(candidate.text)) {
+          continue;
+        }
+        album = candidate.text;
+        albumId = candidate.browseId;
+        break;
+      }
+    }
+
+    return (artist, artistId, duration, album, albumId);
   }
 
   bool _isDurationToken(String value) {
@@ -6728,12 +6788,18 @@ class InnerTubeService {
         itemType = HomeShelfItemType.artist;
       }
 
+      Duration? parsedDuration;
       String displaySubtitle = subtitle;
+      String? itemAlbum;
+      String? itemAlbumId;
       if (subtitleRuns != null && subtitleRuns.isNotEmpty) {
         if (itemType == HomeShelfItemType.song) {
           final parsed = _extractArtistInfoFromSubtitleRuns(subtitleRuns);
           displaySubtitle = parsed.$1;
           artistId = parsed.$2;
+          parsedDuration = parsed.$3;
+          itemAlbum = parsed.$4;
+          itemAlbumId = parsed.$5;
         } else if (itemType == HomeShelfItemType.album ||
             itemType == HomeShelfItemType.playlist ||
             itemType == HomeShelfItemType.mix) {
@@ -6754,6 +6820,9 @@ class InnerTubeService {
         playlistId: playlistId,
         videoId: videoId,
         artistId: artistId,
+        album: itemAlbum,
+        albumId: itemAlbumId,
+        duration: parsedDuration,
       );
     } catch (e) {
       return null;
@@ -6774,6 +6843,9 @@ class InnerTubeService {
       // Get artist and artistId
       String? artist;
       String? artistId;
+      Duration? parsedDuration;
+      String? itemAlbum;
+      String? itemAlbumId;
       if (flexColumns.length > 1) {
         final artistRuns =
             flexColumns[1]['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs']
@@ -6784,6 +6856,20 @@ class InnerTubeService {
               ? _sanitizeSubtitleText(artistRuns, fallback: parsed.$1)
               : parsed.$1;
           artistId = parsed.$2;
+          parsedDuration = parsed.$3;
+          itemAlbum = parsed.$4;
+          itemAlbumId = parsed.$5;
+        }
+      }
+
+      if (flexColumns.length > 2 && itemAlbum == null) {
+        final albumRuns = flexColumns[2]['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'] as List?;
+        if (albumRuns != null && albumRuns.isNotEmpty) {
+          final run = albumRuns.first;
+          if (run is Map) {
+            itemAlbum = run['text'] as String?;
+            itemAlbumId = run['navigationEndpoint']?['browseEndpoint']?['browseId'] as String?;
+          }
         }
       }
 
@@ -6812,6 +6898,9 @@ class InnerTubeService {
         itemType: HomeShelfItemType.song,
         videoId: videoId,
         artistId: artistId,
+        album: itemAlbum,
+        albumId: itemAlbumId,
+        duration: parsedDuration,
       );
     } catch (e) {
       return null;
@@ -7209,6 +7298,9 @@ class InnerTubeService {
             videoId: track.id,
             itemType: HomeShelfItemType.song,
             artistId: track.artistId.isNotEmpty ? track.artistId : null,
+            album: track.album,
+            albumId: track.albumId,
+            duration: track.duration,
           );
         }
       }

@@ -20,6 +20,10 @@ import 'tagger/media_tagger.dart';
 import 'lyrics/lyrics_models.dart';
 import 'lyrics/lrclib_provider.dart';
 import 'lyrics/betterlyrics_provider.dart';
+import 'lyrics/paxsenix_provider.dart';
+import 'lyrics/lyricsplus_provider.dart';
+import 'lyrics/simpmusic_provider.dart';
+import 'lyrics/lrc_writer.dart';
 
 const String kDownloadQualityKey = 'download_quality';
 const String kDownloadParallelPartCountKey = 'download_parallel_part_count';
@@ -984,29 +988,39 @@ class DownloadManagerNotifier extends StateNotifier<DownloadManagerState> {
         artist: track.artist,
         album: track.album,
         durationSeconds: track.duration.inSeconds,
+        localFilePath: track.localFilePath,
       );
 
-      final lrclib = LRCLibProvider();
-      LyricResult? result = await lrclib.search(info).timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => null,
-      );
+      final providers = [
+        BetterLyricsProvider(),
+        PaxSenixProvider(),
+        SimpMusicProvider(),
+        LyricsPlusProvider(),
+        LRCLibProvider(),
+      ];
 
-      if (result == null || !result.hasLyrics) {
-        final betterLyrics = BetterLyricsProvider();
-        result = await betterLyrics.search(info).timeout(
-          const Duration(seconds: 4),
-          onTimeout: () => null,
-        );
+      LyricResult? bestResult;
+      for (final provider in providers) {
+        try {
+          final res = await provider.search(info).timeout(
+            const Duration(seconds: 4),
+            onTimeout: () => null,
+          );
+          if (res != null && res.hasLyrics) {
+            if (res.hasWordSync) {
+              bestResult = res;
+              break;
+            }
+            bestResult ??= res;
+          }
+        } catch (_) {}
       }
 
-      if (result != null && result.hasLyrics) {
-        if (result.lines != null && result.lines!.isNotEmpty) {
-          return result.lines!
-              .map((l) => '[${l.formattedTime}]${l.text}')
-              .join('\n');
+      if (bestResult != null && bestResult.hasLyrics) {
+        if (bestResult.lines != null && bestResult.lines!.isNotEmpty) {
+          return bestResult.lines!.toEnhancedLrc();
         }
-        return result.lyrics;
+        return bestResult.lyrics;
       }
     } catch (e) {
       if (kDebugMode) {
