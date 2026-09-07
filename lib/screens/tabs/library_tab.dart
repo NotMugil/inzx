@@ -47,6 +47,7 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return SafeArea(
+      bottom: false,
       child: Column(
         children: [
           // Header
@@ -593,7 +594,7 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
     ];
 
     return ListView(
-      padding: const EdgeInsets.only(bottom: 100),
+      padding: const EdgeInsets.only(bottom: 160),
       children: [
         // Control Bar (Sort + View Switcher)
         _buildPlaylistControlBar(isDark, accentColor),
@@ -1350,7 +1351,7 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
         : const AsyncValue<List<Album>>.data([]);
 
     return ListView(
-      padding: const EdgeInsets.only(bottom: 100),
+      padding: const EdgeInsets.only(bottom: 160),
       children: [
         // Control Bar (Sort + Grid Switcher)
         Padding(
@@ -1724,7 +1725,7 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
         : const AsyncValue<List<Artist>>.data([]);
 
     return ListView(
-      padding: const EdgeInsets.only(bottom: 100),
+      padding: const EdgeInsets.only(bottom: 160),
       children: [
         // Control Bar (Sort + Grid Switcher)
         Padding(
@@ -2078,7 +2079,7 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
         }
 
         return ListView(
-          padding: const EdgeInsets.only(top: 8, bottom: 100),
+          padding: const EdgeInsets.only(top: 8, bottom: 160),
           children: [
             // Active downloads
             if (activeDownloads.isNotEmpty || queuedDownloads.isNotEmpty) ...[

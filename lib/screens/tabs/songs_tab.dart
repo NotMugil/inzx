@@ -152,6 +152,7 @@ class _MusicSongsTabState extends ConsumerState<MusicSongsTab> {
     final accentColor = ref.watch(effectiveAccentColorProvider);
 
     return SafeArea(
+      bottom: false,
       child: Column(
         children: [
           // Header
@@ -670,7 +671,7 @@ class _MusicSongsTabState extends ConsumerState<MusicSongsTab> {
     return Stack(
       children: [
         ListView.builder(
-          padding: const EdgeInsets.only(bottom: 100),
+          padding: const EdgeInsets.only(bottom: 160),
           itemCount: tracks.length + 1, // +1 for play all header
           itemBuilder: (context, index) {
             if (index == 0) {

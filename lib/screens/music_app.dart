@@ -136,22 +136,9 @@ class _MusicAppState extends ConsumerState<MusicApp>
                 ),
               ),
             ),
-            // Main content
-            Column(
-              children: [
-                Expanded(
-                  child: IndexedStack(index: _currentIndex, children: _tabs),
-                ),
-                // Space for mini player + nav (combined at bottom)
-                SizedBox(
-                  height:
-                      (hasCurrentTrack
-                          ? 60
-                          : 0) + // Mini player height (reduced to prevent gap)
-                      85 +
-                      MediaQuery.of(context).padding.bottom,
-                ),
-              ],
+            // Main content (extends full screen behind floating nav)
+            Positioned.fill(
+              child: IndexedStack(index: _currentIndex, children: _tabs),
             ),
             // Mini player + nav bar positioned at bottom
             Positioned(
@@ -189,7 +176,6 @@ class _ModernFloatingNav extends ConsumerStatefulWidget {
   final Color accentColor;
 
   const _ModernFloatingNav({
-    super.key,
     required this.currentIndex,
     required this.onTap,
     required this.isDark,
@@ -293,153 +279,172 @@ class _ModernFloatingNavState extends ConsumerState<_ModernFloatingNav>
     if (widget.isDark) {
       if (hasAlbumColors) {
         gradientColors = [
-          albumColors.backgroundPrimary.withValues(alpha: 0.90),
-          albumColors.backgroundSecondary.withValues(alpha: 0.85),
+          albumColors.backgroundPrimary.withValues(alpha: 0.78),
+          albumColors.backgroundSecondary.withValues(alpha: 0.70),
         ];
-        borderColor = albumColors.accent.withValues(alpha: 0.25);
+        borderColor = albumColors.accent.withValues(alpha: 0.30);
       } else {
         gradientColors = [
-          const Color(0xFF1E1E1E).withValues(alpha: 0.90),
-          const Color(0xFF121212).withValues(alpha: 0.85),
+          const Color(0xFF1E1E1E).withValues(alpha: 0.78),
+          const Color(0xFF121212).withValues(alpha: 0.70),
         ];
-        borderColor = Colors.white.withValues(alpha: 0.15);
+        borderColor = Colors.white.withValues(alpha: 0.18);
       }
     } else {
       if (hasAlbumColors) {
         gradientColors = [
-          albumColors.toLightMode().backgroundPrimary.withValues(alpha: 0.94),
-          albumColors.toLightMode().backgroundSecondary.withValues(alpha: 0.88),
+          albumColors.toLightMode().backgroundPrimary.withValues(alpha: 0.82),
+          albumColors.toLightMode().backgroundSecondary.withValues(alpha: 0.72),
         ];
-        borderColor = albumColors.accent.withValues(alpha: 0.20);
+        borderColor = albumColors.accent.withValues(alpha: 0.25);
       } else {
         gradientColors = [
-          Colors.white.withValues(alpha: 0.92),
-          Colors.white.withValues(alpha: 0.85),
+          Colors.white.withValues(alpha: 0.82),
+          Colors.white.withValues(alpha: 0.72),
         ];
-        borderColor = Colors.white.withValues(alpha: 0.8);
+        borderColor = Colors.white.withValues(alpha: 0.85);
       }
     }
 
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          height: 85 + bottomPadding,
-          padding: EdgeInsets.only(bottom: bottomPadding),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: gradientColors,
-            ),
-            border: Border.all(
-              color: borderColor,
-              width: 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: widget.accentColor.withValues(alpha: 0.15),
-                blurRadius: 30,
-                spreadRadius: 0,
-                offset: const Offset(0, -5),
+    final bottomMargin = bottomPadding > 0 ? bottomPadding : 10.0;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(10, 0, 10, bottomMargin),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(32),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(
+                alpha: widget.isDark ? 0.35 : 0.10,
               ),
+              blurRadius: 16,
+              spreadRadius: 1,
+              offset: const Offset(0, 4),
+            ),
+            if (hasAlbumColors)
               BoxShadow(
-                color: Colors.black.withValues(
-                  alpha: widget.isDark ? 0.3 : 0.08,
+                color: widget.accentColor.withValues(
+                  alpha: widget.isDark ? 0.20 : 0.10,
                 ),
-                blurRadius: 20,
-                offset: const Offset(0, -3),
+                blurRadius: 24,
+                spreadRadius: -2,
+                offset: const Offset(0, 4),
               ),
-            ],
-          ),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final itemWidth = constraints.maxWidth / 4;
-              final indicatorWidth = 48.0;
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(32),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Container(
+              height: 64,
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: gradientColors,
+                ),
+                borderRadius: BorderRadius.circular(32),
+                border: Border.all(
+                  color: borderColor,
+                  width: 1,
+                ),
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final itemWidth = constraints.maxWidth / 4;
+                  const indicatorWidth = 44.0;
 
-              return Stack(
-                alignment: Alignment.center,
-                children: [
-                  // Animated glow indicator
-                  AnimatedBuilder(
-                    animation: _slideController,
-                    builder: (context, child) {
-                      final position = _slideController.isAnimating
-                          ? _slideAnimation.value
-                          : widget.currentIndex.toDouble();
-                      final leftOffset =
-                          (itemWidth - indicatorWidth) / 2 +
-                          (position * itemWidth);
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Animated glow indicator
+                      AnimatedBuilder(
+                        animation: _slideController,
+                        builder: (context, child) {
+                          final position = _slideController.isAnimating
+                              ? _slideAnimation.value
+                              : widget.currentIndex.toDouble();
+                          final leftOffset =
+                              (itemWidth - indicatorWidth) / 2 +
+                              (position * itemWidth);
 
-                      return Positioned(
-                        left: leftOffset,
-                        top: 8,
-                        child: Container(
-                          width: indicatorWidth,
-                          height: indicatorWidth,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: RadialGradient(
-                              colors: [
-                                widget.accentColor.withValues(alpha: 0.4),
-                                widget.accentColor.withValues(alpha: 0.1),
-                                widget.accentColor.withValues(alpha: 0.0),
-                              ],
-                              stops: const [0.0, 0.5, 1.0],
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: widget.accentColor.withValues(
-                                  alpha: 0.5,
+                          return Positioned(
+                            left: leftOffset,
+                            top: (56.0 - indicatorWidth) / 2,
+                            child: Container(
+                              width: indicatorWidth,
+                              height: indicatorWidth,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: RadialGradient(
+                                  colors: [
+                                    widget.accentColor.withValues(alpha: 0.35),
+                                    widget.accentColor.withValues(alpha: 0.1),
+                                    widget.accentColor.withValues(alpha: 0.0),
+                                  ],
+                                  stops: const [0.0, 0.5, 1.0],
                                 ),
-                                blurRadius: 20,
-                                spreadRadius: 2,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: widget.accentColor.withValues(
+                                      alpha: 0.4,
+                                    ),
+                                    blurRadius: 16,
+                                    spreadRadius: 2,
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  // Nav items
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: List.generate(navItems.length, (index) {
-                      final item = navItems[index];
-                      final isSelected = widget.currentIndex == index;
+                            ),
+                          );
+                        },
+                      ),
+                      // Nav items
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: List.generate(navItems.length, (index) {
+                          final item = navItems[index];
+                          final isSelected = widget.currentIndex == index;
 
-                      return GestureDetector(
-                        onTap: () => widget.onTap(index),
-                        behavior: HitTestBehavior.opaque,
-                        child: SizedBox(
-                          width: itemWidth,
-                          child: AnimatedBuilder(
-                            animation: _bounceController,
-                            builder: (context, child) {
-                              final scale =
-                                  isSelected && _bounceController.isAnimating
-                                  ? _bounceAnimation.value
-                                  : 1.0;
-                              return Transform.scale(
-                                scale: scale,
-                                child: _NavItemWidget(
-                                  icon: item.$1,
-                                  selectedIcon: item.$2,
-                                  label: item.$3,
-                                  isSelected: isSelected,
-                                  accentColor: widget.accentColor,
-                                  isDark: widget.isDark,
-                                ),
-                              );
+                          return GestureDetector(
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              widget.onTap(index);
                             },
-                          ),
-                        ),
-                      );
-                    }),
-                  ),
-                ],
-              );
-            },
+                            behavior: HitTestBehavior.opaque,
+                            child: SizedBox(
+                              width: itemWidth,
+                              child: AnimatedBuilder(
+                                animation: _bounceController,
+                                builder: (context, child) {
+                                  final scale =
+                                      isSelected && _bounceController.isAnimating
+                                      ? _bounceAnimation.value
+                                      : 1.0;
+                                  return Transform.scale(
+                                    scale: scale,
+                                    child: _NavItemWidget(
+                                      icon: item.$1,
+                                      selectedIcon: item.$2,
+                                      label: item.$3,
+                                      isSelected: isSelected,
+                                      accentColor: widget.accentColor,
+                                      isDark: widget.isDark,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          );
+                        }),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
           ),
         ),
       ),
@@ -474,7 +479,7 @@ class _NavItemWidget extends StatelessWidget {
         AnimatedContainer(
           duration: const Duration(milliseconds: 250),
           curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(4),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: isSelected
@@ -483,22 +488,23 @@ class _NavItemWidget extends StatelessWidget {
           ),
           child: Icon(
             isSelected ? selectedIcon : icon,
-            size: isSelected ? 26 : 24,
+            size: isSelected ? 23 : 21,
             color: isSelected
                 ? accentColor
                 : (isDark ? Colors.white60 : Colors.grey.shade600),
           ),
         ),
+        const SizedBox(height: 1),
         // Label
         AnimatedDefaultTextStyle(
           duration: const Duration(milliseconds: 200),
           style: TextStyle(
-            fontSize: isSelected ? 11 : 10,
+            fontSize: isSelected ? 10.5 : 9.5,
             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
             color: isSelected
                 ? accentColor
                 : (isDark ? Colors.white60 : Colors.grey.shade600),
-            letterSpacing: isSelected ? 0.3 : 0,
+            letterSpacing: isSelected ? 0.2 : 0,
           ),
           child: Text(label),
         ),

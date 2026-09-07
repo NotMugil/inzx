@@ -77,13 +77,14 @@ void main() async {
   } catch (e) {
     debugPrint('Jams background service initialization failed: $e');
   }
-  // Set preferred orientations
+  // Set preferred orientations & enable edge-to-edge
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
   runApp(RestartableApp(audioHandler: audioHandler));
 }
@@ -292,9 +293,8 @@ class _InzxAppState extends ConsumerState<InzxApp> {
                 ? Brightness.dark
                 : Brightness.light,
             statusBarBrightness: brightness,
-            systemNavigationBarColor: brightness == Brightness.light
-                ? InzxColors.background
-                : InzxColors.darkBackground,
+            systemNavigationBarColor: Colors.transparent,
+            systemNavigationBarDividerColor: Colors.transparent,
             systemNavigationBarIconBrightness: brightness == Brightness.light
                 ? Brightness.dark
                 : Brightness.light,

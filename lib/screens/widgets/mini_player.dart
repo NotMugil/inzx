@@ -174,27 +174,27 @@ class _MusicMiniPlayerState extends ConsumerState<MusicMiniPlayer> {
         if (isDark) {
           if (hasAlbumColors) {
             gradientColors = [
-              albumColors.backgroundPrimary.withValues(alpha: 0.88),
-              albumColors.backgroundSecondary.withValues(alpha: 0.82),
+              albumColors.backgroundPrimary.withValues(alpha: 0.78),
+              albumColors.backgroundSecondary.withValues(alpha: 0.70),
             ];
-            borderColor = albumColors.accent.withValues(alpha: 0.25);
+            borderColor = albumColors.accent.withValues(alpha: 0.30);
             backgroundForText = albumColors.backgroundPrimary;
           } else {
             gradientColors = [
-              const Color(0xFF1E1E1E).withValues(alpha: 0.90),
-              const Color(0xFF121212).withValues(alpha: 0.85),
+              const Color(0xFF1E1E1E).withValues(alpha: 0.78),
+              const Color(0xFF121212).withValues(alpha: 0.70),
             ];
             backgroundForText = InzxColors.darkBackground;
-            borderColor = Colors.white.withValues(alpha: 0.15);
+            borderColor = Colors.white.withValues(alpha: 0.18);
           }
         } else {
           gradientColors = [
-            Colors.white.withValues(alpha: 0.90),
-            Colors.white.withValues(alpha: 0.75),
+            Colors.white.withValues(alpha: 0.82),
+            Colors.white.withValues(alpha: 0.72),
           ];
           borderColor = hasAlbumColors
-              ? accentColor.withValues(alpha: 0.2)
-              : Colors.white.withValues(alpha: 0.8);
+              ? accentColor.withValues(alpha: 0.25)
+              : Colors.white.withValues(alpha: 0.85);
           backgroundForText = InzxColors.background;
         }
 
@@ -217,7 +217,7 @@ class _MusicMiniPlayerState extends ConsumerState<MusicMiniPlayer> {
             customScale: 0.985,
             onTap: widget.onTap,
             child: Padding(
-            padding: const EdgeInsets.fromLTRB(10, 4, 10, 14),
+            padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
             child: Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(32),

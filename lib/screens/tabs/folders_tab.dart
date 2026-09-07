@@ -35,6 +35,7 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return SafeArea(
+      bottom: false,
       child: Column(
         children: [
           // Header
@@ -583,7 +584,7 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
         // Track list
         Expanded(
           child: ListView.builder(
-            padding: const EdgeInsets.only(bottom: 100),
+            padding: const EdgeInsets.only(bottom: 160),
             itemCount: tracks.length,
             itemBuilder: (context, index) {
               final track = tracks[index];

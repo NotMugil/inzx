@@ -216,6 +216,7 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return SafeArea(
+      bottom: false,
       child: Column(
         children: [
           // Search bar
@@ -414,7 +415,7 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab> {
           return false;
         },
         child: ListView(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.fromLTRB(0, 8, 0, 160),
           children: [
             // YT Music login prompt if not logged in and not dismissed
             if (!ytAuthState.isLoggedIn &&
