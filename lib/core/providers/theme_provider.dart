@@ -232,3 +232,39 @@ class UserNameNotifier extends StateNotifier<String> {
     state = name.trim().isEmpty ? 'Music Lover' : name.trim();
   }
 }
+
+/// Provider for whether the liquid glass navigation bar is enabled
+final liquidGlassNavProvider =
+    StateNotifierProvider<LiquidGlassNavNotifier, bool>((ref) {
+      return LiquidGlassNavNotifier();
+    });
+
+/// Notifier to manage the liquid glass navigation bar preference.
+/// Default: false (off by default, uses normal navbar from commit 6ee4ad9).
+class LiquidGlassNavNotifier extends StateNotifier<bool> {
+  static const String liquidGlassNavPrefKey = 'inzx_liquid_glass_nav_enabled';
+
+  LiquidGlassNavNotifier() : super(false) {
+    _loadPreference();
+  }
+
+  Future<void> _loadPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final enabled = prefs.getBool(liquidGlassNavPrefKey);
+      if (enabled != null) {
+        state = enabled;
+      }
+    } catch (_) {}
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    state = enabled;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(liquidGlassNavPrefKey, enabled);
+    } catch (_) {}
+  }
+
+  Future<void> toggle() => setEnabled(!state);
+}

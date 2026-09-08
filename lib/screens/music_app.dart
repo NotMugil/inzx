@@ -7,6 +7,7 @@ import '../models/models.dart';
 import '../../../core/design_system/design_system.dart';
 import '../providers/providers.dart';
 import '../providers/bookmarks_and_stats_provider.dart';
+import '../../core/providers/theme_provider.dart';
 import 'tabs/home_tab.dart';
 import 'tabs/songs_tab.dart';
 import 'tabs/library_tab.dart';
@@ -168,8 +169,10 @@ class _MusicAppState extends ConsumerState<MusicApp>
   }
 }
 
-/// Modern floating glassmorphic bottom navigation
-class _ModernFloatingNav extends ConsumerStatefulWidget {
+/// Modern floating bottom navigation that dynamically switches between
+/// the standard navbar (from commit 6ee4ad9) and the Liquid Glass navbar
+/// based on the user's preference in Settings.
+class _ModernFloatingNav extends ConsumerWidget {
   final int currentIndex;
   final Function(int) onTap;
   final bool isDark;
@@ -183,10 +186,46 @@ class _ModernFloatingNav extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<_ModernFloatingNav> createState() => _ModernFloatingNavState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isLiquidGlass = ref.watch(liquidGlassNavProvider);
+    if (isLiquidGlass) {
+      return _LiquidGlassFloatingNav(
+        currentIndex: currentIndex,
+        onTap: onTap,
+        isDark: isDark,
+        accentColor: accentColor,
+      );
+    }
+    return _StandardFloatingNav(
+      currentIndex: currentIndex,
+      onTap: onTap,
+      isDark: isDark,
+      accentColor: accentColor,
+    );
+  }
 }
 
-class _ModernFloatingNavState extends ConsumerState<_ModernFloatingNav>
+/// Standard floating bottom navigation (from commit 6ee4ad9).
+/// Default navigation bar when Liquid Glass is not enabled.
+class _StandardFloatingNav extends ConsumerStatefulWidget {
+  final int currentIndex;
+  final Function(int) onTap;
+  final bool isDark;
+  final Color accentColor;
+
+  const _StandardFloatingNav({
+    required this.currentIndex,
+    required this.onTap,
+    required this.isDark,
+    required this.accentColor,
+  });
+
+  @override
+  ConsumerState<_StandardFloatingNav> createState() =>
+      _StandardFloatingNavState();
+}
+
+class _StandardFloatingNavState extends ConsumerState<_StandardFloatingNav>
     with TickerProviderStateMixin {
   late AnimationController _slideController;
   late AnimationController _bounceController;
@@ -209,16 +248,19 @@ class _ModernFloatingNavState extends ConsumerState<_ModernFloatingNav>
       duration: const Duration(milliseconds: 300),
     );
 
-    _slideAnimation =
-        Tween<double>(
-          begin: widget.currentIndex.toDouble(),
-          end: widget.currentIndex.toDouble(),
-        ).animate(
-          CurvedAnimation(parent: _slideController, curve: Curves.easeOutBack),
-        );
+    _slideAnimation = Tween<double>(
+      begin: widget.currentIndex.toDouble(),
+      end: widget.currentIndex.toDouble(),
+    ).animate(
+      CurvedAnimation(parent: _slideController, curve: Curves.easeOutBack),
+    );
 
-    _bounceAnimation = Tween<double>(begin: 1.0, end: 1.0).animate(
-      CurvedAnimation(parent: _bounceController, curve: Curves.elasticOut),
+    _bounceAnimation = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.85), weight: 20),
+      TweenSequenceItem(tween: Tween(begin: 0.85, end: 1.1), weight: 40),
+      TweenSequenceItem(tween: Tween(begin: 1.1, end: 1.0), weight: 40),
+    ]).animate(
+      CurvedAnimation(parent: _bounceController, curve: Curves.easeOut),
     );
   }
 
@@ -230,31 +272,28 @@ class _ModernFloatingNavState extends ConsumerState<_ModernFloatingNav>
   }
 
   @override
-  void didUpdateWidget(covariant _ModernFloatingNav oldWidget) {
+  void didUpdateWidget(covariant _StandardFloatingNav oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.currentIndex != widget.currentIndex) {
       _previousIndex = oldWidget.currentIndex;
-      _slideAnimation =
-          Tween<double>(
-            begin: _previousIndex.toDouble(),
-            end: widget.currentIndex.toDouble(),
-          ).animate(
-            CurvedAnimation(
-              parent: _slideController,
-              curve: Curves.easeOutBack,
-            ),
-          );
+      _slideAnimation = Tween<double>(
+        begin: _previousIndex.toDouble(),
+        end: widget.currentIndex.toDouble(),
+      ).animate(
+        CurvedAnimation(
+          parent: _slideController,
+          curve: Curves.easeOutBack,
+        ),
+      );
       _slideController.forward(from: 0);
 
-      // Bounce animation for selected item
-      _bounceAnimation =
-          TweenSequence<double>([
-            TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.85), weight: 20),
-            TweenSequenceItem(tween: Tween(begin: 0.85, end: 1.1), weight: 40),
-            TweenSequenceItem(tween: Tween(begin: 1.1, end: 1.0), weight: 40),
-          ]).animate(
-            CurvedAnimation(parent: _bounceController, curve: Curves.easeOut),
-          );
+      _bounceAnimation = TweenSequence<double>([
+        TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.85), weight: 20),
+        TweenSequenceItem(tween: Tween(begin: 0.85, end: 1.1), weight: 40),
+        TweenSequenceItem(tween: Tween(begin: 1.1, end: 1.0), weight: 40),
+      ]).animate(
+        CurvedAnimation(parent: _bounceController, curve: Curves.easeOut),
+      );
       _bounceController.forward(from: 0);
     }
   }
@@ -421,11 +460,11 @@ class _ModernFloatingNavState extends ConsumerState<_ModernFloatingNav>
                                 builder: (context, child) {
                                   final scale =
                                       isSelected && _bounceController.isAnimating
-                                      ? _bounceAnimation.value
-                                      : 1.0;
+                                          ? _bounceAnimation.value
+                                          : 1.0;
                                   return Transform.scale(
                                     scale: scale,
-                                    child: _NavItemWidget(
+                                    child: _StandardNavItemWidget(
                                       icon: item.$1,
                                       selectedIcon: item.$2,
                                       label: item.$3,
@@ -452,7 +491,7 @@ class _ModernFloatingNavState extends ConsumerState<_ModernFloatingNav>
   }
 }
 
-class _NavItemWidget extends StatelessWidget {
+class _StandardNavItemWidget extends StatelessWidget {
   final IconData icon;
   final IconData selectedIcon;
   final String label;
@@ -460,7 +499,7 @@ class _NavItemWidget extends StatelessWidget {
   final Color accentColor;
   final bool isDark;
 
-  const _NavItemWidget({
+  const _StandardNavItemWidget({
     required this.icon,
     required this.selectedIcon,
     required this.label,
@@ -475,7 +514,6 @@ class _NavItemWidget extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        // Icon with animated properties
         AnimatedContainer(
           duration: const Duration(milliseconds: 250),
           curve: Curves.easeOutCubic,
@@ -495,7 +533,6 @@ class _NavItemWidget extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 1),
-        // Label
         AnimatedDefaultTextStyle(
           duration: const Duration(milliseconds: 200),
           style: TextStyle(
@@ -504,6 +541,326 @@ class _NavItemWidget extends StatelessWidget {
             color: isSelected
                 ? accentColor
                 : (isDark ? Colors.white60 : Colors.grey.shade600),
+            letterSpacing: isSelected ? 0.2 : 0,
+          ),
+          child: Text(label),
+        ),
+      ],
+    );
+  }
+}
+
+/// Liquid Glass floating bottom navigation with authentic optical refraction,
+/// 72px height, and fluid shape-shifting droplet indicator.
+class _LiquidGlassFloatingNav extends ConsumerStatefulWidget {
+  final int currentIndex;
+  final Function(int) onTap;
+  final bool isDark;
+  final Color accentColor;
+
+  const _LiquidGlassFloatingNav({
+    required this.currentIndex,
+    required this.onTap,
+    required this.isDark,
+    required this.accentColor,
+  });
+
+  @override
+  ConsumerState<_LiquidGlassFloatingNav> createState() =>
+      _LiquidGlassFloatingNavState();
+}
+
+class _LiquidGlassFloatingNavState extends ConsumerState<_LiquidGlassFloatingNav>
+    with TickerProviderStateMixin {
+  late AnimationController _fluidController;
+  late AnimationController _bounceController;
+  late Animation<double> _bounceAnimation;
+  int _previousIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _previousIndex = widget.currentIndex;
+
+    // Fluid droplet transit controller
+    _fluidController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 360),
+    );
+
+    // Bounce animation for selected tab icon
+    _bounceController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+    );
+
+    _bounceAnimation = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.82), weight: 25),
+      TweenSequenceItem(tween: Tween(begin: 0.82, end: 1.14), weight: 40),
+      TweenSequenceItem(tween: Tween(begin: 1.14, end: 1.0), weight: 35),
+    ]).animate(
+      CurvedAnimation(parent: _bounceController, curve: Curves.easeOutCubic),
+    );
+  }
+
+  @override
+  void dispose() {
+    _fluidController.dispose();
+    _bounceController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LiquidGlassFloatingNav oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentIndex != widget.currentIndex) {
+      _previousIndex = oldWidget.currentIndex;
+      _fluidController.forward(from: 0.0);
+      _bounceController.forward(from: 0.0);
+    }
+  }
+
+  void _onItemTapped(int index) {
+    HapticFeedback.selectionClick();
+    if (index == widget.currentIndex) {
+      _bounceController.forward(from: 0.0);
+    } else {
+      widget.onTap(index);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
+    final l10n = context.l10n;
+    final navItems = [
+      (Icons.home_outlined, Icons.home_rounded, l10n.home),
+      (Icons.music_note_outlined, Icons.music_note_rounded, l10n.songs),
+      (Icons.library_music_outlined, Icons.library_music_rounded, l10n.library),
+      (Icons.folder_outlined, Icons.folder_rounded, l10n.folders),
+    ];
+
+    final albumColors = ref.watch(albumColorsProvider);
+    final hasAlbumColors = !albumColors.isDefault;
+    final dynamicAccentColor =
+        hasAlbumColors ? albumColors.accent : widget.accentColor;
+
+    final bottomMargin = bottomPadding > 0 ? bottomPadding : 10.0;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(10, 0, 10, bottomMargin),
+      child: LiquidGlassContainer(
+        borderRadius: 36.0,
+        blurSigma: 2.0, // Crisp 2.0px optical liquid dispersion (never frosted fog)
+        refractionScale: 1.05, // 5% convex lens optical magnification
+        refractionDeflection: 2.8, // Enhanced optical ray bending: visible lateral bend towards center and back
+        isDark: widget.isDark,
+        surfaceColor: Colors.transparent, // Completely untinted, pure optical liquid glass
+        accentColor: dynamicAccentColor,
+        height: 72.0,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final totalWidth = constraints.maxWidth;
+            if (totalWidth <= 0) return const SizedBox.shrink();
+            final contentHeight =
+                constraints.maxHeight > 0 ? constraints.maxHeight : 62.0;
+            final itemWidth = totalWidth / navItems.length;
+            final baseWidth = (itemWidth * 0.82).clamp(52.0, 74.0);
+            const baseHeight = 52.0;
+
+            return Stack(
+              alignment: Alignment.center,
+              children: [
+                // Fluid Shape-Shifting Liquid Droplet Indicator
+                AnimatedBuilder(
+                  animation: _fluidController,
+                  builder: (context, child) {
+                    final t = _fluidController.value;
+                    final double currentCenterX;
+                    final double currentWidth;
+                    final double stretchRatio;
+                    final double currentHeight;
+
+                    if (_previousIndex == widget.currentIndex ||
+                        !_fluidController.isAnimating) {
+                      currentCenterX = (widget.currentIndex + 0.5) * itemWidth;
+                      currentWidth = baseWidth;
+                      stretchRatio = 0.0;
+                      currentHeight = baseHeight;
+                    } else {
+                      final startCenterX =
+                          (_previousIndex + 0.5) * itemWidth;
+                      final endCenterX =
+                          (widget.currentIndex + 0.5) * itemWidth;
+
+                      if (widget.currentIndex > _previousIndex) {
+                        // Moving right: right edge is leading, left edge is trailing
+                        final startLeading = startCenterX + baseWidth / 2;
+                        final startTrailing = startCenterX - baseWidth / 2;
+                        final endLeading = endCenterX + baseWidth / 2;
+                        final endTrailing = endCenterX - baseWidth / 2;
+
+                        final leadT = Curves.easeOutCubic.transform(t);
+                        final trailT = Curves.easeOutBack.transform(t);
+
+                        final currentLeading =
+                            lerpDouble(startLeading, endLeading, leadT) ??
+                            endLeading;
+                        final currentTrailing =
+                            lerpDouble(startTrailing, endTrailing, trailT) ??
+                            endTrailing;
+
+                        final rawWidth =
+                            (currentLeading - currentTrailing).abs();
+                        currentWidth = rawWidth.clamp(
+                          baseWidth * 0.80,
+                          baseWidth * 2.2,
+                        );
+                        currentCenterX =
+                            (currentLeading + currentTrailing) / 2;
+                        stretchRatio = ((currentWidth - baseWidth) /
+                                baseWidth)
+                            .clamp(0.0, 1.0);
+                        currentHeight = (baseHeight - stretchRatio * 8.0)
+                            .clamp(42.0, baseHeight);
+                      } else {
+                        // Moving left: left edge is leading, right edge is trailing
+                        final startLeading = startCenterX - baseWidth / 2;
+                        final startTrailing = startCenterX + baseWidth / 2;
+                        final endLeading = endCenterX - baseWidth / 2;
+                        final endTrailing = endCenterX + baseWidth / 2;
+
+                        final leadT = Curves.easeOutCubic.transform(t);
+                        final trailT = Curves.easeOutBack.transform(t);
+
+                        final currentLeading =
+                            lerpDouble(startLeading, endLeading, leadT) ??
+                            endLeading;
+                        final currentTrailing =
+                            lerpDouble(startTrailing, endTrailing, trailT) ??
+                            endTrailing;
+
+                        final rawWidth =
+                            (currentTrailing - currentLeading).abs();
+                        currentWidth = rawWidth.clamp(
+                          baseWidth * 0.80,
+                          baseWidth * 2.2,
+                        );
+                        currentCenterX =
+                            (currentLeading + currentTrailing) / 2;
+                        stretchRatio = ((currentWidth - baseWidth) /
+                                baseWidth)
+                            .clamp(0.0, 1.0);
+                        currentHeight = (baseHeight - stretchRatio * 8.0)
+                            .clamp(42.0, baseHeight);
+                      }
+                    }
+
+                    return Positioned(
+                      left: currentCenterX - currentWidth / 2,
+                      top: (contentHeight - currentHeight) / 2,
+                      width: currentWidth,
+                      height: currentHeight,
+                      child: CustomPaint(
+                        painter: LiquidDropletPainter(
+                          borderRadius: currentHeight / 2,
+                          isDark: widget.isDark,
+                          accentColor: dynamicAccentColor,
+                          stretchFactor: stretchRatio,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+
+                // Nav items
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: List.generate(navItems.length, (index) {
+                    final item = navItems[index];
+                    final isSelected = widget.currentIndex == index;
+
+                    return GestureDetector(
+                      onTap: () => _onItemTapped(index),
+                      behavior: HitTestBehavior.opaque,
+                      child: SizedBox(
+                        width: itemWidth,
+                        height: contentHeight,
+                        child: AnimatedBuilder(
+                          animation: _bounceController,
+                          builder: (context, child) {
+                            final scale =
+                                isSelected && _bounceController.isAnimating
+                                    ? _bounceAnimation.value
+                                    : 1.0;
+                            return Transform.scale(
+                              scale: scale,
+                              child: _LiquidGlassNavItemWidget(
+                                icon: item.$1,
+                                selectedIcon: item.$2,
+                                label: item.$3,
+                                isSelected: isSelected,
+                                accentColor: dynamicAccentColor,
+                                isDark: widget.isDark,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _LiquidGlassNavItemWidget extends StatelessWidget {
+  final IconData icon;
+  final IconData selectedIcon;
+  final String label;
+  final bool isSelected;
+  final Color accentColor;
+  final bool isDark;
+
+  const _LiquidGlassNavItemWidget({
+    required this.icon,
+    required this.selectedIcon,
+    required this.label,
+    required this.isSelected,
+    required this.accentColor,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Liquid glass content contrast (BitChord's glassContentColor principle):
+    // Razor-sharp contrast against arbitrary dynamic backdrops.
+    final unselectedColor = isDark
+        ? Colors.white.withValues(alpha: 0.60)
+        : Colors.black.withValues(alpha: 0.55);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          isSelected ? selectedIcon : icon,
+          size: isSelected ? 25 : 23,
+          color: isSelected ? accentColor : unselectedColor,
+        ),
+        const SizedBox(height: 3),
+        AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 200),
+          style: TextStyle(
+            fontSize: isSelected ? 11.5 : 10.5,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+            color: isSelected ? accentColor : unselectedColor,
             letterSpacing: isSelected ? 0.2 : 0,
           ),
           child: Text(label),

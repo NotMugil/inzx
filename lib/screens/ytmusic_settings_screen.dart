@@ -415,6 +415,10 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
       'dark',
       'light',
       'mode',
+      'liquid glass',
+      'glass',
+      'navbar',
+      'nav',
     ], _buildAppearanceSection()),
     _TaggedSection([
       context.l10n.quickActions,
@@ -428,6 +432,7 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
       'quality',
       'crossfade',
       'cache',
+      'jiosaavn',
     ], _buildQuickActions()),
     _TaggedSection([
       context.l10n.appInfo,
@@ -466,6 +471,10 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
       'dark',
       'light',
       'mode',
+      'liquid glass',
+      'glass',
+      'navbar',
+      'nav',
     ], _buildAppearanceSection()),
     _TaggedSection([
       context.l10n.quickActions,
@@ -956,6 +965,19 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
           subtitle: _contentLocationLabel(currentContentCountry),
           onTap: _showContentLocationSelector,
         ),
+        Divider(
+          height: 1,
+          color: _isDark ? InzxColors.darkDivider : InzxColors.divider,
+        ),
+        _switchTile(
+          icon: Icons.water_drop_rounded,
+          iconBg: _accentColor,
+          title: 'Liquid Glass Navigation Bar',
+          subtitle: 'Optical lens refraction & fluid droplet indicator',
+          value: ref.watch(liquidGlassNavProvider),
+          onChanged: (val) =>
+              ref.read(liquidGlassNavProvider.notifier).setEnabled(val),
+        ),
       ],
     );
   }
@@ -1053,6 +1075,52 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
       ),
       trailing: Icon(Iconsax.arrow_right_3, size: 18, color: _textTertiary),
       onTap: onTap,
+    );
+  }
+
+  Widget _switchTile({
+    required IconData icon,
+    required Color iconBg,
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: iconBg.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(icon, color: iconBg, size: 20),
+      ),
+      title: Text(
+        title,
+        style: TextStyle(
+          fontWeight: FontWeight.w500,
+          color: _textPrimary,
+          fontSize: 14,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: TextStyle(fontSize: 12, color: _textSecondary),
+      ),
+      trailing: Switch(
+        value: value,
+        onChanged: onChanged,
+        activeThumbColor: Colors.white,
+        activeTrackColor: _accentColor,
+        inactiveThumbColor: _isDark ? Colors.white70 : Colors.white,
+        inactiveTrackColor: _isDark
+            ? Colors.white.withValues(alpha: 0.16)
+            : Colors.grey.shade300,
+        trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+        trackOutlineWidth: WidgetStateProperty.all(0.0),
+      ),
     );
   }
 
