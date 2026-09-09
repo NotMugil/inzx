@@ -419,6 +419,9 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
       'glass',
       'navbar',
       'nav',
+      'rotate',
+      'rotating album art',
+      'miniplayer',
     ], _buildAppearanceSection()),
     _TaggedSection([
       context.l10n.quickActions,
@@ -475,6 +478,9 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
       'glass',
       'navbar',
       'nav',
+      'rotate',
+      'rotating album art',
+      'miniplayer',
     ], _buildAppearanceSection()),
     _TaggedSection([
       context.l10n.quickActions,
@@ -977,6 +983,19 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
           value: ref.watch(liquidGlassNavProvider),
           onChanged: (val) =>
               ref.read(liquidGlassNavProvider.notifier).setEnabled(val),
+        ),
+        Divider(
+          height: 1,
+          color: _isDark ? InzxColors.darkDivider : InzxColors.divider,
+        ),
+        _switchTile(
+          icon: Icons.rotate_right_rounded,
+          iconBg: _accentColor,
+          title: 'Rotating Miniplayer Album Art',
+          subtitle: 'Rotate album artwork in miniplayer during playback',
+          value: ref.watch(rotatingMiniPlayerArtProvider),
+          onChanged: (val) =>
+              ref.read(rotatingMiniPlayerArtProvider.notifier).setEnabled(val),
         ),
       ],
     );

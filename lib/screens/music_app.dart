@@ -311,41 +311,27 @@ class _StandardFloatingNavState extends ConsumerState<_StandardFloatingNav>
 
     final albumColors = ref.watch(albumColorsProvider);
     final hasAlbumColors = !albumColors.isDefault;
+    final dynamicAccentColor =
+        hasAlbumColors ? albumColors.accent : widget.accentColor;
 
     final List<Color> gradientColors;
-    final Color borderColor;
+    final Color borderColor = dynamicAccentColor.withValues(
+      alpha: widget.isDark ? 0.38 : 0.30,
+    );
 
     if (widget.isDark) {
-      if (hasAlbumColors) {
-        gradientColors = [
-          albumColors.backgroundPrimary.withValues(alpha: 0.78),
-          albumColors.backgroundSecondary.withValues(alpha: 0.70),
-        ];
-        borderColor = albumColors.accent.withValues(alpha: 0.30);
-      } else {
-        gradientColors = [
-          const Color(0xFF1E1E1E).withValues(alpha: 0.78),
-          const Color(0xFF121212).withValues(alpha: 0.70),
-        ];
-        borderColor = Colors.white.withValues(alpha: 0.18);
-      }
+      gradientColors = [
+        Colors.black.withValues(alpha: 0.62),
+        const Color(0xFF101010).withValues(alpha: 0.56),
+      ];
     } else {
-      if (hasAlbumColors) {
-        gradientColors = [
-          albumColors.toLightMode().backgroundPrimary.withValues(alpha: 0.82),
-          albumColors.toLightMode().backgroundSecondary.withValues(alpha: 0.72),
-        ];
-        borderColor = albumColors.accent.withValues(alpha: 0.25);
-      } else {
-        gradientColors = [
-          Colors.white.withValues(alpha: 0.82),
-          Colors.white.withValues(alpha: 0.72),
-        ];
-        borderColor = Colors.white.withValues(alpha: 0.85);
-      }
+      gradientColors = [
+        const Color(0xFF202020).withValues(alpha: 0.62),
+        const Color(0xFF141414).withValues(alpha: 0.56),
+      ];
     }
 
-    final bottomMargin = bottomPadding > 0 ? bottomPadding : 10.0;
+    final bottomMargin = (bottomPadding > 0 ? bottomPadding : 10.0) + 14.0;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(10, 0, 10, bottomMargin),
@@ -355,7 +341,7 @@ class _StandardFloatingNavState extends ConsumerState<_StandardFloatingNav>
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(
-                alpha: widget.isDark ? 0.35 : 0.10,
+                alpha: widget.isDark ? 0.30 : 0.08,
               ),
               blurRadius: 16,
               spreadRadius: 1,
@@ -363,7 +349,7 @@ class _StandardFloatingNavState extends ConsumerState<_StandardFloatingNav>
             ),
             if (hasAlbumColors)
               BoxShadow(
-                color: widget.accentColor.withValues(
+                color: dynamicAccentColor.withValues(
                   alpha: widget.isDark ? 0.20 : 0.10,
                 ),
                 blurRadius: 24,
@@ -388,7 +374,7 @@ class _StandardFloatingNavState extends ConsumerState<_StandardFloatingNav>
                 borderRadius: BorderRadius.circular(32),
                 border: Border.all(
                   color: borderColor,
-                  width: 1,
+                  width: 1.0,
                 ),
               ),
               child: LayoutBuilder(
@@ -420,16 +406,16 @@ class _StandardFloatingNavState extends ConsumerState<_StandardFloatingNav>
                                 shape: BoxShape.circle,
                                 gradient: RadialGradient(
                                   colors: [
-                                    widget.accentColor.withValues(alpha: 0.35),
-                                    widget.accentColor.withValues(alpha: 0.1),
-                                    widget.accentColor.withValues(alpha: 0.0),
+                                    dynamicAccentColor.withValues(alpha: 0.35),
+                                    dynamicAccentColor.withValues(alpha: 0.10),
+                                    dynamicAccentColor.withValues(alpha: 0.0),
                                   ],
                                   stops: const [0.0, 0.5, 1.0],
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: widget.accentColor.withValues(
-                                      alpha: 0.4,
+                                    color: dynamicAccentColor.withValues(
+                                      alpha: 0.40,
                                     ),
                                     blurRadius: 16,
                                     spreadRadius: 2,
@@ -645,7 +631,8 @@ class _LiquidGlassFloatingNavState extends ConsumerState<_LiquidGlassFloatingNav
     final dynamicAccentColor =
         hasAlbumColors ? albumColors.accent : widget.accentColor;
 
-    final bottomMargin = bottomPadding > 0 ? bottomPadding : 10.0;
+    final bottomMargin = (bottomPadding > 0 ? bottomPadding : 10.0) + 14.0;
+    final navY = MediaQuery.of(context).size.height - bottomMargin - 72.0;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(10, 0, 10, bottomMargin),
@@ -655,9 +642,10 @@ class _LiquidGlassFloatingNavState extends ConsumerState<_LiquidGlassFloatingNav
         refractionScale: 1.05, // 5% convex lens optical magnification
         refractionDeflection: 2.8, // Enhanced optical ray bending: visible lateral bend towards center and back
         isDark: widget.isDark,
-        surfaceColor: Colors.transparent, // Completely untinted, pure optical liquid glass
+        surfaceColor: Colors.black.withValues(alpha: widget.isDark ? 0.45 : 0.35),
         accentColor: dynamicAccentColor,
         height: 72.0,
+        globalOffset: Offset(10.0, navY),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         child: LayoutBuilder(
           builder: (context, constraints) {

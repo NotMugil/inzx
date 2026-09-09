@@ -24,7 +24,7 @@ class LiquidGlassPainter extends CustomPainter {
     this.isDark = true,
     this.accentColor,
     this.specularIntensity = 1.0,
-    this.strokeWidth = 0.95,
+    this.strokeWidth = 1.0,
     this.refractionStrength = 1.0,
   });
 
@@ -79,12 +79,11 @@ class LiquidGlassPainter extends CustomPainter {
 
     // -------------------------------------------------------------
     // LAYER 2: Front-Surface Specular Rim Outline
-    // Crisp, razor-thin white boundary highlight outlining both the
-    // left and right/bottom edges symmetrically with clean glass gleam.
+    // Crisp boundary highlight outlining the perimeter using active theme color
     // -------------------------------------------------------------
-    final outerGleamAlpha = (isDark ? 0.65 : 0.80) * specularIntensity;
-    final outerMidAlpha = (isDark ? 0.22 : 0.30) * specularIntensity;
-    final outerCounterGleamAlpha = (isDark ? 0.52 : 0.65) * specularIntensity;
+    final outerGleamAlpha = (isDark ? 0.88 : 0.95) * specularIntensity;
+    final outerMidAlpha = (isDark ? 0.44 : 0.55) * specularIntensity;
+    final outerCounterGleamAlpha = (isDark ? 0.76 : 0.88) * specularIntensity;
 
     final rimPaint = Paint()
       ..style = PaintingStyle.stroke
@@ -93,9 +92,11 @@ class LiquidGlassPainter extends CustomPainter {
         begin: const Alignment(-1.0, -0.85),
         end: const Alignment(1.0, 0.85),
         colors: [
-          Colors.white.withValues(alpha: outerGleamAlpha.clamp(0.0, 1.0)),
+          (accentColor ?? Colors.white)
+              .withValues(alpha: outerGleamAlpha.clamp(0.0, 1.0)),
           Colors.white.withValues(alpha: outerMidAlpha.clamp(0.0, 1.0)),
-          Colors.white.withValues(alpha: outerCounterGleamAlpha.clamp(0.0, 1.0)),
+          (accentColor ?? Colors.white)
+              .withValues(alpha: outerCounterGleamAlpha.clamp(0.0, 1.0)),
         ],
         stops: const [0.0, 0.48, 1.0],
       ).createShader(rect);
@@ -155,6 +156,7 @@ class LiquidGlassContainer extends StatefulWidget {
   final double? width;
   final double? height;
   final List<BoxShadow>? additionalShadows;
+  final Offset? globalOffset;
 
   const LiquidGlassContainer({
     super.key,
@@ -171,6 +173,7 @@ class LiquidGlassContainer extends StatefulWidget {
     this.width,
     this.height,
     this.additionalShadows,
+    this.globalOffset,
   });
 
   @override
@@ -188,6 +191,7 @@ class _LiquidGlassContainerState extends State<LiquidGlassContainer> {
 
   void _updateOffset() {
     if (!mounted) return;
+    if (widget.globalOffset != null) return;
     final renderBox = context.findRenderObject() as RenderBox?;
     if (renderBox != null && renderBox.hasSize && renderBox.attached) {
       final offset = renderBox.localToGlobal(Offset.zero);
@@ -200,6 +204,9 @@ class _LiquidGlassContainerState extends State<LiquidGlassContainer> {
   }
 
   Offset _getEffectiveGlobalOffset(BuildContext context, double w, double h) {
+    if (widget.globalOffset != null) {
+      return widget.globalOffset!;
+    }
     if (_globalOffset != null && _globalOffset != Offset.zero) {
       return _globalOffset!;
     }
@@ -229,6 +236,12 @@ class _LiquidGlassContainerState extends State<LiquidGlassContainer> {
       margin: widget.margin,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(widget.borderRadius),
+        border: Border.all(
+          color: (widget.accentColor ??
+                  (widget.isDark ? Colors.white : Colors.black))
+              .withValues(alpha: widget.isDark ? 0.38 : 0.28),
+          width: 1.0,
+        ),
         boxShadow: [
           // Diffuse water-drop ambient drop shadow
           BoxShadow(
@@ -518,10 +531,10 @@ class LiquidDropletPainter extends CustomPainter {
         radius: 0.85 + stretchFactor * 0.4,
         colors: [
           isDark
-              ? Colors.white.withValues(alpha: 0.20 + (0.05 * (1.0 - stretchFactor)))
-              : Colors.white.withValues(alpha: 0.35 + (0.05 * (1.0 - stretchFactor))),
-          accentColor.withValues(alpha: isDark ? 0.20 : 0.15),
-          accentColor.withValues(alpha: isDark ? 0.06 : 0.03),
+              ? Colors.white.withValues(alpha: 0.25 + (0.05 * (1.0 - stretchFactor)))
+              : Colors.white.withValues(alpha: 0.40 + (0.05 * (1.0 - stretchFactor))),
+          accentColor.withValues(alpha: isDark ? 0.35 : 0.30),
+          accentColor.withValues(alpha: isDark ? 0.12 : 0.08),
         ],
         stops: const [0.0, 0.60, 1.0],
       ).createShader(rect);
@@ -531,12 +544,12 @@ class LiquidDropletPainter extends CustomPainter {
     // 2. Chromatic Refraction Fringe on Droplet Perimeter
     final dropletPrismPaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.9
+      ..strokeWidth = 1.0
       ..shader = SweepGradient(
         center: Alignment.center,
         colors: [
           const Color(0x3864D2FF), // Cyan dispersion
-          accentColor.withValues(alpha: isDark ? 0.45 : 0.35),
+          accentColor.withValues(alpha: isDark ? 0.55 : 0.45),
           const Color(0x30FF9F0A), // Amber dispersion
           Colors.white.withValues(alpha: isDark ? 0.40 : 0.50),
           const Color(0x3864D2FF),

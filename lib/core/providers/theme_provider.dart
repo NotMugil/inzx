@@ -268,3 +268,40 @@ class LiquidGlassNavNotifier extends StateNotifier<bool> {
 
   Future<void> toggle() => setEnabled(!state);
 }
+
+/// Provider for whether rotating miniplayer album art is enabled
+final rotatingMiniPlayerArtProvider =
+    StateNotifierProvider<RotatingMiniPlayerArtNotifier, bool>((ref) {
+      return RotatingMiniPlayerArtNotifier();
+    });
+
+/// Notifier to manage the rotating miniplayer album art preference.
+/// Default: true (enabled by default).
+class RotatingMiniPlayerArtNotifier extends StateNotifier<bool> {
+  static const String rotatingArtPrefKey =
+      'inzx_rotating_mini_player_art_enabled';
+
+  RotatingMiniPlayerArtNotifier() : super(true) {
+    _loadPreference();
+  }
+
+  Future<void> _loadPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final enabled = prefs.getBool(rotatingArtPrefKey);
+      if (enabled != null) {
+        state = enabled;
+      }
+    } catch (_) {}
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    state = enabled;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(rotatingArtPrefKey, enabled);
+    } catch (_) {}
+  }
+
+  Future<void> toggle() => setEnabled(!state);
+}

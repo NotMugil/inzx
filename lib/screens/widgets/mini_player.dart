@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:iconsax/iconsax.dart';
 import '../../../../core/design_system/design_system.dart';
+import '../../../../core/providers/theme_provider.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
 import 'package:marquee/marquee.dart';
@@ -69,27 +70,97 @@ class _CircularTrackProgressPainter extends CustomPainter {
   }
 }
 
-/// Circular album art with progress ring
-class _CircularAlbumArtWithProgress extends ConsumerWidget {
+/// Circular album art with progress ring and vinyl rotation during playback
+class _CircularAlbumArtWithProgress extends ConsumerStatefulWidget {
   final Track track;
   final Duration? duration;
   final Color accentColor;
   final Color textColor;
+  final bool isPlaying;
 
   const _CircularAlbumArtWithProgress({
     required this.track,
     required this.duration,
     required this.accentColor,
     required this.textColor,
+    required this.isPlaying,
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_CircularAlbumArtWithProgress> createState() =>
+      _CircularAlbumArtWithProgressState();
+}
+
+class _CircularAlbumArtWithProgressState
+    extends ConsumerState<_CircularAlbumArtWithProgress>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _rotationController;
+
+  @override
+  void initState() {
+    super.initState();
+    _rotationController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 12),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _syncRotation();
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(_CircularAlbumArtWithProgress oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isPlaying != widget.isPlaying) {
+      _syncRotation();
+    }
+    // If track changed while paused, reset to upright orientation
+    if (oldWidget.track.id != widget.track.id && !widget.isPlaying) {
+      if (_rotationController.value != 0.0) {
+        _rotationController.reset();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _rotationController.dispose();
+    super.dispose();
+  }
+
+  void _syncRotation() {
+    if (!mounted) return;
+    final isEnabled = ref.read(rotatingMiniPlayerArtProvider);
+    final shouldRotate = widget.isPlaying && isEnabled;
+
+    if (shouldRotate) {
+      if (!_rotationController.isAnimating) {
+        _rotationController.repeat();
+      }
+    } else {
+      if (_rotationController.isAnimating) {
+        _rotationController.stop(canceled: false);
+      }
+      if (!isEnabled && _rotationController.value != 0.0) {
+        _rotationController.reset();
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // React to settings toggle changes in real time
+    ref.listen<bool>(rotatingMiniPlayerArtProvider, (prev, next) {
+      _syncRotation();
+    });
+
     final position =
         ref.watch(positionStreamProvider).valueOrNull ?? Duration.zero;
 
-    final progress = (duration?.inMilliseconds ?? 0) > 0
-        ? (position.inMilliseconds / duration!.inMilliseconds).clamp(0.0, 1.0)
+    final progress = (widget.duration?.inMilliseconds ?? 0) > 0
+        ? (position.inMilliseconds / widget.duration!.inMilliseconds).clamp(0.0, 1.0)
         : 0.0;
 
     return SizedBox(
@@ -98,23 +169,26 @@ class _CircularAlbumArtWithProgress extends ConsumerWidget {
       child: CustomPaint(
         painter: _CircularTrackProgressPainter(
           progress: progress,
-          trackColor: textColor.withValues(alpha: 0.15),
-          progressColor: accentColor,
+          trackColor: widget.textColor.withValues(alpha: 0.15),
+          progressColor: widget.accentColor,
           strokeWidth: 2.5,
         ),
         child: Center(
           child: Hero(
-            tag: 'album-art-${track.id}',
+            tag: 'album-art-${widget.track.id}',
             child: ClipOval(
-              child: SizedBox(
-                width: 42,
-                height: 42,
-                child: TrackArtworkView(
-                  track: track,
+              child: RotationTransition(
+                turns: _rotationController,
+                child: SizedBox(
                   width: 42,
                   height: 42,
-                  fallbackColor: accentColor.withValues(alpha: 0.2),
-                  fallbackIcon: Iconsax.music,
+                  child: TrackArtworkView(
+                    track: widget.track,
+                    width: 42,
+                    height: 42,
+                    fallbackColor: widget.accentColor.withValues(alpha: 0.2),
+                    fallbackIcon: Iconsax.music,
+                  ),
                 ),
               ),
             ),
@@ -129,7 +203,10 @@ class _CircularAlbumArtWithProgress extends ConsumerWidget {
 class MusicMiniPlayer extends ConsumerStatefulWidget {
   final VoidCallback onTap;
 
-  const MusicMiniPlayer({super.key, required this.onTap});
+  const MusicMiniPlayer({
+    super.key,
+    required this.onTap,
+  });
 
   @override
   ConsumerState<MusicMiniPlayer> createState() => _MusicMiniPlayerState();
@@ -167,92 +244,41 @@ class _MusicMiniPlayerState extends ConsumerState<MusicMiniPlayer> {
             ? albumColors.accent
             : colorScheme.primary;
 
+        final isLiquidGlass = ref.watch(liquidGlassNavProvider);
+
+        final Color borderColor = accentColor.withValues(
+          alpha: isDark ? 0.38 : 0.30,
+        );
+
         final List<Color> gradientColors;
-        final Color borderColor;
-        Color backgroundForText;
+        final Color backgroundForText =
+            isDark ? const Color(0xFF101010) : const Color(0xFF1A1A1A);
 
         if (isDark) {
-          if (hasAlbumColors) {
-            gradientColors = [
-              albumColors.backgroundPrimary.withValues(alpha: 0.78),
-              albumColors.backgroundSecondary.withValues(alpha: 0.70),
-            ];
-            borderColor = albumColors.accent.withValues(alpha: 0.30);
-            backgroundForText = albumColors.backgroundPrimary;
-          } else {
-            gradientColors = [
-              const Color(0xFF1E1E1E).withValues(alpha: 0.78),
-              const Color(0xFF121212).withValues(alpha: 0.70),
-            ];
-            backgroundForText = InzxColors.darkBackground;
-            borderColor = Colors.white.withValues(alpha: 0.18);
-          }
+          gradientColors = [
+            Colors.black.withValues(alpha: 0.62),
+            const Color(0xFF101010).withValues(alpha: 0.56),
+          ];
         } else {
           gradientColors = [
-            Colors.white.withValues(alpha: 0.82),
-            Colors.white.withValues(alpha: 0.72),
+            const Color(0xFF202020).withValues(alpha: 0.62),
+            const Color(0xFF141414).withValues(alpha: 0.56),
           ];
-          borderColor = hasAlbumColors
-              ? accentColor.withValues(alpha: 0.25)
-              : Colors.white.withValues(alpha: 0.85);
-          backgroundForText = InzxColors.background;
         }
 
         final textColors = InzxColors.adaptiveTextColors(backgroundForText);
         final foregroundColor = textColors.primary;
         final secondaryColor = textColors.secondary;
 
-        return Dismissible(
-          key: ValueKey('mini_player_${track.id}'),
-          direction: DismissDirection.down,
-          onDismissed: (_) {
-            setState(() {
-              _dismissedTrackId = track.id;
-            });
-            HapticFeedback.mediumImpact();
-            ref.read(audioPlayerServiceProvider).clearQueue();
-          },
-          child: BouncyTouch(
-            style: BouncyStyle.card,
-            customScale: 0.985,
-            onTap: widget.onTap,
-            child: Padding(
-            padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(32),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.10),
-                    blurRadius: 16,
-                    spreadRadius: 1,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(32),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: gradientColors,
-                      ),
-                      borderRadius: BorderRadius.circular(32),
-                      border: Border.all(color: borderColor, width: 1),
-                    ),
-                    child: Row(
+        final miniPlayerContent = Row(
                       children: [
-                        // Album Art with Circular Progress Ring
+                        // Album Art with Circular Progress Ring & Vinyl Rotation
                         _CircularAlbumArtWithProgress(
                           track: track,
                           duration: state.duration,
                           accentColor: accentColor,
                           textColor: foregroundColor,
+                          isPlaying: state.isPlaying,
                         ),
                         const SizedBox(width: 10),
 
@@ -418,14 +444,137 @@ class _MusicMiniPlayerState extends ConsumerState<MusicMiniPlayer> {
                           ],
                         ),
                       ],
+                    );
+
+        final Widget capsule;
+        if (isLiquidGlass) {
+          capsule = LiquidGlassContainer(
+            borderRadius: 32,
+            blurSigma: 2.0,
+            refractionScale: 1.05,
+            refractionDeflection: 2.8,
+            isDark: isDark,
+            surfaceColor: Colors.black.withValues(
+              alpha: isDark ? 0.45 : 0.35,
+            ),
+            accentColor: accentColor,
+            height: 64.0,
+            padding: const EdgeInsets.symmetric(
+              horizontal: 8,
+              vertical: 6,
+            ),
+            additionalShadows: [
+              if (hasAlbumColors)
+                BoxShadow(
+                  color: accentColor.withValues(
+                    alpha: isDark ? 0.20 : 0.10,
+                  ),
+                  blurRadius: 24,
+                  spreadRadius: -2,
+                  offset: const Offset(0, 4),
+                ),
+            ],
+            child: miniPlayerContent,
+          );
+        } else {
+          capsule = Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(32),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(
+                    alpha: isDark ? 0.30 : 0.08,
+                  ),
+                  blurRadius: 16,
+                  spreadRadius: 1,
+                  offset: const Offset(0, 4),
+                ),
+                if (hasAlbumColors)
+                  BoxShadow(
+                    color: accentColor.withValues(
+                      alpha: isDark ? 0.20 : 0.10,
+                    ),
+                    blurRadius: 24,
+                    spreadRadius: -2,
+                    offset: const Offset(0, 4),
+                  ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(32),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                child: Container(
+                  height: 64.0,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: gradientColors,
+                    ),
+                    borderRadius: BorderRadius.circular(32),
+                    border: Border.all(
+                      color: borderColor,
+                      width: 1.0,
                     ),
                   ),
+                  child: miniPlayerContent,
                 ),
               ),
             ),
+          );
+        }
+
+        // When liquid glass is enabled, the LiquidGlassContainer must NOT be
+        // inside BouncyTouch's Transform.scale — the scale transform creates
+        // a compositing layer that breaks BackdropFilter's matrix refraction.
+        // This matches the bottom nav pattern where LiquidGlassContainer sits
+        // directly in the tree with no Transform parent.
+        if (isLiquidGlass) {
+          return Dismissible(
+            key: ValueKey('mini_player_${track.id}'),
+            direction: DismissDirection.down,
+            onDismissed: (_) {
+              setState(() {
+                _dismissedTrackId = track.id;
+              });
+              HapticFeedback.mediumImpact();
+              ref.read(audioPlayerServiceProvider).clearQueue();
+            },
+            child: GestureDetector(
+              onTap: widget.onTap,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
+                child: capsule,
+              ),
+            ),
+          );
+        }
+
+        return Dismissible(
+          key: ValueKey('mini_player_${track.id}'),
+          direction: DismissDirection.down,
+          onDismissed: (_) {
+            setState(() {
+              _dismissedTrackId = track.id;
+            });
+            HapticFeedback.mediumImpact();
+            ref.read(audioPlayerServiceProvider).clearQueue();
+          },
+          child: BouncyTouch(
+            style: BouncyStyle.card,
+            customScale: 0.985,
+            onTap: widget.onTap,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
+              child: capsule,
+            ),
           ),
-        ),
-      );
+        );
       },
       loading: () => const SizedBox.shrink(),
       error: (_, _) => const SizedBox.shrink(),
