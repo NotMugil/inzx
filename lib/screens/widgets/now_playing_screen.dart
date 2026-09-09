@@ -19,6 +19,7 @@ import '../../services/lyrics/instrumental_gaps.dart';
 import '../../core/design_system/design_system.dart';
 import '../../core/services/cache/hive_service.dart';
 import '../../core/l10n/app_localizations_x.dart';
+import '../../core/providers/theme_provider.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart' show AlbumScreen;
 import 'playlist_screen.dart' show PlaylistScreen;
@@ -1703,6 +1704,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     final canControl = ref.watch(canControlJamPlaybackProvider);
     final canSkip = !isInJam || canControl;
 
+    final isLiquidGlass = ref.watch(liquidGlassNavProvider);
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -1728,6 +1731,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
           size: 48,
           iconSize: 28,
           backgroundColor: accentColor,
+          isLiquidGlass: isLiquidGlass,
         ),
         const SizedBox(width: 16),
         // Next
@@ -1850,6 +1854,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
             size: 40,
             iconSize: 24,
             backgroundColor: accentColor,
+            isLiquidGlass: ref.watch(liquidGlassNavProvider),
           ),
         ],
       ),
@@ -3330,24 +3335,120 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
 
     final hasSubtext = displaySubtext != null && displaySubtext.isNotEmpty;
 
+    final isLiquidGlass = ref.watch(liquidGlassNavProvider);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final albumColors = ref.watch(albumColorsProvider);
+    final hasAlbumColors = !albumColors.isDefault;
+    final accentColor = hasAlbumColors
+        ? albumColors.accent
+        : Theme.of(context).colorScheme.primary;
+
+    Widget buildDropletButton({
+      required Widget icon,
+      required VoidCallback onTap,
+    }) {
+      if (isLiquidGlass) {
+        return LiquidGlassContainer(
+          width: 42,
+          height: 42,
+          borderRadius: 21,
+          blurSigma: 2.0,
+          refractionScale: 1.08,
+          refractionDeflection: 2.8,
+          isDark: isDark,
+          surfaceColor: Colors.black.withValues(
+            alpha: isDark ? 0.38 : 0.22,
+          ),
+          accentColor: hasAlbumColors
+              ? accentColor.withValues(alpha: 0.50)
+              : (isDark ? Colors.white24 : Colors.black12),
+          padding: EdgeInsets.zero,
+          additionalShadows: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.28 : 0.10),
+              blurRadius: 10,
+              spreadRadius: -1,
+              offset: const Offset(0, 3),
+            ),
+            if (hasAlbumColors)
+              BoxShadow(
+                color: accentColor.withValues(alpha: isDark ? 0.20 : 0.10),
+                blurRadius: 12,
+                spreadRadius: -1,
+                offset: const Offset(0, 2),
+              ),
+          ],
+          child: SizedBox.expand(
+            child: BouncyTouch(
+              style: BouncyStyle.button,
+              customScale: 0.88,
+              onTap: onTap,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white.withValues(alpha: isDark ? 0.18 : 0.25),
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: isDark ? 0.15 : 0.08),
+                    ],
+                  ),
+                ),
+                child: Center(
+                  child: icon,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      return BouncyTouch(
+        style: BouncyStyle.button,
+        customScale: 0.90,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: icon,
+        ),
+      );
+    }
+
+    final backButton = buildDropletButton(
+      icon: Icon(
+        Icons.keyboard_arrow_down,
+        color: textColor,
+        size: isLiquidGlass ? 28 : 32,
+      ),
+      onTap: () {
+        // Use Navigator.pop for Hero animation on close
+        Navigator.of(context).pop();
+        widget.onClose?.call();
+      },
+    );
+
+    final moreButton = buildDropletButton(
+      icon: Icon(
+        Icons.more_vert,
+        color: textColor,
+        size: isLiquidGlass ? 22 : 24,
+      ),
+      onTap: () {
+        final track = ref.read(currentTrackProvider);
+        if (track != null) {
+          TrackOptionsSheet.show(context, track);
+        }
+      },
+    );
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          BouncyTouch(
-            style: BouncyStyle.button,
-            customScale: 0.90,
-            onTap: () {
-              // Use Navigator.pop for Hero animation on close
-              Navigator.of(context).pop();
-              widget.onClose?.call();
-            },
-            child: Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Icon(Icons.keyboard_arrow_down, color: textColor, size: 32),
-            ),
-          ),
+          backButton,
           Expanded(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -3430,20 +3531,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
               ],
             ),
           ),
-          BouncyTouch(
-            style: BouncyStyle.button,
-            customScale: 0.90,
-            onTap: () {
-              final track = ref.read(currentTrackProvider);
-              if (track != null) {
-                TrackOptionsSheet.show(context, track);
-              }
-            },
-            child: Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Icon(Icons.more_vert, color: textColor),
-            ),
-          ),
+          moreButton,
         ],
       ),
     );
@@ -4072,6 +4160,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     final modeIconSize = isCompact ? 20.0 : 24.0;
     final horizontalPadding = isCompact ? 12.0 : 24.0;
 
+    final isLiquidGlass = ref.watch(liquidGlassNavProvider);
+
     return Padding(
       padding: EdgeInsets.symmetric(
         horizontal: horizontalPadding,
@@ -4117,6 +4207,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
             size: playPauseSize,
             iconSize: playPauseIconSize,
             backgroundColor: accentColor,
+            isLiquidGlass: isLiquidGlass,
           ),
           // Next
           BouncyTouch(

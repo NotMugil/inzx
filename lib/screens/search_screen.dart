@@ -90,14 +90,34 @@ class SearchScreen extends ConsumerStatefulWidget {
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
 }
 
-class _SearchScreenState extends ConsumerState<SearchScreen> {
+class _SearchScreenState extends ConsumerState<SearchScreen>
+    with SingleTickerProviderStateMixin {
   final _searchController = TextEditingController();
   final _searchFocusNode = FocusNode();
   Timer? _debounceTimer;
 
+  late final AnimationController _headerAnimationController;
+  late final Animation<double> _headerAnimation;
+  bool _isHeaderVisible = true;
+  double _accumulatedDelta = 0.0;
+  static const double _hideThreshold = 25.0;
+  static const double _showThreshold = 20.0;
+
   @override
   void initState() {
     super.initState();
+    _headerAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+      value: 1.0,
+    );
+    _headerAnimation = CurvedAnimation(
+      parent: _headerAnimationController,
+      curve: Curves.easeInOutCubic,
+    );
+
+    _searchFocusNode.addListener(_onFocusChange);
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(searchQueryProvider.notifier).state = '';
       ref.read(searchFilterProvider.notifier).state = SearchFilter.all;
@@ -105,12 +125,69 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     });
   }
 
+  void _onFocusChange() {
+    if (_searchFocusNode.hasFocus && !_isHeaderVisible) {
+      _isHeaderVisible = true;
+      _headerAnimationController.forward();
+    }
+  }
+
   @override
   void dispose() {
     _debounceTimer?.cancel();
+    _searchFocusNode.removeListener(_onFocusChange);
     _searchController.dispose();
     _searchFocusNode.dispose();
+    _headerAnimationController.dispose();
     super.dispose();
+  }
+
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (notification.metrics.axis != Axis.vertical) return false;
+
+    if (notification is ScrollUpdateNotification && notification.depth == 0) {
+      final metrics = notification.metrics;
+      final delta = notification.scrollDelta;
+      if (delta == null) return false;
+
+      // When near or at top, always reveal search bar
+      if (metrics.pixels <= 10.0) {
+        if (!_isHeaderVisible) {
+          _isHeaderVisible = true;
+          _headerAnimationController.forward();
+        }
+        _accumulatedDelta = 0.0;
+        return false;
+      }
+
+      // Avoid toggling when overscrolling past bottom extent
+      if (metrics.pixels > metrics.maxScrollExtent) return false;
+
+      if (delta > 0) {
+        // Scrolling DOWN
+        if (_accumulatedDelta < 0) _accumulatedDelta = 0;
+        _accumulatedDelta += delta;
+        if (_accumulatedDelta > _hideThreshold && _isHeaderVisible) {
+          // If keyboard is open, unfocus so results get full screen space
+          if (_searchFocusNode.hasFocus) {
+            _searchFocusNode.unfocus();
+          }
+          _isHeaderVisible = false;
+          _headerAnimationController.reverse();
+          _accumulatedDelta = 0;
+        }
+      } else if (delta < 0) {
+        // Scrolling UP
+        if (_accumulatedDelta > 0) _accumulatedDelta = 0;
+        _accumulatedDelta += delta;
+        if (_accumulatedDelta < -_showThreshold && !_isHeaderVisible) {
+          _isHeaderVisible = true;
+          _headerAnimationController.forward();
+          _accumulatedDelta = 0;
+        }
+      }
+    }
+    return false;
   }
 
   void _onSearchChanged(String query) {
@@ -177,17 +254,34 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             ),
           ),
           SafeArea(
-            child: Column(
-              children: [
-                _buildSearchBar(isDark, accentColor, textColor, secondaryTextColor),
-                if (query.isNotEmpty)
-                  _buildFilterChips(isDark, accentColor, textColor, secondaryTextColor),
-                Expanded(
-                  child: query.isEmpty
-                      ? _buildSuggestionsOrHistory(isDark, accentColor, textColor, secondaryTextColor)
-                      : _buildSearchResults(isDark, accentColor, textColor, secondaryTextColor, colorScheme),
-                ),
-              ],
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _handleScrollNotification,
+              child: Column(
+                children: [
+                  ClipRect(
+                    child: SizeTransition(
+                      sizeFactor: _headerAnimation,
+                      alignment: Alignment.topCenter,
+                      child: FadeTransition(
+                        opacity: _headerAnimation,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildSearchBar(isDark, accentColor, textColor, secondaryTextColor),
+                            if (query.isNotEmpty)
+                              _buildFilterChips(isDark, accentColor, textColor, secondaryTextColor),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: query.isEmpty
+                        ? _buildSuggestionsOrHistory(isDark, accentColor, textColor, secondaryTextColor)
+                        : _buildSearchResults(isDark, accentColor, textColor, secondaryTextColor, colorScheme),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -231,13 +325,19 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                         ? Colors.white.withValues(alpha: 0.08)
                         : Colors.black.withValues(alpha: 0.05),
                     borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.16)
+                          : Colors.black.withValues(alpha: 0.12),
+                      width: 1.0,
+                    ),
                   ),
                   child: Row(
                     children: [
                       Icon(
                         Iconsax.search_normal,
                         size: 18,
-                        color: isDark ? Colors.white54 : InzxColors.textSecondary,
+                        color: isDark ? Colors.white70 : InzxColors.textSecondary,
                       ),
                       const SizedBox(width: 10),
                       Expanded(
@@ -257,7 +357,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                             fillColor: Colors.transparent,
                             hintText: context.l10n.searchMusicHint,
                             hintStyle: TextStyle(
-                              color: secondaryTextColor,
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.62)
+                                  : Colors.black.withValues(alpha: 0.48),
                               fontSize: 15,
                             ),
                             border: InputBorder.none,

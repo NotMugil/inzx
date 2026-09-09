@@ -207,8 +207,8 @@ class _MusicSongsTabState extends ConsumerState<MusicSongsTab> {
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: isDark
-                        ? Colors.white.withValues(alpha: 0.12)
-                        : Colors.black.withValues(alpha: 0.08),
+                        ? Colors.white.withValues(alpha: 0.16)
+                        : Colors.black.withValues(alpha: 0.12),
                     width: 1,
                   ),
                 ),
@@ -224,7 +224,9 @@ class _MusicSongsTabState extends ConsumerState<MusicSongsTab> {
                     decoration: InputDecoration(
                       hintText: l10n.searchSongsHint,
                       hintStyle: TextStyle(
-                        color: isDark ? Colors.white38 : InzxColors.textSecondary,
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.62)
+                            : Colors.black.withValues(alpha: 0.48),
                         fontSize: 14,
                       ),
                       filled: false,
@@ -241,7 +243,9 @@ class _MusicSongsTabState extends ConsumerState<MusicSongsTab> {
                         child: Icon(
                           Icons.search_rounded,
                           size: 20,
-                          color: isDark ? Colors.white38 : InzxColors.textSecondary,
+                          color: isDark
+                              ? Colors.white.withValues(alpha: 0.70)
+                              : InzxColors.textSecondary,
                         ),
                       ),
                       prefixIconConstraints: const BoxConstraints(

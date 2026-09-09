@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'liquid_glass.dart';
 
 enum BouncyStyle {
   /// Small controls & action pills (Play/Pause, Heart, Action buttons)
@@ -81,7 +82,6 @@ class _BouncyTouchState extends State<BouncyTouch>
         curveOut = Curves.elasticOut;
         break;
       case BouncyStyle.button:
-      default:
         targetScale = widget.customScale ?? 0.92;
         targetOpacity = 0.88;
         curveOut = Curves.easeOutBack; // Crisp responsive spring
@@ -130,7 +130,6 @@ class _BouncyTouchState extends State<BouncyTouch>
         HapticFeedback.mediumImpact();
         break;
       case BouncyStyle.button:
-      default:
         HapticFeedback.lightImpact();
         break;
     }
@@ -190,6 +189,7 @@ class _BouncyTouchState extends State<BouncyTouch>
 }
 
 /// An ultra-fluid, animated Play/Pause toggle button with icon morphing and spring scale.
+/// Supports both standard opaque theme and optical Liquid Glass lens styling.
 class AnimatedPlayPauseButton extends StatelessWidget {
   final bool isPlaying;
   final VoidCallback onTap;
@@ -197,6 +197,7 @@ class AnimatedPlayPauseButton extends StatelessWidget {
   final double iconSize;
   final Color backgroundColor;
   final Color iconColor;
+  final bool isLiquidGlass;
 
   const AnimatedPlayPauseButton({
     super.key,
@@ -206,10 +207,96 @@ class AnimatedPlayPauseButton extends StatelessWidget {
     this.iconSize = 40.0,
     required this.backgroundColor,
     this.iconColor = Colors.white,
+    this.isLiquidGlass = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final bool isLightColor = backgroundColor.computeLuminance() > 0.60;
+    final effectiveIconColor = isLiquidGlass
+        ? (iconColor == Colors.white && isLightColor
+            ? Colors.black87
+            : iconColor)
+        : iconColor;
+
+    final iconSwitcher = AnimatedSwitcher(
+      duration: const Duration(milliseconds: 450),
+      reverseDuration: const Duration(milliseconds: 300),
+      switchInCurve: Curves.elasticOut,
+      switchOutCurve: Curves.easeInBack,
+      transitionBuilder: (child, animation) {
+        return ScaleTransition(
+          scale: animation,
+          child: RotationTransition(
+            turns: Tween<double>(
+              begin: child.key == const ValueKey('play') ? -0.15 : 0.15,
+              end: 0.0,
+            ).animate(animation),
+            child: FadeTransition(
+              opacity: animation,
+              child: child,
+            ),
+          ),
+        );
+      },
+      child: Icon(
+        isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+        key: ValueKey(isPlaying ? 'pause' : 'play'),
+        color: effectiveIconColor,
+        size: iconSize,
+      ),
+    );
+
+    if (isLiquidGlass) {
+      return LiquidGlassContainer(
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        blurSigma: 2.0,
+        refractionScale: 1.08,
+        refractionDeflection: 2.8,
+        isDark: isDark,
+        surfaceColor: backgroundColor.withValues(
+          alpha: isDark ? 0.82 : 0.88,
+        ),
+        accentColor: Color.lerp(backgroundColor, Colors.white, 0.45) ?? backgroundColor,
+        additionalShadows: [
+          BoxShadow(
+            color: backgroundColor.withValues(alpha: isPlaying ? 0.55 : 0.28),
+            blurRadius: isPlaying ? 24 : 12,
+            spreadRadius: isPlaying ? 3 : 0,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        child: SizedBox.expand(
+          child: BouncyTouch(
+            style: BouncyStyle.button,
+            customScale: 0.88,
+            onTap: onTap,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.white.withValues(alpha: 0.30),
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.15),
+                  ],
+                ),
+              ),
+              child: Center(
+                child: iconSwitcher,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return BouncyTouch(
       style: BouncyStyle.button,
       customScale: 0.88,
@@ -232,33 +319,7 @@ class AnimatedPlayPauseButton extends StatelessWidget {
           ],
         ),
         child: Center(
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 450),
-            reverseDuration: const Duration(milliseconds: 300),
-            switchInCurve: Curves.elasticOut,
-            switchOutCurve: Curves.easeInBack,
-            transitionBuilder: (child, animation) {
-              return ScaleTransition(
-                scale: animation,
-                child: RotationTransition(
-                  turns: Tween<double>(
-                    begin: child.key == const ValueKey('play') ? -0.15 : 0.15,
-                    end: 0.0,
-                  ).animate(animation),
-                  child: FadeTransition(
-                    opacity: animation,
-                    child: child,
-                  ),
-                ),
-              );
-            },
-            child: Icon(
-              isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-              key: ValueKey(isPlaying ? 'pause' : 'play'),
-              color: iconColor,
-              size: iconSize,
-            ),
-          ),
+          child: iconSwitcher,
         ),
       ),
     );

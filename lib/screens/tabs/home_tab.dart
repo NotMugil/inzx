@@ -27,9 +27,81 @@ class MusicHomeTab extends ConsumerStatefulWidget {
   ConsumerState<MusicHomeTab> createState() => _MusicHomeTabState();
 }
 
-class _MusicHomeTabState extends ConsumerState<MusicHomeTab> {
+class _MusicHomeTabState extends ConsumerState<MusicHomeTab>
+    with SingleTickerProviderStateMixin {
   bool _hasPrefetched =
       false; // Track if we've already prefetched for current home data
+
+  late final AnimationController _headerAnimationController;
+  late final Animation<double> _headerAnimation;
+  bool _isHeaderVisible = true;
+  double _accumulatedDelta = 0.0;
+  static const double _hideThreshold = 25.0;
+  static const double _showThreshold = 20.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _headerAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+      value: 1.0,
+    );
+    _headerAnimation = CurvedAnimation(
+      parent: _headerAnimationController,
+      curve: Curves.easeInOutCubic,
+    );
+  }
+
+  @override
+  void dispose() {
+    _headerAnimationController.dispose();
+    super.dispose();
+  }
+
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (notification.metrics.axis != Axis.vertical) return false;
+
+    if (notification is ScrollUpdateNotification && notification.depth == 0) {
+      final metrics = notification.metrics;
+      final delta = notification.scrollDelta;
+      if (delta == null) return false;
+
+      // When near or at top, always reveal search bar
+      if (metrics.pixels <= 10.0) {
+        if (!_isHeaderVisible) {
+          _isHeaderVisible = true;
+          _headerAnimationController.forward();
+        }
+        _accumulatedDelta = 0.0;
+        return false;
+      }
+
+      // Avoid toggling when overscrolling past bottom extent
+      if (metrics.pixels > metrics.maxScrollExtent) return false;
+
+      if (delta > 0) {
+        // Scrolling DOWN
+        if (_accumulatedDelta < 0) _accumulatedDelta = 0;
+        _accumulatedDelta += delta;
+        if (_accumulatedDelta > _hideThreshold && _isHeaderVisible) {
+          _isHeaderVisible = false;
+          _headerAnimationController.reverse();
+          _accumulatedDelta = 0;
+        }
+      } else if (delta < 0) {
+        // Scrolling UP
+        if (_accumulatedDelta > 0) _accumulatedDelta = 0;
+        _accumulatedDelta += delta;
+        if (_accumulatedDelta < -_showThreshold && !_isHeaderVisible) {
+          _isHeaderVisible = true;
+          _headerAnimationController.forward();
+          _accumulatedDelta = 0;
+        }
+      }
+    }
+    return false;
+  }
 
   // Computed adaptive text colors based on background luminance
   bool get _isDark => Theme.of(context).brightness == Brightness.dark;
@@ -217,14 +289,26 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab> {
 
     return SafeArea(
       bottom: false,
-      child: Column(
-        children: [
-          // Search bar
-          _buildSearchBar(isDark, colorScheme),
+      child: NotificationListener<ScrollNotification>(
+        onNotification: _handleScrollNotification,
+        child: Column(
+          children: [
+            // Search bar / topbar with smooth hide/show animation on scroll
+            ClipRect(
+              child: SizeTransition(
+                sizeFactor: _headerAnimation,
+                alignment: Alignment.topCenter,
+                child: FadeTransition(
+                  opacity: _headerAnimation,
+                  child: _buildSearchBar(isDark, colorScheme),
+                ),
+              ),
+            ),
 
-          // Content
-          Expanded(child: _buildHomeContent(isDark, colorScheme)),
-        ],
+            // Content
+            Expanded(child: _buildHomeContent(isDark, colorScheme)),
+          ],
+        ),
       ),
     );
   }
@@ -342,20 +426,30 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab> {
                       ? Colors.white.withValues(alpha: 0.08)
                       : Colors.black.withValues(alpha: 0.05),
                   borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.16)
+                        : Colors.black.withValues(alpha: 0.12),
+                    width: 1.0,
+                  ),
                 ),
                 child: Row(
                   children: [
                     Icon(
                       Icons.search_rounded,
                       size: 22,
-                      color: _textColors.secondary,
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.70)
+                          : _textColors.secondary,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         l10n.searchMusicHint,
                         style: TextStyle(
-                          color: _textColors.tertiary,
+                          color: isDark
+                              ? Colors.white.withValues(alpha: 0.62)
+                              : Colors.black.withValues(alpha: 0.48),
                           fontSize: 15,
                         ),
                       ),

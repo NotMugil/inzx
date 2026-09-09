@@ -257,9 +257,15 @@ class _LiquidGlassContainerState extends State<LiquidGlassContainer> {
         borderRadius: BorderRadius.circular(widget.borderRadius),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final w = constraints.maxWidth;
+            final w = constraints.hasBoundedWidth && constraints.maxWidth.isFinite
+                ? constraints.maxWidth
+                : (widget.width ?? MediaQuery.of(context).size.width);
             final h = widget.height ??
-                (constraints.maxHeight > 0 ? constraints.maxHeight : 64.0);
+                (constraints.hasBoundedHeight &&
+                        constraints.maxHeight.isFinite &&
+                        constraints.maxHeight > 0
+                    ? constraints.maxHeight
+                    : 56.0);
 
             // Construct optical lens refraction filter centered at the EXACT
             // global screen position of this container.
@@ -470,10 +476,10 @@ class _LiquidGlassContainerState extends State<LiquidGlassContainer> {
                   : const SizedBox.expand();
 
               return Stack(
-                fit: StackFit.passthrough,
+                fit: StackFit.loose,
                 children: [
-                  matrixLayer,
-                  blurLayer,
+                  Positioned.fill(child: matrixLayer),
+                  Positioned.fill(child: blurLayer),
                   surface,
                 ],
               );
