@@ -238,10 +238,15 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab>
       return;
     }
 
-    // Check for playlist
+    // Check for playlist or podcast
     if (item.playlistId != null ||
         item.itemType == HomeShelfItemType.playlist ||
-        item.itemType == HomeShelfItemType.mix) {
+        item.itemType == HomeShelfItemType.mix ||
+        item.itemType == HomeShelfItemType.podcast ||
+        (item.navigationId != null &&
+            (item.navigationId!.startsWith('MPSP') ||
+                item.navigationId!.startsWith('MPED') ||
+                item.navigationId!.startsWith('VL')))) {
       final playlistId = item.playlistId ?? item.navigationId ?? item.id;
       PlaylistScreen.open(
         context,

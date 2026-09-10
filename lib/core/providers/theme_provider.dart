@@ -436,3 +436,67 @@ class ShowLyricsBelowAlbumArtNotifier extends StateNotifier<bool> {
   Future<void> toggle() => setEnabled(!state);
 }
 
+/// Progress bar style options for the Now Playing screen
+enum ProgressBarStyle {
+  defaultLinear, // Classic linear slider
+  waveform, // Fluid oscillating wavy progress line (Android media style)
+  audioWaveform, // Vertical audio waveform amplitude bars scrubber
+}
+
+String getProgressBarStyleName(ProgressBarStyle style) {
+  switch (style) {
+    case ProgressBarStyle.defaultLinear:
+      return 'Default';
+    case ProgressBarStyle.waveform:
+      return 'Waveform';
+    case ProgressBarStyle.audioWaveform:
+      return 'Audio Waveform';
+  }
+}
+
+String getProgressBarStyleDescription(ProgressBarStyle style) {
+  switch (style) {
+    case ProgressBarStyle.defaultLinear:
+      return 'Classic linear slider with smooth seek knob';
+    case ProgressBarStyle.waveform:
+      return 'Fluid oscillating wavy line with animated playback motion';
+    case ProgressBarStyle.audioWaveform:
+      return 'Dynamic vertical amplitude bars scrubber with tap & drag seek';
+  }
+}
+
+/// Provider for Progress Bar style
+final progressBarStyleProvider =
+    StateNotifierProvider<ProgressBarStyleNotifier, ProgressBarStyle>((ref) {
+  return ProgressBarStyleNotifier();
+});
+
+/// Notifier to manage Progress Bar style
+class ProgressBarStyleNotifier extends StateNotifier<ProgressBarStyle> {
+  static const String progressBarStylePrefKey = 'inzx_progress_bar_style_v1';
+
+  ProgressBarStyleNotifier() : super(ProgressBarStyle.defaultLinear) {
+    _loadPreference();
+  }
+
+  Future<void> _loadPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final index = prefs.getInt(progressBarStylePrefKey);
+      if (index != null &&
+          index >= 0 &&
+          index < ProgressBarStyle.values.length) {
+        state = ProgressBarStyle.values[index];
+      }
+    } catch (_) {}
+  }
+
+  Future<void> setStyle(ProgressBarStyle style) async {
+    state = style;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(progressBarStylePrefKey, style.index);
+    } catch (_) {}
+  }
+}
+

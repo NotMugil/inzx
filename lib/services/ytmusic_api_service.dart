@@ -1818,7 +1818,10 @@ class InnerTubeService {
     }
 
     String browseId = playlistId;
-    if (!browseId.startsWith('VL')) {
+    if (!browseId.startsWith('VL') &&
+        !browseId.startsWith('MPSP') &&
+        !browseId.startsWith('MPED') &&
+        !browseId.startsWith('MPRE')) {
       browseId = 'VL$playlistId';
     }
 
@@ -4741,36 +4744,34 @@ class InnerTubeService {
                 }
               }
             }
-            if (authorAvatarUrl == null) {
-              final fpAvatars = avatarStack['avatars'] as List?;
-              if (fpAvatars != null && fpAvatars.isNotEmpty) {
-                final firstAvatar = fpAvatars[0];
-                if (firstAvatar is Map) {
-                  final avatarVM = firstAvatar['avatarViewModel'];
-                  if (avatarVM is Map) {
-                    final sources = avatarVM['image']?['sources'] as List?;
-                    if (sources != null && sources.isNotEmpty) {
-                      authorAvatarUrl = sources.last['url'] as String?;
-                    }
-                    if (authorAvatarUrl == null) {
-                      final altSources = avatarVM['avatar']?['image']?['sources'] as List?;
-                      if (altSources != null && altSources.isNotEmpty) {
-                        authorAvatarUrl = altSources.last['url'] as String?;
-                      }
-                    }
-                    if (authorAvatarUrl == null) {
-                      final thumbs = avatarVM['image']?['thumbnails'] as List?;
-                      if (thumbs != null && thumbs.isNotEmpty) {
-                        authorAvatarUrl = thumbs.last['url'] as String?;
-                      }
+            final fpAvatars = avatarStack['avatars'] as List?;
+            if (fpAvatars != null && fpAvatars.isNotEmpty) {
+              final firstAvatar = fpAvatars[0];
+              if (firstAvatar is Map) {
+                final avatarVM = firstAvatar['avatarViewModel'];
+                if (avatarVM is Map) {
+                  final sources = avatarVM['image']?['sources'] as List?;
+                  if (sources != null && sources.isNotEmpty) {
+                    authorAvatarUrl = sources.last['url'] as String?;
+                  }
+                  if (authorAvatarUrl == null) {
+                    final altSources = avatarVM['avatar']?['image']?['sources'] as List?;
+                    if (altSources != null && altSources.isNotEmpty) {
+                      authorAvatarUrl = altSources.last['url'] as String?;
                     }
                   }
                   if (authorAvatarUrl == null) {
-                    final thumbs = firstAvatar['thumbnails'] as List? ??
-                        firstAvatar['thumbnail']?['thumbnails'] as List?;
+                    final thumbs = avatarVM['image']?['thumbnails'] as List?;
                     if (thumbs != null && thumbs.isNotEmpty) {
                       authorAvatarUrl = thumbs.last['url'] as String?;
                     }
+                  }
+                }
+                if (authorAvatarUrl == null) {
+                  final thumbs = firstAvatar['thumbnails'] as List? ??
+                      firstAvatar['thumbnail']?['thumbnails'] as List?;
+                  if (thumbs != null && thumbs.isNotEmpty) {
+                    authorAvatarUrl = thumbs.last['url'] as String?;
                   }
                 }
               }
@@ -4786,7 +4787,7 @@ class InnerTubeService {
            final fullSub = subtitleRuns.map((r) => r['text']).join();
            if (author != null && fullSub.startsWith(author)) {
               extraSubtitle = fullSub.substring(author.length).trim();
-              if (extraSubtitle!.startsWith('•')) {
+              if (extraSubtitle.startsWith('•')) {
                  extraSubtitle = extraSubtitle.substring(1).trim();
               }
            }
@@ -4798,14 +4799,14 @@ class InnerTubeService {
            for (final run in subtitleRuns) {
               final text = (run['text'] as String?)?.trim() ?? '';
               if (text == 'Public' || text == 'Private' || RegExp(r'^\d{4}$').hasMatch(text)) {
-                 if (extraSubtitle == null || !extraSubtitle!.contains(text)) {
+                 if (extraSubtitle == null || !extraSubtitle.contains(text)) {
                     partsToAdd.add(text);
                  }
               }
            }
            if (partsToAdd.isNotEmpty) {
               final suffix = partsToAdd.join(' • ');
-              if (extraSubtitle == null || extraSubtitle!.isEmpty) {
+              if (extraSubtitle == null || extraSubtitle.isEmpty) {
                  extraSubtitle = suffix;
               } else {
                  extraSubtitle = '$extraSubtitle • $suffix';
@@ -5168,40 +5169,38 @@ class InnerTubeService {
             }
 
             // Extract avatar from avatarViewModel
-            if (authorAvatarUrl == null) {
-              final fpAvatars = avatarStack['avatars'] as List?;
-              if (fpAvatars != null && fpAvatars.isNotEmpty) {
-                final firstAvatar = fpAvatars[0];
-                if (firstAvatar is Map) {
-                  final avatarVM = firstAvatar['avatarViewModel'];
-                  if (avatarVM is Map) {
-                    // Try image.sources (ViewModel format)
-                    final sources = avatarVM['image']?['sources'] as List?;
-                    if (sources != null && sources.isNotEmpty) {
-                      authorAvatarUrl = sources.last['url'] as String?;
-                    }
-                    // Fallback: avatar.image.sources
-                    if (authorAvatarUrl == null) {
-                      final altSources = avatarVM['avatar']?['image']?['sources'] as List?;
-                      if (altSources != null && altSources.isNotEmpty) {
-                        authorAvatarUrl = altSources.last['url'] as String?;
-                      }
-                    }
-                    // Fallback: thumbnails directly
-                    if (authorAvatarUrl == null) {
-                      final thumbs = avatarVM['image']?['thumbnails'] as List?;
-                      if (thumbs != null && thumbs.isNotEmpty) {
-                        authorAvatarUrl = thumbs.last['url'] as String?;
-                      }
+            final fpAvatars = avatarStack['avatars'] as List?;
+            if (fpAvatars != null && fpAvatars.isNotEmpty) {
+              final firstAvatar = fpAvatars[0];
+              if (firstAvatar is Map) {
+                final avatarVM = firstAvatar['avatarViewModel'];
+                if (avatarVM is Map) {
+                  // Try image.sources (ViewModel format)
+                  final sources = avatarVM['image']?['sources'] as List?;
+                  if (sources != null && sources.isNotEmpty) {
+                    authorAvatarUrl = sources.last['url'] as String?;
+                  }
+                  // Fallback: avatar.image.sources
+                  if (authorAvatarUrl == null) {
+                    final altSources = avatarVM['avatar']?['image']?['sources'] as List?;
+                    if (altSources != null && altSources.isNotEmpty) {
+                      authorAvatarUrl = altSources.last['url'] as String?;
                     }
                   }
-                  // Legacy fallback for non-ViewModel avatars
+                  // Fallback: thumbnails directly
                   if (authorAvatarUrl == null) {
-                    final thumbs = firstAvatar['thumbnails'] as List? ??
-                        firstAvatar['thumbnail']?['thumbnails'] as List?;
+                    final thumbs = avatarVM['image']?['thumbnails'] as List?;
                     if (thumbs != null && thumbs.isNotEmpty) {
                       authorAvatarUrl = thumbs.last['url'] as String?;
                     }
+                  }
+                }
+                // Legacy fallback for non-ViewModel avatars
+                if (authorAvatarUrl == null) {
+                  final thumbs = firstAvatar['thumbnails'] as List? ??
+                      firstAvatar['thumbnail']?['thumbnails'] as List?;
+                  if (thumbs != null && thumbs.isNotEmpty) {
+                    authorAvatarUrl = thumbs.last['url'] as String?;
                   }
                 }
               }
@@ -5217,7 +5216,7 @@ class InnerTubeService {
           final fullSub = subtitleRuns.map((r) => r['text']).join();
           if (author != null && fullSub.startsWith(author)) {
             extraSubtitle = fullSub.substring(author.length).trim();
-            if (extraSubtitle!.startsWith('•')) {
+            if (extraSubtitle.startsWith('•')) {
               extraSubtitle = extraSubtitle.substring(1).trim();
             }
           }
@@ -5229,14 +5228,14 @@ class InnerTubeService {
            for (final run in subtitleRuns) {
               final text = (run['text'] as String?)?.trim() ?? '';
               if (text == 'Public' || text == 'Private' || RegExp(r'^\d{4}$').hasMatch(text)) {
-                 if (extraSubtitle == null || !extraSubtitle!.contains(text)) {
+                 if (extraSubtitle == null || !extraSubtitle.contains(text)) {
                     partsToAdd.add(text);
                  }
               }
            }
            if (partsToAdd.isNotEmpty) {
               final suffix = partsToAdd.join(' • ');
-              if (extraSubtitle == null || extraSubtitle!.isEmpty) {
+              if (extraSubtitle == null || extraSubtitle.isEmpty) {
                  extraSubtitle = suffix;
               } else {
                  extraSubtitle = '$extraSubtitle • $suffix';
@@ -6772,6 +6771,14 @@ class InnerTubeService {
           }
         } else if (pageType == 'MUSIC_PAGE_TYPE_ARTIST') {
           itemType = HomeShelfItemType.artist;
+        } else if (pageType == 'MUSIC_PAGE_TYPE_PODCAST_SHOW_DETAIL_PAGE' ||
+            pageType == 'MUSIC_PAGE_TYPE_PODCAST_EPISODE_DETAIL_PAGE' ||
+            pageType == 'MUSIC_PAGE_TYPE_NON_MUSIC_AUDIO_TRACK_PAGE' ||
+            (navigationId != null &&
+                (navigationId.startsWith('MPSP') ||
+                    navigationId.startsWith('MPED')))) {
+          itemType = HomeShelfItemType.podcast;
+          playlistId = navigationId;
         }
       } else if (watchEndpoint != null) {
         videoId = watchEndpoint['videoId'] as String?;
@@ -6786,6 +6793,12 @@ class InnerTubeService {
               as String?;
       if (aspectRatio == 'MUSIC_THUMBNAIL_CROP_CIRCLE') {
         itemType = HomeShelfItemType.artist;
+      }
+
+      if (shelfType == HomeShelfType.podcasts &&
+          itemType == HomeShelfItemType.unknown) {
+        itemType = HomeShelfItemType.podcast;
+        playlistId = navigationId;
       }
 
       Duration? parsedDuration;
@@ -7268,6 +7281,13 @@ class InnerTubeService {
           itemType = HomeShelfItemType.playlist;
         } else if (pageType == 'MUSIC_PAGE_TYPE_ARTIST') {
           itemType = HomeShelfItemType.artist;
+        } else if (pageType == 'MUSIC_PAGE_TYPE_PODCAST_SHOW_DETAIL_PAGE' ||
+            pageType == 'MUSIC_PAGE_TYPE_PODCAST_EPISODE_DETAIL_PAGE' ||
+            pageType == 'MUSIC_PAGE_TYPE_NON_MUSIC_AUDIO_TRACK_PAGE' ||
+            (browseId != null &&
+                (browseId.startsWith('MPSP') ||
+                    browseId.startsWith('MPED')))) {
+          itemType = HomeShelfItemType.podcast;
         } else if (videoId != null) {
           itemType = HomeShelfItemType.song;
         }

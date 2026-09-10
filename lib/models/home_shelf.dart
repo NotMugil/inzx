@@ -61,7 +61,10 @@ class HomeShelfItem extends Equatable {
 
   /// Convert to Track if it's a song
   Track? toTrack() {
-    if (itemType != HomeShelfItemType.song) return null;
+    if (itemType != HomeShelfItemType.song &&
+        (itemType != HomeShelfItemType.podcast || videoId == null)) {
+      return null;
+    }
     final artistName = _extractArtistFromSubtitle(subtitle);
     final resolvedDuration = duration ?? _extractDurationFromSubtitle(subtitle);
     return Track(
@@ -72,7 +75,7 @@ class HomeShelfItem extends Equatable {
       album: album,
       albumId: albumId,
       thumbnailUrl: thumbnailUrl,
-      duration: resolvedDuration,
+      duration: resolvedDuration ?? Duration.zero,
     );
   }
 
@@ -120,25 +123,24 @@ class HomeShelfItem extends Equatable {
     return parts.isNotEmpty ? parts.first : raw;
   }
 
-  static Duration _extractDurationFromSubtitle(String? subtitle) {
-    if (subtitle == null || subtitle.isEmpty) return Duration.zero;
-
-    // Match m:ss or h:mm:ss anywhere in subtitle.
-    final match = RegExp(
-      r'(?:(\d{1,2}):)?(\d{1,2}):(\d{2})',
-    ).firstMatch(subtitle);
-    if (match == null) return Duration.zero;
+  static Duration? _extractDurationFromSubtitle(String? subtitle) {
+    if (subtitle == null) return null;
+    final match =
+        RegExp(r'(?:(\d{1,2}):)?(\d{1,2}):(\d{2})').firstMatch(subtitle);
+    if (match == null) return null;
 
     final hours = match.group(1) != null ? int.parse(match.group(1)!) : 0;
     final minutes = int.parse(match.group(2)!);
     final seconds = int.parse(match.group(3)!);
+
     return Duration(hours: hours, minutes: minutes, seconds: seconds);
   }
 
-  /// Convert to Playlist if it's a playlist/mix
+  /// Convert to Playlist if it's a playlist/mix/podcast
   Playlist? toPlaylist() {
     if (itemType != HomeShelfItemType.playlist &&
-        itemType != HomeShelfItemType.mix) {
+        itemType != HomeShelfItemType.mix &&
+        itemType != HomeShelfItemType.podcast) {
       return null;
     }
     return Playlist(
@@ -276,7 +278,8 @@ class HomeShelf extends Equatable {
       .where(
         (item) =>
             item.itemType == HomeShelfItemType.playlist ||
-            item.itemType == HomeShelfItemType.mix,
+            item.itemType == HomeShelfItemType.mix ||
+            item.itemType == HomeShelfItemType.podcast,
       )
       .map((item) => item.toPlaylist())
       .whereType<Playlist>()

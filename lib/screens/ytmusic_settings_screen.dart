@@ -415,6 +415,11 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
       'dark',
       'light',
       'mode',
+      'now playing style',
+      'progress bar',
+      'waveform',
+      'audio waveform',
+      'scrubber',
       'liquid glass',
       'glass',
       'navbar',
@@ -979,11 +984,35 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
           height: 1,
           color: _isDark ? InzxColors.darkDivider : InzxColors.divider,
         ),
+        _settingsTile(
+          icon: Icons.art_track_rounded,
+          iconBg: _accentColor,
+          title: 'Now Playing Style',
+          subtitle:
+              '${getNowPlayingStyleName(ref.watch(nowPlayingStyleProvider))} • ${ref.watch(nowPlayingStyleProvider) == NowPlayingStyle.ripple ? "Wavy cover & circular seek ring" : "Classic layout & sliding queue"}',
+          onTap: _showNowPlayingStyleSelector,
+        ),
+        Divider(
+          height: 1,
+          color: _isDark ? InzxColors.darkDivider : InzxColors.divider,
+        ),
+        _settingsTile(
+          icon: Icons.graphic_eq_rounded,
+          iconBg: _accentColor,
+          title: 'Progress Bar Style',
+          subtitle:
+              '${getProgressBarStyleName(ref.watch(progressBarStyleProvider))} • ${getProgressBarStyleDescription(ref.watch(progressBarStyleProvider))}',
+          onTap: _showProgressBarStyleSelector,
+        ),
+        Divider(
+          height: 1,
+          color: _isDark ? InzxColors.darkDivider : InzxColors.divider,
+        ),
         _switchTile(
           icon: Icons.water_drop_rounded,
           iconBg: _accentColor,
-          title: 'Liquid Glass Navigation Bar',
-          subtitle: 'Optical lens refraction & fluid droplet indicator',
+          title: 'Liquid Glass',
+          subtitle: 'Translucent frosted glass styling with fluid light refraction',
           value: ref.watch(liquidGlassNavProvider),
           onChanged: (val) =>
               ref.read(liquidGlassNavProvider.notifier).setEnabled(val),
@@ -1018,18 +1047,6 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
           height: 1,
           color: _isDark ? InzxColors.darkDivider : InzxColors.divider,
         ),
-        _settingsTile(
-          icon: Icons.art_track_rounded,
-          iconBg: _accentColor,
-          title: 'Now Playing Style',
-          subtitle:
-              '${getNowPlayingStyleName(ref.watch(nowPlayingStyleProvider))} • ${ref.watch(nowPlayingStyleProvider) == NowPlayingStyle.ripple ? "Wavy cover & circular seek ring" : "Classic layout & sliding queue"}',
-          onTap: _showNowPlayingStyleSelector,
-        ),
-        Divider(
-          height: 1,
-          color: _isDark ? InzxColors.darkDivider : InzxColors.divider,
-        ),
         _switchTile(
           icon: Iconsax.text,
           iconBg: _accentColor,
@@ -1059,161 +1076,353 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
 
   Future<void> _showNowPlayingStyleSelector() async {
     final currentStyle = ref.read(nowPlayingStyleProvider);
-    final sheetBg = _isDark ? const Color(0xFF1B1B1F) : Colors.white;
+    final sheetBg = _isDark ? Colors.black : Colors.white;
 
     await showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: sheetBg,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (sheetContext) {
         return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 36,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: _isDark ? Colors.white24 : Colors.black12,
-                      borderRadius: BorderRadius.circular(2),
+          top: false,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(sheetContext).size.height * 0.85,
+            ),
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: _isDark ? Colors.white24 : Colors.black12,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: _accentColor.withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(10),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: _accentColor.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                          Icons.art_track_rounded,
+                          size: 20,
+                          color: _accentColor,
+                        ),
                       ),
-                      child: Icon(
-                        Icons.art_track_rounded,
-                        size: 20,
-                        color: _accentColor,
+                      const SizedBox(width: 12),
+                      Text(
+                        'Now Playing Style',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: _textPrimary,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      'Now Playing Style',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: _textPrimary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                ...NowPlayingStyle.values.map((style) {
-                  final isSelected = style == currentStyle;
-                  final title = getNowPlayingStyleName(style);
-                  final desc = getNowPlayingStyleDescription(style);
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  ...NowPlayingStyle.values.map((style) {
+                    final isSelected = style == currentStyle;
+                    final title = getNowPlayingStyleName(style);
+                    final desc = getNowPlayingStyleDescription(style);
 
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Material(
-                      color: isSelected
-                          ? _accentColor.withValues(alpha: 0.12)
-                          : (_isDark
-                              ? const Color(0xFF242429)
-                              : const Color(0xFFF5F5F7)),
-                      borderRadius: BorderRadius.circular(16),
-                      child: InkWell(
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Material(
+                        color: isSelected
+                            ? _accentColor.withValues(alpha: 0.12)
+                            : (_isDark
+                                ? const Color(0xFF141416)
+                                : const Color(0xFFF5F5F7)),
                         borderRadius: BorderRadius.circular(16),
-                        onTap: () {
-                          ref
-                              .read(nowPlayingStyleProvider.notifier)
-                              .setStyle(style);
-                          Navigator.pop(sheetContext);
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: isSelected
-                                  ? _accentColor
-                                  : (_isDark
-                                      ? Colors.white.withValues(alpha: 0.08)
-                                      : InzxColors.border.withValues(alpha: 0.3)),
-                              width: isSelected ? 1.8 : 1.0,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () {
+                            ref
+                                .read(nowPlayingStyleProvider.notifier)
+                                .setStyle(style);
+                            Navigator.pop(sheetContext);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: isSelected
+                                    ? _accentColor
+                                    : (_isDark
+                                        ? Colors.white.withValues(alpha: 0.08)
+                                        : InzxColors.border.withValues(alpha: 0.3)),
+                                width: isSelected ? 1.8 : 1.0,
+                              ),
                             ),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 44,
-                                height: 44,
-                                decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? _accentColor.withValues(alpha: 0.22)
-                                      : (_isDark
-                                          ? Colors.white.withValues(alpha: 0.06)
-                                          : Colors.black.withValues(alpha: 0.05)),
-                                  borderRadius: BorderRadius.circular(12),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? _accentColor.withValues(alpha: 0.22)
+                                        : (_isDark
+                                            ? Colors.white.withValues(alpha: 0.06)
+                                            : Colors.black.withValues(alpha: 0.05)),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Icon(
+                                    style == NowPlayingStyle.ripple
+                                        ? Icons.filter_vintage_rounded
+                                        : Icons.crop_square_rounded,
+                                    color: isSelected
+                                        ? _accentColor
+                                        : _textPrimary.withValues(alpha: 0.8),
+                                    size: 24,
+                                  ),
                                 ),
-                                child: Icon(
-                                  style == NowPlayingStyle.ripple
-                                      ? Icons.filter_vintage_rounded
-                                      : Icons.crop_square_rounded,
-                                  color: isSelected
-                                      ? _accentColor
-                                      : _textPrimary.withValues(alpha: 0.8),
-                                  size: 24,
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      title,
-                                      style: TextStyle(
-                                        fontSize: 15.5,
-                                        fontWeight: FontWeight.w700,
-                                        color: isSelected
-                                            ? _accentColor
-                                            : _textPrimary,
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        title,
+                                        style: TextStyle(
+                                          fontSize: 15.5,
+                                          fontWeight: FontWeight.w700,
+                                          color: isSelected
+                                              ? _accentColor
+                                              : _textPrimary,
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(height: 3),
-                                    Text(
-                                      desc,
-                                      style: TextStyle(
-                                        fontSize: 12.5,
-                                        height: 1.3,
-                                        color: _textSecondary,
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        desc,
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          height: 1.3,
+                                          color: _textSecondary,
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                              if (isSelected)
-                                Icon(
-                                  Icons.check_circle_rounded,
-                                  color: _accentColor,
-                                  size: 22,
-                                ),
-                            ],
+                                const SizedBox(width: 8),
+                                if (isSelected)
+                                  Icon(
+                                    Icons.check_circle_rounded,
+                                    color: _accentColor,
+                                    size: 22,
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
+                    );
+                  }),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showProgressBarStyleSelector() async {
+    final currentStyle = ref.read(progressBarStyleProvider);
+    final sheetBg = _isDark ? Colors.black : Colors.white;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: sheetBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          top: false,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(sheetContext).size.height * 0.85,
+            ),
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: _isDark ? Colors.white24 : Colors.black12,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
-                  );
-                }),
-                const SizedBox(height: 8),
-              ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: _accentColor.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                          Icons.graphic_eq_rounded,
+                          size: 20,
+                          color: _accentColor,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Progress Bar Style',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: _textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  ...ProgressBarStyle.values.map((style) {
+                    final isSelected = style == currentStyle;
+                    final title = getProgressBarStyleName(style);
+                    final desc = getProgressBarStyleDescription(style);
+
+                    final IconData styleIcon;
+                    switch (style) {
+                      case ProgressBarStyle.defaultLinear:
+                        styleIcon = Icons.linear_scale_rounded;
+                        break;
+                      case ProgressBarStyle.waveform:
+                        styleIcon = Icons.waves_rounded;
+                        break;
+                      case ProgressBarStyle.audioWaveform:
+                        styleIcon = Icons.graphic_eq_rounded;
+                        break;
+                    }
+
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Material(
+                        color: isSelected
+                            ? _accentColor.withValues(alpha: 0.12)
+                            : (_isDark
+                                ? const Color(0xFF141416)
+                                : const Color(0xFFF5F5F7)),
+                        borderRadius: BorderRadius.circular(16),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () {
+                            ref
+                                .read(progressBarStyleProvider.notifier)
+                                .setStyle(style);
+                            Navigator.pop(sheetContext);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: isSelected
+                                    ? _accentColor
+                                    : (_isDark
+                                        ? Colors.white.withValues(alpha: 0.08)
+                                        : InzxColors.border
+                                            .withValues(alpha: 0.3)),
+                                width: isSelected ? 1.8 : 1.0,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? _accentColor.withValues(alpha: 0.22)
+                                        : (_isDark
+                                            ? Colors.white.withValues(alpha: 0.06)
+                                            : Colors.black.withValues(alpha: 0.05)),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Icon(
+                                    styleIcon,
+                                    color: isSelected
+                                        ? _accentColor
+                                        : _textPrimary.withValues(alpha: 0.8),
+                                    size: 24,
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        title,
+                                        style: TextStyle(
+                                          fontSize: 15.5,
+                                          fontWeight: FontWeight.w700,
+                                          color: isSelected
+                                              ? _accentColor
+                                              : _textPrimary,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        desc,
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          height: 1.3,
+                                          color: _textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                if (isSelected)
+                                  Icon(
+                                    Icons.check_circle_rounded,
+                                    color: _accentColor,
+                                    size: 22,
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 8),
+                ],
+              ),
             ),
           ),
         );

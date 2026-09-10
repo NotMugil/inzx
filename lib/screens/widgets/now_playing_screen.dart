@@ -56,12 +56,16 @@ class _NowPlayingProgressBar extends ConsumerStatefulWidget {
 
 class _NowPlayingProgressBarState
     extends ConsumerState<_NowPlayingProgressBar>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _scaleController;
   late final Animation<double> _trackHeightAnim;
   late final Animation<double> _thumbRadiusAnim;
+  late final AnimationController _wavePhaseController;
   bool _isSeeking = false;
   double _dragPositionMs = 0;
+  List<double>? _cachedAmplitudes;
+  String? _cachedTrackId;
+  final GlobalKey _progressKey = GlobalKey();
 
   @override
   void initState() {
@@ -69,6 +73,11 @@ class _NowPlayingProgressBarState
     _scaleController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 200),
+    );
+
+    _wavePhaseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 3400),
     );
 
     final baseTrackHeight = widget.isCompact ? 3.0 : 4.0;
@@ -96,6 +105,7 @@ class _NowPlayingProgressBarState
   @override
   void dispose() {
     _scaleController.dispose();
+    _wavePhaseController.dispose();
     super.dispose();
   }
 
@@ -122,10 +132,151 @@ class _NowPlayingProgressBarState
     _scaleController.reverse();
   }
 
+  double _getProgressBarWidth() {
+    final renderBox =
+        _progressKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox != null && renderBox.hasSize && renderBox.size.width > 0) {
+      return renderBox.size.width;
+    }
+    final screenWidth = MediaQuery.of(context).size.width;
+    final horizontalPadding = widget.isCompact ? 16.0 : 24.0;
+    return (screenWidth - (horizontalPadding * 2)).clamp(1.0, double.infinity);
+  }
+
+  void _seekFromDx(double dx, double maxMs) {
+    final width = _getProgressBarWidth();
+    final frac = (dx / width).clamp(0.0, 1.0);
+    final targetMs = frac * maxMs;
+    _onSeekStart(targetMs);
+    _onSeekEnd(targetMs);
+  }
+
+  void _seekStartFromDx(double dx, double maxMs) {
+    final width = _getProgressBarWidth();
+    final frac = (dx / width).clamp(0.0, 1.0);
+    _onSeekStart(frac * maxMs);
+  }
+
+  void _seekUpdateFromDx(double dx, double maxMs) {
+    final width = _getProgressBarWidth();
+    final frac = (dx / width).clamp(0.0, 1.0);
+    _onSeekChanged(frac * maxMs);
+  }
+
+  Widget _buildWaveformProgressBar({
+    required double progress,
+    required double displayMs,
+    required double maxMs,
+  }) {
+    final barHeight = widget.isCompact ? 28.0 : 38.0;
+    return GestureDetector(
+      key: _progressKey,
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (details) =>
+          _seekFromDx(details.localPosition.dx, maxMs),
+      onHorizontalDragStart: (details) =>
+          _seekStartFromDx(details.localPosition.dx, maxMs),
+      onHorizontalDragUpdate: (details) =>
+          _seekUpdateFromDx(details.localPosition.dx, maxMs),
+      onHorizontalDragEnd: (_) => _onSeekEnd(_dragPositionMs),
+      onHorizontalDragCancel: () {
+        setState(() => _isSeeking = false);
+        _scaleController.reverse();
+      },
+      child: SizedBox(
+        height: barHeight,
+        width: double.infinity,
+        child: AnimatedBuilder(
+          animation: Listenable.merge([_wavePhaseController, _scaleController]),
+          builder: (context, child) {
+            return CustomPaint(
+              size: Size.infinite,
+              painter: _WavyProgressBarPainter(
+                progress: progress,
+                phase: _wavePhaseController.value * 2 * math.pi,
+                activeColor: widget.accentColor,
+                inactiveColor: widget.textColor.withValues(alpha: 0.20),
+                thumbColor: widget.textColor,
+                trackHeight: _trackHeightAnim.value,
+                thumbRadius: _thumbRadiusAnim.value,
+                isSeeking: _isSeeking,
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAudioWaveformProgressBar({
+    required double progress,
+    required double displayMs,
+    required double maxMs,
+    required List<double> amplitudes,
+  }) {
+    final barHeight = widget.isCompact ? 30.0 : 42.0;
+    return GestureDetector(
+      key: _progressKey,
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (details) =>
+          _seekFromDx(details.localPosition.dx, maxMs),
+      onHorizontalDragStart: (details) =>
+          _seekStartFromDx(details.localPosition.dx, maxMs),
+      onHorizontalDragUpdate: (details) =>
+          _seekUpdateFromDx(details.localPosition.dx, maxMs),
+      onHorizontalDragEnd: (_) => _onSeekEnd(_dragPositionMs),
+      onHorizontalDragCancel: () {
+        setState(() => _isSeeking = false);
+        _scaleController.reverse();
+      },
+      child: SizedBox(
+        height: barHeight,
+        width: double.infinity,
+        child: AnimatedBuilder(
+          animation: _scaleController,
+          builder: (context, child) {
+            return CustomPaint(
+              size: Size.infinite,
+              painter: _AudioWaveformPainter(
+                progress: progress,
+                amplitudes: amplitudes,
+                activeColor: widget.accentColor,
+                inactiveColor: widget.textColor.withValues(alpha: 0.25),
+                isSeeking: _isSeeking,
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final position =
         ref.watch(positionStreamProvider).valueOrNull ?? Duration.zero;
+    final progressBarStyle = ref.watch(progressBarStyleProvider);
+    final isPlaying = ref.watch(isPlayingProvider);
+    final currentTrack = ref.watch(currentTrackProvider);
+
+    if (progressBarStyle == ProgressBarStyle.waveform) {
+      if (isPlaying && !_wavePhaseController.isAnimating) {
+        _wavePhaseController.repeat();
+      } else if (!isPlaying && _wavePhaseController.isAnimating) {
+        _wavePhaseController.stop();
+      }
+    } else if (_wavePhaseController.isAnimating) {
+      _wavePhaseController.stop();
+    }
+
+    final trackId = currentTrack?.id ?? 'default_track';
+    if (_cachedTrackId != trackId || _cachedAmplitudes == null) {
+      _cachedTrackId = trackId;
+      _cachedAmplitudes = _AudioWaveformPainter.generateAmplitudes(
+        widget.isCompact ? 36 : 56,
+        trackId.hashCode,
+      );
+    }
 
     final verticalPadding = widget.isCompact ? 2.0 : 16.0;
     final horizontalPadding = widget.isCompact ? 16.0 : 24.0;
@@ -139,6 +290,8 @@ class _NowPlayingProgressBarState
         ? _dragPositionMs
         : position.inMilliseconds.toDouble().clamp(0.0, maxMs);
     final displayPosition = Duration(milliseconds: displayMs.toInt());
+    final double progress =
+        (maxMs > 0) ? (displayMs / maxMs).clamp(0.0, 1.0) : 0.0;
 
     return RepaintBoundary(
       child: Padding(
@@ -148,35 +301,54 @@ class _NowPlayingProgressBarState
         ),
         child: Column(
           children: [
-            AnimatedBuilder(
-              animation: _scaleController,
-              builder: (context, child) {
-                return SliderTheme(
-                  data: SliderThemeData(
-                    trackHeight: _trackHeightAnim.value,
-                    thumbShape: RoundSliderThumbShape(
-                      enabledThumbRadius: _thumbRadiusAnim.value,
+            if (progressBarStyle == ProgressBarStyle.waveform)
+              _buildWaveformProgressBar(
+                progress: progress,
+                displayMs: displayMs,
+                maxMs: maxMs,
+              )
+            else if (progressBarStyle == ProgressBarStyle.audioWaveform)
+              _buildAudioWaveformProgressBar(
+                progress: progress,
+                displayMs: displayMs,
+                maxMs: maxMs,
+                amplitudes: _cachedAmplitudes!,
+              )
+            else
+              AnimatedBuilder(
+                animation: _scaleController,
+                builder: (context, child) {
+                  return SliderTheme(
+                    data: SliderThemeData(
+                      trackHeight: _trackHeightAnim.value,
+                      thumbShape: RoundSliderThumbShape(
+                        enabledThumbRadius: _thumbRadiusAnim.value,
+                      ),
+                      overlayShape: RoundSliderOverlayShape(
+                        overlayRadius: widget.isCompact ? 10 : 14,
+                      ),
+                      activeTrackColor: widget.accentColor,
+                      inactiveTrackColor:
+                          widget.textColor.withValues(alpha: 0.2),
+                      thumbColor: widget.textColor,
+                      overlayColor:
+                          widget.accentColor.withValues(alpha: 0.2),
                     ),
-                    overlayShape: RoundSliderOverlayShape(
-                      overlayRadius: widget.isCompact ? 10 : 14,
+                    child: Slider(
+                      value: displayMs.clamp(0.0, maxMs),
+                      min: 0,
+                      max: maxMs,
+                      onChangeStart: _onSeekStart,
+                      onChanged: _onSeekChanged,
+                      onChangeEnd: _onSeekEnd,
                     ),
-                    activeTrackColor: widget.accentColor,
-                    inactiveTrackColor:
-                        widget.textColor.withValues(alpha: 0.2),
-                    thumbColor: widget.textColor,
-                    overlayColor:
-                        widget.accentColor.withValues(alpha: 0.2),
-                  ),
-                  child: Slider(
-                    value: displayMs.clamp(0.0, maxMs),
-                    min: 0,
-                    max: maxMs,
-                    onChangeStart: _onSeekStart,
-                    onChanged: _onSeekChanged,
-                    onChangeEnd: _onSeekEnd,
-                  ),
-                );
-              },
+                  );
+                },
+              ),
+            SizedBox(
+              height: progressBarStyle == ProgressBarStyle.defaultLinear
+                  ? 0
+                  : (widget.isCompact ? 2 : 4),
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -208,6 +380,220 @@ class _NowPlayingProgressBarState
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 }
+
+/// Custom painter for the animated wavy progress bar
+class _WavyProgressBarPainter extends CustomPainter {
+  final double progress; // 0.0 to 1.0
+  final double phase; // 0.0 to 2*pi
+  final Color activeColor;
+  final Color inactiveColor;
+  final Color thumbColor;
+  final double trackHeight;
+  final double thumbRadius;
+  final bool isSeeking;
+
+  _WavyProgressBarPainter({
+    required this.progress,
+    required this.phase,
+    required this.activeColor,
+    required this.inactiveColor,
+    required this.thumbColor,
+    required this.trackHeight,
+    required this.thumbRadius,
+    required this.isSeeking,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final midY = size.height / 2;
+    final progressWidth = (size.width * progress).clamp(0.0, size.width);
+    const wavelength = 48.0;
+    final baseAmplitude = (trackHeight * 1.25).clamp(3.0, 5.5);
+    final effectiveAmplitude =
+        baseAmplitude * (progressWidth / 32.0).clamp(0.0, 1.0);
+
+    // 1. Draw inactive line from progress to total width
+    if (progressWidth < size.width) {
+      final inactivePaint = Paint()
+        ..color = inactiveColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = trackHeight
+        ..strokeCap = StrokeCap.round;
+
+      final inactivePath = Path();
+      inactivePath.moveTo(progressWidth, midY);
+      inactivePath.lineTo(size.width, midY);
+      canvas.drawPath(inactivePath, inactivePaint);
+    }
+
+    // 2. Draw active wavy path from 0 to progressWidth
+    if (progressWidth > 0) {
+      final activePaint = Paint()
+        ..color = activeColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = trackHeight
+        ..strokeCap = StrokeCap.round;
+
+      final activePath = Path();
+      activePath.moveTo(0, midY);
+
+      final steps = (progressWidth / 2.0).ceil().clamp(2, 400);
+      for (int i = 1; i <= steps; i++) {
+        final x = (i / steps) * progressWidth;
+        final distanceFromStart = x;
+        final distanceFromThumb = progressWidth - x;
+        final startDamp = (distanceFromStart / 24.0).clamp(0.0, 1.0);
+        final endDamp = (distanceFromThumb / 24.0).clamp(0.0, 1.0);
+        final damp = startDamp * endDamp;
+        final y = midY +
+            math.sin((x / wavelength) * 2 * math.pi + phase) *
+                effectiveAmplitude *
+                damp;
+        activePath.lineTo(x, y);
+      }
+
+      canvas.drawPath(activePath, activePaint);
+    }
+
+    // 3. Draw rolling soft-rounded square thumb at progressWidth
+    final side = (isSeeking ? thumbRadius * 1.35 : thumbRadius) * 2.1;
+    final cornerRadius = Radius.circular(side * 0.28);
+    final rollAngle =
+        isSeeking ? (progressWidth / (side * 3.5)) * math.pi : (phase * 0.75);
+
+    canvas.save();
+    canvas.translate(progressWidth, midY);
+    canvas.rotate(rollAngle);
+
+    // Dynamic accent glow/halo (subtle ambient aura while playing, expanded when seeking)
+    final haloSide = side + (isSeeking ? 10.0 : 4.0);
+    final haloRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset.zero,
+        width: haloSide,
+        height: haloSide,
+      ),
+      Radius.circular(haloSide * 0.28),
+    );
+    final haloPaint = Paint()
+      ..color = activeColor.withValues(alpha: isSeeking ? 0.35 : 0.16)
+      ..style = PaintingStyle.fill;
+    canvas.drawRRect(haloRect, haloPaint);
+
+    // Crisp white square scrubber body
+    final thumbRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset.zero,
+        width: side,
+        height: side,
+      ),
+      cornerRadius,
+    );
+    final thumbPaint = Paint()
+      ..color = thumbColor
+      ..style = PaintingStyle.fill;
+    canvas.drawRRect(thumbRect, thumbPaint);
+
+    // Dynamic accent border
+    final borderPaint = Paint()
+      ..color = activeColor.withValues(alpha: 0.55)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2;
+    canvas.drawRRect(thumbRect, borderPaint);
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_WavyProgressBarPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.phase != phase ||
+        oldDelegate.activeColor != activeColor ||
+        oldDelegate.inactiveColor != inactiveColor ||
+        oldDelegate.thumbColor != thumbColor ||
+        oldDelegate.trackHeight != trackHeight ||
+        oldDelegate.thumbRadius != thumbRadius ||
+        oldDelegate.isSeeking != isSeeking;
+  }
+}
+
+/// Custom painter for the Audio Waveform vertical amplitude bars scrubber
+class _AudioWaveformPainter extends CustomPainter {
+  final double progress;
+  final List<double> amplitudes;
+  final Color activeColor;
+  final Color inactiveColor;
+  final bool isSeeking;
+
+  _AudioWaveformPainter({
+    required this.progress,
+    required this.amplitudes,
+    required this.activeColor,
+    required this.inactiveColor,
+    required this.isSeeking,
+  });
+
+  static List<double> generateAmplitudes(int count, int seed) {
+    final rand = math.Random(seed);
+    final list = <double>[];
+    double prev = 0.35;
+    for (int i = 0; i < count; i++) {
+      final t = (count > 1) ? i / (count - 1) : 0.5;
+      final envelope = math.sin(t * math.pi).clamp(0.25, 1.0);
+      final wave1 = math.sin(i * 0.28 + seed) * 0.25;
+      final wave2 = math.cos(i * 0.65 + seed * 3) * 0.18;
+      final noise = (rand.nextDouble() - 0.5) * 0.35;
+      prev = (prev * 0.6 + (0.45 + wave1 + wave2 + noise) * 0.4)
+          .clamp(0.12, 1.0);
+      list.add((prev * envelope).clamp(0.12, 1.0));
+    }
+    return list;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (amplitudes.isEmpty) return;
+    final totalBars = amplitudes.length;
+    final step = size.width / totalBars;
+    final barWidth = (step * 0.58).clamp(2.0, 4.0);
+    final maxBarHeight = size.height;
+    final midY = size.height / 2;
+
+    final activePaint = Paint()
+      ..color = activeColor
+      ..style = PaintingStyle.fill;
+
+    final inactivePaint = Paint()
+      ..color = inactiveColor
+      ..style = PaintingStyle.fill;
+
+    for (int i = 0; i < totalBars; i++) {
+      final x = i * step + step / 2;
+      final barFraction = (i + 0.5) / totalBars;
+      final isActive = barFraction <= progress;
+
+      final amp = amplitudes[i];
+      final barHeight = (amp * maxBarHeight).clamp(4.0, maxBarHeight);
+      final top = midY - barHeight / 2;
+
+      final rect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(x - barWidth / 2, top, barWidth, barHeight),
+        Radius.circular(barWidth / 2),
+      );
+      canvas.drawRRect(rect, isActive ? activePaint : inactivePaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_AudioWaveformPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.amplitudes != amplitudes ||
+        oldDelegate.activeColor != activeColor ||
+        oldDelegate.inactiveColor != inactiveColor ||
+        oldDelegate.isSeeking != isSeeking;
+  }
+}
+
 
 /// Isolated lyrics container that watches [positionStreamProvider] without
 /// causing the parent NowPlayingScreen widget tree to rebuild on audio ticks.
