@@ -1987,9 +1987,10 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
                                                       }
                                                     }
 
+                                                    if (!context.mounted) return;
                                                     if (success) {
                                                       Navigator.pop(
-                                                        this.context,
+                                                        context,
                                                       );
                                                     } else {
                                                       scaffoldMessenger

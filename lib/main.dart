@@ -191,6 +191,7 @@ class _InzxAppState extends ConsumerState<InzxApp> {
         final releaseInfo = await GithubReleaseUpdateService.instance.fetchLatestReleaseInfo();
         if (!mounted) return;
         final navContext = rootNavigatorKey.currentContext ?? context;
+        if (!navContext.mounted) return;
         await WhatsNewDialog.show(navContext, releaseInfo: releaseInfo, currentVersion: currentVersion);
         await prefs.setString('last_seen_changelog_version', currentVersion);
       }

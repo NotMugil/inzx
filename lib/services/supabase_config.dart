@@ -22,7 +22,7 @@ class SupabaseConfig {
     try {
       await Supabase.initialize(
         url: supabaseUrl,
-        anonKey: supabaseAnonKey,
+        publishableKey: supabaseAnonKey,
         // No auth needed for Jams - we use anonymous realtime
         authOptions: const FlutterAuthClientOptions(
           authFlowType: AuthFlowType.implicit,

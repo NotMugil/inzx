@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:iconsax/iconsax.dart';
@@ -507,7 +508,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
             blendMode: BlendMode.dstIn,
             child: ListView.builder(
               controller: _scrollController,
-              cacheExtent: 1500.0,
+              scrollCacheExtent: const ScrollCacheExtent.pixels(1500.0),
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 96),
               itemCount: lines.length + (showNerdStats ? 1 : 0),

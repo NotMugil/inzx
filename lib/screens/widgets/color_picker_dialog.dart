@@ -3,7 +3,6 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:iconsax/iconsax.dart';
-import '../../core/design_system/colors.dart';
 
 /// Glassmorphic modal sheet to pick a custom accent color using a color wheel, sliders, and HEX input.
 class ColorPickerDialog extends StatefulWidget {
@@ -449,12 +448,11 @@ class _ColorPickerDialogState extends State<ColorPickerDialog> {
 class _ColorWheelPicker extends StatelessWidget {
   final HSVColor hsvColor;
   final ValueChanged<HSVColor> onColorChanged;
-  final double size;
+  static const double size = 200;
 
   const _ColorWheelPicker({
     required this.hsvColor,
     required this.onColorChanged,
-    this.size = 200,
   });
 
   void _handleTouch(Offset localPosition) {

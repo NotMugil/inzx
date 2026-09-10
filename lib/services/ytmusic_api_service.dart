@@ -5020,40 +5020,42 @@ class InnerTubeService {
 
       final activeHeader = header ?? fallbackHeader;
 
-      if (activeHeader == null && kDebugMode) {
-        print('=== ACTIVE HEADER IS NULL ===');
-        print('response keys: ${response.keys.toList()}');
-        
-        // Let's find out what's inside contents
-        try {
-          final singleCol = _navigateJson(response, ['contents', 'singleColumnBrowseResultsRenderer']);
-          if (singleCol != null) {
-             print('singleCol keys: ${(singleCol as Map).keys.toList()}');
-             final tabs = singleCol['tabs'] as List?;
-             if (tabs != null && tabs.isNotEmpty) {
-               final tabContent = tabs[0]['tabRenderer']?['content']?['sectionListRenderer']?['contents'] as List?;
-               if (tabContent != null && tabContent.isNotEmpty) {
-                 print('tabContent[0] keys: ${(tabContent[0] as Map).keys.toList()}');
+      if (activeHeader == null) {
+        if (kDebugMode) {
+          print('=== ACTIVE HEADER IS NULL ===');
+          print('response keys: ${response.keys.toList()}');
+          
+          // Let's find out what's inside contents
+          try {
+            final singleCol = _navigateJson(response, ['contents', 'singleColumnBrowseResultsRenderer']);
+            if (singleCol != null) {
+               print('singleCol keys: ${(singleCol as Map).keys.toList()}');
+               final tabs = singleCol['tabs'] as List?;
+               if (tabs != null && tabs.isNotEmpty) {
+                 final tabContent = tabs[0]['tabRenderer']?['content']?['sectionListRenderer']?['contents'] as List?;
+                 if (tabContent != null && tabContent.isNotEmpty) {
+                   print('tabContent[0] keys: ${(tabContent[0] as Map).keys.toList()}');
+                 }
                }
-             }
-          }
-          final twoCol = _navigateJson(response, ['contents', 'twoColumnBrowseResultsRenderer']);
-          if (twoCol != null) {
-             print('twoCol keys: ${(twoCol as Map).keys.toList()}');
-             final secondary = twoCol['secondaryContents']?['sectionListRenderer']?['contents'] as List?;
-             if (secondary != null && secondary.isNotEmpty) {
-               print('secondary[0] keys: ${(secondary[0] as Map).keys.toList()}');
-             }
-             final tabs = twoCol['tabs'] as List?;
-             if (tabs != null && tabs.isNotEmpty) {
-               final tabContent = tabs[0]['tabRenderer']?['content']?['sectionListRenderer']?['contents'] as List?;
-               if (tabContent != null && tabContent.isNotEmpty) {
-                 print('twoCol tabContent[0] keys: ${(tabContent[0] as Map).keys.toList()}');
+            }
+            final twoCol = _navigateJson(response, ['contents', 'twoColumnBrowseResultsRenderer']);
+            if (twoCol != null) {
+               print('twoCol keys: ${(twoCol as Map).keys.toList()}');
+               final secondary = twoCol['secondaryContents']?['sectionListRenderer']?['contents'] as List?;
+               if (secondary != null && secondary.isNotEmpty) {
+                 print('secondary[0] keys: ${(secondary[0] as Map).keys.toList()}');
                }
-             }
+               final tabs = twoCol['tabs'] as List?;
+               if (tabs != null && tabs.isNotEmpty) {
+                 final tabContent = tabs[0]['tabRenderer']?['content']?['sectionListRenderer']?['contents'] as List?;
+                 if (tabContent != null && tabContent.isNotEmpty) {
+                   print('twoCol tabContent[0] keys: ${(tabContent[0] as Map).keys.toList()}');
+                 }
+               }
+            }
+          } catch (e) {
+            print('Error dumping contents: $e');
           }
-        } catch (e) {
-          print('Error dumping contents: $e');
         }
       }
 

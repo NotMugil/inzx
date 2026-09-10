@@ -1598,6 +1598,7 @@ class AudioPlayerService {
       cacheFile: cacheFile,
       expectedBytes: playbackData.format.contentLength,
     );
+    // ignore: experimental_member_use
     return LockCachingAudioSource(streamUri, cacheFile: cacheFile, tag: track);
   }
 
@@ -2964,11 +2965,8 @@ class AudioPlayerService {
   /// Reorder queue item from oldIndex to newIndex
   void reorderQueue(int oldIndex, int newIndex) {
     if (oldIndex < 0 || oldIndex >= _queue.length) return;
-    if (newIndex < 0 || newIndex > _queue.length) return;
+    if (newIndex < 0 || newIndex >= _queue.length) return;
     if (oldIndex == newIndex) return;
-
-    // Adjust for removal shift
-    if (newIndex > oldIndex) newIndex--;
 
     final track = _queue.removeAt(oldIndex);
     _queue.insert(newIndex, track);
@@ -3374,6 +3372,7 @@ class AudioPlayerService {
           );
         }
       } catch (e) {
+        // ignore: experimental_member_use
         if (source is LockCachingAudioSource && _isLoopbackCleartextError(e)) {
           if (kDebugMode) {
             print(

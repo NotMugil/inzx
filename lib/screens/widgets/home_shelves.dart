@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:iconsax/iconsax.dart';
@@ -199,9 +200,9 @@ class QuickPicksShelf extends ConsumerWidget {
             ),
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            cacheExtent: MediaQuery.of(
-              context,
-            ).size.width, // Preload 1 page ahead
+            scrollCacheExtent: const ScrollCacheExtent.viewport(
+              1.0,
+            ), // Preload 1 page ahead
             itemCount: (tracks.length / tracksPerPage).ceil(),
             itemBuilder: (context, pageIndex) {
               final startIndex = pageIndex * tracksPerPage;

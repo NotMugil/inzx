@@ -70,7 +70,7 @@ class WhatsNewDialog {
                             width: 52,
                             height: 52,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Icon(
+                            errorBuilder: (_, _, _) => Icon(
                               Iconsax.note_2,
                               size: 40,
                               color: primaryColor,

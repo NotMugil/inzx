@@ -2622,9 +2622,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                   child: child,
                 );
               },
-              onReorder: (oldIndex, newIndex) {
+              onReorderItem: (oldIndex, newIndex) {
                 // Don't allow reordering the loading indicator
-                if (oldIndex >= queue.length || newIndex > queue.length) return;
+                if (oldIndex >= queue.length || newIndex >= queue.length) return;
                 ref
                     .read(audioPlayerServiceProvider)
                     .reorderQueue(oldIndex, newIndex);
@@ -2806,7 +2806,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                   ),
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   itemCount: jamQueue.length,
-                  onReorder: canControlPlayback
+                  onReorderItem: canControlPlayback
                       ? (oldIndex, newIndex) =>
                             _reorderJamQueue(oldIndex, newIndex)
                       : (_, _) {},
@@ -2920,10 +2920,6 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   void _reorderJamQueue(int oldIndex, int newIndex) async {
     final jamsService = ref.read(jamsServiceProvider);
     if (jamsService != null) {
-      // When dragging down, the newIndex needs adjustment
-      if (newIndex > oldIndex) {
-        newIndex -= 1;
-      }
       await jamsService.reorderQueue(oldIndex, newIndex);
     }
   }

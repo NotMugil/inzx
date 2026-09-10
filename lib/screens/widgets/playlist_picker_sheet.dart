@@ -309,6 +309,7 @@ class _PlaylistPickerSheetState extends ConsumerState<PlaylistPickerSheet> {
           await ref.read(ytMusicSavedPlaylistsProvider.notifier).incrementPlaylistTrackCount(playlistId);
           // Refresh playlists list
           ref.invalidate(ytMusicSavedPlaylistsProvider);
+          if (!mounted) return;
           Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -369,6 +370,7 @@ class _PlaylistPickerSheetState extends ConsumerState<PlaylistPickerSheet> {
             await ref.read(ytMusicSavedPlaylistsProvider.notifier).incrementPlaylistTrackCount(playlist.id);
             ref.invalidate(ytMusicSavedPlaylistsProvider);
           }
+          if (!mounted) return;
           Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(

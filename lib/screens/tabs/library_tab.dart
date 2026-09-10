@@ -981,21 +981,6 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
     return parsedCount;
   }
 
-  Widget _buildEmptyYTPlaylistsState(
-    bool isDark,
-    ColorScheme colorScheme,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Text(
-        context.l10n.noYoutubeMusicPlaylistsFound,
-        style: TextStyle(
-          color: isDark ? Colors.white38 : InzxColors.textSecondary,
-        ),
-      ),
-    );
-  }
-
   Widget _buildAutoPlaylistCard(
     String title,
     IconData icon,
@@ -1267,59 +1252,6 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
                   );
                 },
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyPlaylistsState(bool isDark, ColorScheme colorScheme) {
-    final l10n = context.l10n;
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Center(
-        child: Column(
-          children: [
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                color: isDark
-                    ? Colors.white10
-                    : colorScheme.primaryContainer.withValues(alpha: 0.3),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.queue_music_rounded,
-                size: 36,
-                color: isDark
-                    ? Colors.white38
-                    : colorScheme.primary.withValues(alpha: 0.5),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              l10n.noPlaylistsYet,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: isDark ? Colors.white : InzxColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              l10n.createPlaylistDescription,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: isDark ? Colors.white54 : InzxColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: _showCreatePlaylistDialog,
-              icon: const Icon(Icons.add_rounded),
-              label: Text(l10n.createPlaylist),
             ),
           ],
         ),
@@ -2446,57 +2378,6 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
     );
   }
 
-  void _showDeleteConfirmation(
-    Track track,
-    bool isDark,
-    ColorScheme colorScheme,
-  ) {
-    final l10n = context.l10n;
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-        title: Text(
-          l10n.deleteDownloadQuestion,
-          style: TextStyle(
-            color: isDark ? Colors.white : InzxColors.textPrimary,
-          ),
-        ),
-        content: Text(
-          l10n.deleteDownloadWarning(track.title),
-          style: TextStyle(
-            color: isDark ? Colors.white70 : InzxColors.textSecondary,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              l10n.cancel,
-              style: TextStyle(color: isDark ? Colors.white54 : Colors.grey),
-            ),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ref
-                  .read(downloadManagerProvider.notifier)
-                  .removeDownload(track.id);
-              ScaffoldMessenger.of(this.context).showSnackBar(
-                SnackBar(
-                  content: Text(l10n.deletedTrack(track.title)),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: Text(l10n.deleteDownload),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildEmptyDownloadsState(bool isDark, ColorScheme colorScheme) {
     final l10n = context.l10n;
     return Center(
@@ -2619,7 +2500,7 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
                             fontWeight: FontWeight.w500,
                           ),
                         ),
-                        activeColor: accentColor,
+                        activeThumbColor: accentColor,
                         activeTrackColor: darkerAccent.withValues(alpha: 0.5),
                         value: createInYtMusic,
                         onChanged: (val) =>
