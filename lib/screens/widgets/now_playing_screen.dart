@@ -31,6 +31,7 @@ import 'home_shelves.dart' show TrackListShelf;
 import '../../services/local_artwork_service.dart';
 import 'track_artwork_view.dart';
 import 'animated_album_art_view.dart';
+import 'ripple_now_playing_view.dart';
 
 /// Progress bar widget that only rebuilds on position changes (isolated)
 class _NowPlayingProgressBar extends ConsumerStatefulWidget {
@@ -837,6 +838,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   bool _hasInitialQueueScrolled = false;
   Timer? _nerdStatsAlternateTimer;
   bool _showStatsInsteadOfTitle = false;
+  bool _isScrubberSeeking = false;
 
   @override
   void initState() {
@@ -1182,6 +1184,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
 
         final isLandscape =
             MediaQuery.of(context).orientation == Orientation.landscape;
+        final nowPlayingStyle = ref.watch(nowPlayingStyleProvider);
 
         if (isLandscape) {
           return Scaffold(
@@ -1242,6 +1245,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                 ),
               ),
               initiallyExpanded: _isDrawerExpanded,
+              enableDrag: !_isScrubberSeeking,
               onDismiss: () {
                 Navigator.of(context).pop();
                 widget.onClose?.call();
@@ -1292,14 +1296,44 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                 top: true,
                 bottom: false,
                 child: RepaintBoundary(
-                  child: _buildFullAlbumView(
-                    track,
-                    state,
-                    playerService,
-                    textColor,
-                    secondaryTextColor,
-                    accentColor,
-                  ),
+                  child: nowPlayingStyle == NowPlayingStyle.ripple
+                      ? RippleNowPlayingView(
+                          track: track,
+                          state: state,
+                          playerService: playerService,
+                          textColor: textColor,
+                          secondaryTextColor: secondaryTextColor,
+                          accentColor: accentColor,
+                          isLiked: ref.watch(isTrackLikedProvider(track.id)),
+                          onToggleLike: () => _toggleLikeTrack(track),
+                          onDoubleTapLike: () => _triggerDoubleTapLike(track),
+                          heartOverlay: _buildHeartOverlay(),
+                          onSeekingChanged: (seeking) {
+                            if (_isScrubberSeeking != seeking) {
+                              setState(() => _isScrubberSeeking = seeking);
+                            }
+                          },
+                          onDismiss: () {
+                            Navigator.of(context).pop();
+                            widget.onClose?.call();
+                          },
+                          onOpenOptions: () {
+                            TrackOptionsSheet.show(context, track);
+                          },
+                          tabsWidget: _buildBottomTabs(textColor, accentColor),
+                          albumArt: _buildRippleSwipeableAlbumArt(
+                            track,
+                            accentColor,
+                          ),
+                        )
+                      : _buildFullAlbumView(
+                          track,
+                          state,
+                          playerService,
+                          textColor,
+                          secondaryTextColor,
+                          accentColor,
+                        ),
                 ),
               ),
               // Up Next header (mini player style)
@@ -3574,9 +3608,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     final hasSyncedLyrics =
         lyricsState.currentLyrics?.hasSyncedLyrics ?? false;
 
-    // Only expand album art if fetching is complete AND the track does NOT have synced lyrics
-    // (i.e. songs with plain text lyrics or no lyrics at all will expand to fill the space cleanly).
-    final shouldExpand = !isFetchingLyrics && !hasSyncedLyrics;
+    final showLyricsBelowArt = ref.watch(showLyricsBelowAlbumArtProvider);
+    final shouldExpand =
+        !showLyricsBelowArt || (!isFetchingLyrics && !hasSyncedLyrics);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -3996,7 +4030,87 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     );
   }
 
+  /// Swipeable album art widget for Ripple style (clean unclipped stack for RippleFlowerClipper)
+  Widget _buildRippleSwipeableAlbumArt(Track track, Color accentColor) {
+    final playerService = ref.watch(audioPlayerServiceProvider);
+    final queue = playerService.queue;
+    final currentIndex = playerService.currentIndex;
+
+    if (queue.length <= 1) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onDoubleTap: () => _triggerDoubleTapLike(track),
+        onHorizontalDragEnd: (details) {
+          if (details.primaryVelocity != null) {
+            if (details.primaryVelocity! < -200) {
+              playerService.skipToNext();
+            } else if (details.primaryVelocity! > 200) {
+              playerService.skipToPrevious();
+            }
+          }
+        },
+        child: _buildAlbumArtContent(track, accentColor),
+      );
+    }
+
+    return PageView.builder(
+      controller: _albumArtPageController,
+      clipBehavior: Clip.none,
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
+      itemCount: queue.length,
+      onPageChanged: (pageIndex) {
+        _handleAlbumArtPageChanged(
+          pageIndex,
+          playerService,
+          currentIndex: currentIndex,
+          queueLength: queue.length,
+        );
+      },
+      itemBuilder: (context, pageIndex) {
+        final displayTrack = queue[pageIndex];
+        return AnimatedBuilder(
+          animation: _albumArtPageController,
+          builder: (context, child) {
+            final fallbackPage = currentIndex >= 0
+                ? currentIndex.toDouble()
+                : 0.0;
+            final page = _safeAlbumArtPage(fallbackPage);
+            final delta = (pageIndex - page).abs().clamp(0.0, 1.0);
+            final scale = (1.0 - (delta * 0.10)).clamp(0.90, 1.0);
+            final opacity = (1.0 - (delta * 0.35)).clamp(0.65, 1.0);
+
+            return Transform.scale(
+              scale: scale,
+              child: Opacity(
+                opacity: opacity,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onDoubleTap: () => _triggerDoubleTapLike(displayTrack),
+                  child: pageIndex == currentIndex
+                      ? _buildAlbumArtContent(
+                          displayTrack,
+                          accentColor,
+                        )
+                      : _buildStaticAlbumArtContent(
+                          displayTrack,
+                          accentColor,
+                        ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+  }
+
   Widget _buildSyncedLyricPreview(Color textColor, Color accentColor) {
+    final showLyricsBelowArt = ref.watch(showLyricsBelowAlbumArtProvider);
+    if (!showLyricsBelowArt) return const SizedBox.shrink();
+
     return SyncedLyricPreview(
       textColor: textColor,
       accentColor: accentColor,

@@ -35,7 +35,6 @@ class AudioSettingsScreen extends ConsumerWidget {
     );
     final crossfadeDurationMs = ref.watch(crossfadeDurationMsProvider);
     final streamCacheUsageAsync = ref.watch(streamAudioCacheUsageBytesProvider);
-    final showNerdStats = ref.watch(showNerdStatsProvider);
     final jioSaavnEnabled = ref.watch(jioSaavnEnabledProvider);
     final playerService = ref.watch(audioPlayerServiceProvider);
 
@@ -251,36 +250,6 @@ class AudioSettingsScreen extends ConsumerWidget {
               await playerService.setStreamCacheMaxConcurrent(value);
             },
           ),
-
-          const SizedBox(height: 32),
-
-          // Stats for nerds section
-          Text(
-            'Stats for nerds',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : InzxColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Show technical audio bitrate and source details in the player',
-            style: TextStyle(
-              fontSize: 14,
-              color: isDark ? Colors.white54 : InzxColors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: 16),
-          _buildNerdStatsSection(
-            context: context,
-            isDark: isDark,
-            accentColor: accentColor,
-            showNerdStats: showNerdStats,
-            onChanged: (enabled) async {
-              await playerService.setShowNerdStats(enabled);
-            },
-          ),
         ],
       ),
     );
@@ -392,77 +361,6 @@ class AudioSettingsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildNerdStatsSection({
-    required BuildContext context,
-    required bool isDark,
-    required Color accentColor,
-    required bool showNerdStats,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDark
-            ? Colors.white.withValues(alpha: 0.05)
-            : Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isDark ? Colors.white12 : accentColor.withValues(alpha: 0.2),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: showNerdStats
-                  ? accentColor.withValues(alpha: 0.2)
-                  : isDark
-                      ? Colors.white.withValues(alpha: 0.1)
-                      : Colors.grey.shade200,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              Iconsax.status,
-              color: showNerdStats
-                  ? accentColor
-                  : (isDark ? Colors.white54 : Colors.grey.shade600),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Stats for nerds',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? Colors.white : InzxColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Show bitrate and audio source in Now Playing',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: isDark ? Colors.white54 : InzxColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          _buildCustomSwitch(
-            value: showNerdStats,
-            accentColor: accentColor,
-            isDark: isDark,
-            onChanged: onChanged,
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildInfoCard(
     BuildContext context, {

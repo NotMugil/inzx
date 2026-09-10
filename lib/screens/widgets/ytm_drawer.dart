@@ -37,6 +37,9 @@ class YTMDrawer extends StatefulWidget {
   /// Callback when user swipes down while collapsed (for dismiss gesture)
   final VoidCallback? onDismiss;
 
+  /// Whether vertical drag gestures are enabled
+  final bool enableDrag;
+
   const YTMDrawer({
     super.key,
     required this.nowPlayingContent,
@@ -50,6 +53,7 @@ class YTMDrawer extends StatefulWidget {
     this.onTabFromPosition,
     this.initiallyExpanded = false,
     this.onDismiss,
+    this.enableDrag = true,
   });
 
   @override
@@ -128,13 +132,14 @@ class YTMDrawerState extends State<YTMDrawer>
   }
 
   void _onVerticalDragStart(DragStartDetails details) {
+    if (!widget.enableDrag) return;
     _isDragging = true;
     _dragStartX = details.globalPosition.dx; // Capture horizontal position
     _animController.stop();
   }
 
   void _onVerticalDragUpdate(DragUpdateDetails details) {
-    if (!_isDragging) return;
+    if (!widget.enableDrag || !_isDragging) return;
 
     final screenHeight = MediaQuery.of(context).size.height;
     final delta = details.primaryDelta ?? 0;
@@ -157,6 +162,7 @@ class YTMDrawerState extends State<YTMDrawer>
   }
 
   void _onVerticalDragEnd(DragEndDetails details) {
+    if (!widget.enableDrag && !_isDragging) return;
     _isDragging = false;
 
     final velocity = details.primaryVelocity ?? 0;
@@ -217,9 +223,9 @@ class YTMDrawerState extends State<YTMDrawer>
     final nowPlayingOpacity = 1.0 - (_dragProgress * 0.5);
 
     return GestureDetector(
-      onVerticalDragStart: _onVerticalDragStart,
-      onVerticalDragUpdate: _onVerticalDragUpdate,
-      onVerticalDragEnd: _onVerticalDragEnd,
+      onVerticalDragStart: widget.enableDrag ? _onVerticalDragStart : null,
+      onVerticalDragUpdate: widget.enableDrag ? _onVerticalDragUpdate : null,
+      onVerticalDragEnd: widget.enableDrag ? _onVerticalDragEnd : null,
       child: Container(
         color: widget.backgroundColor,
         child: Stack(

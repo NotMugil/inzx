@@ -342,3 +342,97 @@ class AnimatedAlbumArtNotifier extends StateNotifier<bool> {
   Future<void> toggle() => setEnabled(!state);
 }
 
+/// Style options for the Now Playing player screen
+enum NowPlayingStyle {
+  defaultStyle, // Standard YouTube Music style
+  ripple, // Wavy 8-petal artwork with circular seek ring & minimalist layout
+}
+
+String getNowPlayingStyleName(NowPlayingStyle style) {
+  switch (style) {
+    case NowPlayingStyle.defaultStyle:
+      return 'Default';
+    case NowPlayingStyle.ripple:
+      return 'Ripple';
+  }
+}
+
+String getNowPlayingStyleDescription(NowPlayingStyle style) {
+  switch (style) {
+    case NowPlayingStyle.defaultStyle:
+      return 'Classic YouTube Music style with full artwork, linear progress bar, and slide-up queue';
+    case NowPlayingStyle.ripple:
+      return 'Fluid 8-petal wavy cover art with circular perimeter scrubber and sleek minimalist layout';
+  }
+}
+
+/// Provider for Now Playing screen style
+final nowPlayingStyleProvider =
+    StateNotifierProvider<NowPlayingStyleNotifier, NowPlayingStyle>((ref) {
+  return NowPlayingStyleNotifier();
+});
+
+/// Notifier to manage Now Playing screen style
+class NowPlayingStyleNotifier extends StateNotifier<NowPlayingStyle> {
+  static const String nowPlayingStylePrefKey = 'inzx_now_playing_style_v1';
+
+  NowPlayingStyleNotifier() : super(NowPlayingStyle.defaultStyle) {
+    _loadPreference();
+  }
+
+  Future<void> _loadPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final index = prefs.getInt(nowPlayingStylePrefKey);
+      if (index != null && index >= 0 && index < NowPlayingStyle.values.length) {
+        state = NowPlayingStyle.values[index];
+      }
+    } catch (_) {}
+  }
+
+  Future<void> setStyle(NowPlayingStyle style) async {
+    state = style;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(nowPlayingStylePrefKey, style.index);
+    } catch (_) {}
+  }
+}
+
+/// Provider for whether the synced lyric preview line below album art is enabled
+final showLyricsBelowAlbumArtProvider =
+    StateNotifierProvider<ShowLyricsBelowAlbumArtNotifier, bool>((ref) {
+  return ShowLyricsBelowAlbumArtNotifier();
+});
+
+/// Notifier to manage the synced lyric preview preference below album art.
+/// Default: true (enabled by default).
+class ShowLyricsBelowAlbumArtNotifier extends StateNotifier<bool> {
+  static const String showLyricsBelowArtPrefKey =
+      'inzx_show_lyrics_below_album_art';
+
+  ShowLyricsBelowAlbumArtNotifier() : super(true) {
+    _loadPreference();
+  }
+
+  Future<void> _loadPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final enabled = prefs.getBool(showLyricsBelowArtPrefKey);
+      if (enabled != null) {
+        state = enabled;
+      }
+    } catch (_) {}
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    state = enabled;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(showLyricsBelowArtPrefKey, enabled);
+    } catch (_) {}
+  }
+
+  Future<void> toggle() => setEnabled(!state);
+}
+
