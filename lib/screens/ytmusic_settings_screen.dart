@@ -1322,7 +1322,7 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
                       case ProgressBarStyle.waveform:
                         styleIcon = Icons.waves_rounded;
                         break;
-                      case ProgressBarStyle.audioWaveform:
+                      case ProgressBarStyle.spectrum:
                         styleIcon = Icons.graphic_eq_rounded;
                         break;
                     }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'dart:async';
 import 'dart:io';
@@ -60,9 +61,11 @@ class _NowPlayingProgressBarState
   late final AnimationController _scaleController;
   late final Animation<double> _trackHeightAnim;
   late final Animation<double> _thumbRadiusAnim;
+  late final CurvedAnimation _spectrumZoomAnim;
   late final AnimationController _wavePhaseController;
   bool _isSeeking = false;
   double _dragPositionMs = 0;
+  double? _lastSeekTargetMs;
   List<double>? _cachedAmplitudes;
   String? _cachedTrackId;
   final GlobalKey _progressKey = GlobalKey();
@@ -91,6 +94,7 @@ class _NowPlayingProgressBarState
     ).animate(CurvedAnimation(
       parent: _scaleController,
       curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeOutCubic,
     ));
 
     _thumbRadiusAnim = Tween<double>(
@@ -99,11 +103,19 @@ class _NowPlayingProgressBarState
     ).animate(CurvedAnimation(
       parent: _scaleController,
       curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeOutCubic,
     ));
+
+    _spectrumZoomAnim = CurvedAnimation(
+      parent: _scaleController,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeOutCubic,
+    );
   }
 
   @override
   void dispose() {
+    _spectrumZoomAnim.dispose();
     _scaleController.dispose();
     _wavePhaseController.dispose();
     super.dispose();
@@ -113,6 +125,7 @@ class _NowPlayingProgressBarState
     setState(() {
       _isSeeking = true;
       _dragPositionMs = value;
+      _lastSeekTargetMs = null;
     });
     _scaleController.forward();
   }
@@ -126,10 +139,17 @@ class _NowPlayingProgressBarState
   void _onSeekEnd(double value) {
     final playerService = ref.read(audioPlayerServiceProvider);
     playerService.seek(Duration(milliseconds: value.toInt()));
+    _lastSeekTargetMs = value;
     setState(() {
       _isSeeking = false;
     });
-    _scaleController.reverse();
+    _scaleController.reverse().then((_) {
+      if (mounted) {
+        setState(() {
+          _lastSeekTargetMs = null;
+        });
+      }
+    });
   }
 
   double _getProgressBarWidth() {
@@ -208,18 +228,27 @@ class _NowPlayingProgressBarState
     );
   }
 
-  Widget _buildAudioWaveformProgressBar({
+  Widget _buildSpectrumProgressBar({
     required double progress,
     required double displayMs,
     required double maxMs,
     required List<double> amplitudes,
   }) {
-    final barHeight = widget.isCompact ? 30.0 : 42.0;
+    final barContainerHeight = widget.isCompact ? 36.0 : 48.0;
+
     return GestureDetector(
       key: _progressKey,
       behavior: HitTestBehavior.opaque,
       onTapDown: (details) =>
-          _seekFromDx(details.localPosition.dx, maxMs),
+          _seekStartFromDx(details.localPosition.dx, maxMs),
+      onTapUp: (details) =>
+          _onSeekEnd(_dragPositionMs),
+      onTapCancel: () {
+        if (_isSeeking) {
+          setState(() => _isSeeking = false);
+          _scaleController.reverse();
+        }
+      },
       onHorizontalDragStart: (details) =>
           _seekStartFromDx(details.localPosition.dx, maxMs),
       onHorizontalDragUpdate: (details) =>
@@ -229,23 +258,28 @@ class _NowPlayingProgressBarState
         setState(() => _isSeeking = false);
         _scaleController.reverse();
       },
-      child: SizedBox(
-        height: barHeight,
-        width: double.infinity,
-        child: AnimatedBuilder(
-          animation: _scaleController,
-          builder: (context, child) {
-            return CustomPaint(
-              size: Size.infinite,
-              painter: _AudioWaveformPainter(
-                progress: progress,
-                amplitudes: amplitudes,
-                activeColor: widget.accentColor,
-                inactiveColor: widget.textColor.withValues(alpha: 0.25),
-                isSeeking: _isSeeking,
-              ),
-            );
-          },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4.0),
+        child: SizedBox(
+          height: barContainerHeight,
+          width: double.infinity,
+          child: AnimatedBuilder(
+            animation: _spectrumZoomAnim,
+            builder: (context, child) {
+              return CustomPaint(
+                size: Size.infinite,
+                painter: _SpectrumBarPainter(
+                  progress: progress,
+                  amplitudes: amplitudes,
+                  activeColor: widget.accentColor,
+                  inactiveColor: widget.textColor.withValues(alpha: 0.20),
+                  thumbColor: widget.textColor,
+                  seekScale: _spectrumZoomAnim.value,
+                  isSeeking: _isSeeking,
+                ),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -272,8 +306,8 @@ class _NowPlayingProgressBarState
     final trackId = currentTrack?.id ?? 'default_track';
     if (_cachedTrackId != trackId || _cachedAmplitudes == null) {
       _cachedTrackId = trackId;
-      _cachedAmplitudes = _AudioWaveformPainter.generateAmplitudes(
-        widget.isCompact ? 36 : 56,
+      _cachedAmplitudes = _SpectrumBarPainter.generateAmplitudes(
+        widget.isCompact ? 56 : 82,
         trackId.hashCode,
       );
     }
@@ -285,10 +319,15 @@ class _NowPlayingProgressBarState
         ? widget.duration!.inMilliseconds.toDouble()
         : 1.0;
 
-    // Use local drag position during seek, stream position otherwise
-    final double displayMs = _isSeeking
-        ? _dragPositionMs
-        : position.inMilliseconds.toDouble().clamp(0.0, maxMs);
+    // Use local drag position during seek, hold position while zoom-out animation is running, stream position otherwise
+    final double displayMs;
+    if (_isSeeking) {
+      displayMs = _dragPositionMs;
+    } else if (_lastSeekTargetMs != null && _scaleController.isAnimating) {
+      displayMs = _lastSeekTargetMs!;
+    } else {
+      displayMs = position.inMilliseconds.toDouble().clamp(0.0, maxMs);
+    }
     final displayPosition = Duration(milliseconds: displayMs.toInt());
     final double progress =
         (maxMs > 0) ? (displayMs / maxMs).clamp(0.0, 1.0) : 0.0;
@@ -307,8 +346,8 @@ class _NowPlayingProgressBarState
                 displayMs: displayMs,
                 maxMs: maxMs,
               )
-            else if (progressBarStyle == ProgressBarStyle.audioWaveform)
-              _buildAudioWaveformProgressBar(
+            else if (progressBarStyle == ProgressBarStyle.spectrum)
+              _buildSpectrumProgressBar(
                 progress: progress,
                 displayMs: displayMs,
                 maxMs: maxMs,
@@ -517,47 +556,92 @@ class _WavyProgressBarPainter extends CustomPainter {
   }
 }
 
-/// Custom painter for the Audio Waveform vertical amplitude bars scrubber
-class _AudioWaveformPainter extends CustomPainter {
+/// Custom painter for the Spectrum vertical amplitude bars scrubber with zoom seek
+class _SpectrumBarPainter extends CustomPainter {
   final double progress;
   final List<double> amplitudes;
   final Color activeColor;
   final Color inactiveColor;
+  final Color thumbColor;
+  final double seekScale;
   final bool isSeeking;
 
-  _AudioWaveformPainter({
+  _SpectrumBarPainter({
     required this.progress,
     required this.amplitudes,
     required this.activeColor,
     required this.inactiveColor,
+    required this.thumbColor,
+    required this.seekScale,
     required this.isSeeking,
   });
 
+  /// Generates a high-sensitivity, dynamic audio spectrum profile customized per track
   static List<double> generateAmplitudes(int count, int seed) {
     final rand = math.Random(seed);
     final list = <double>[];
-    double prev = 0.35;
+    double prev = 0.25;
+
     for (int i = 0; i < count; i++) {
       final t = (count > 1) ? i / (count - 1) : 0.5;
-      final envelope = math.sin(t * math.pi).clamp(0.25, 1.0);
-      final wave1 = math.sin(i * 0.28 + seed) * 0.25;
-      final wave2 = math.cos(i * 0.65 + seed * 3) * 0.18;
+
+      // Sectional dynamics: intro, verse, chorus/drop, bridge, climax, outro
+      final double sectionCurve;
+      if (t < 0.12) {
+        sectionCurve = 0.05 + 0.38 * (t / 0.12);
+      } else if (t < 0.35) {
+        sectionCurve = 0.40 + 0.32 * math.sin((t - 0.12) / 0.23 * math.pi);
+      } else if (t < 0.55) {
+        sectionCurve = 0.68 + 0.32 * math.sin((t - 0.35) / 0.20 * math.pi);
+      } else if (t < 0.70) {
+        sectionCurve = 0.18 + 0.30 * math.sin((t - 0.55) / 0.15 * math.pi);
+      } else if (t < 0.90) {
+        sectionCurve = 0.72 + 0.28 * math.sin((t - 0.70) / 0.20 * math.pi);
+      } else {
+        sectionCurve = (1.0 - (t - 0.90) / 0.10).clamp(0.02, 0.70);
+      }
+
+      // Multi-frequency harmonic spectrum waves
+      final wave1 = math.sin(i * 0.38 + seed) * 0.28;
+      final wave2 = math.cos(i * 0.95 + seed * 2) * 0.20;
+      final wave3 = math.sin(i * 1.85 + seed * 3) * 0.15;
+
+      // Rhythmic beat pulses (kick transients every ~4 bars)
+      final isBeat = (i % 4 == 0) ? 0.28 : ((i % 2 == 0) ? 0.12 : -0.08);
+
+      // Micro-variation noise for fine-grained spectrum detail
       final noise = (rand.nextDouble() - 0.5) * 0.35;
-      prev = (prev * 0.6 + (0.45 + wave1 + wave2 + noise) * 0.4)
-          .clamp(0.12, 1.0);
-      list.add((prev * envelope).clamp(0.12, 1.0));
+
+      // Target amplitude with wide dynamic range
+      final target = (sectionCurve + wave1 + wave2 + wave3 + isBeat + noise)
+          .clamp(0.04, 1.0);
+
+      // Low damping (0.24 prev, 0.76 target) preserves crisp sensitivity to peaks and drops
+      prev = (prev * 0.24 + target * 0.76).clamp(0.04, 1.0);
+      list.add(prev);
     }
     return list;
   }
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (amplitudes.isEmpty) return;
+    if (amplitudes.isEmpty || size.width <= 0 || size.height <= 0) return;
+
     final totalBars = amplitudes.length;
     final step = size.width / totalBars;
-    final barWidth = (step * 0.58).clamp(2.0, 4.0);
-    final maxBarHeight = size.height;
+    // Slender, modern thin bars matching mockup
+    final baseBarWidth = (step * 0.46).clamp(1.5, 2.4);
     final midY = size.height / 2;
+    final cursorX = (progress * size.width).clamp(0.0, size.width);
+
+    // Smoothly scale maximum bar height from resting (62% of container) to seeking (92% of container)
+    final restMaxHeight = size.height * 0.62;
+    final seekMaxHeight = size.height * 0.92;
+    final currentMaxHeight =
+        restMaxHeight + (seekMaxHeight - restMaxHeight) * seekScale;
+
+    // Zoom window parameters during seek
+    final zoomRadius = size.width * 0.16;
 
     final activePaint = Paint()
       ..color = activeColor
@@ -572,24 +656,97 @@ class _AudioWaveformPainter extends CustomPainter {
       final barFraction = (i + 0.5) / totalBars;
       final isActive = barFraction <= progress;
 
+      // Localized magnification zoom around seek cursor
+      final dist = (x - cursorX).abs();
+      final double zoomFactor;
+      if (seekScale > 0.0 && dist < zoomRadius) {
+        zoomFactor = math.cos((dist / zoomRadius) * (math.pi / 2)) * seekScale;
+      } else {
+        zoomFactor = 0.0;
+      }
+
       final amp = amplitudes[i];
-      final barHeight = (amp * maxBarHeight).clamp(4.0, maxBarHeight);
+      final currentBarWidth =
+          (baseBarWidth * (1.0 + zoomFactor * 0.45)).clamp(1.5, 3.2);
+      final rawHeight = amp * (1.0 + zoomFactor * 0.30) * currentMaxHeight;
+      // When rawHeight is small, barHeight equals currentBarWidth -> becomes a perfect circular dot
+      final barHeight = rawHeight < currentBarWidth
+          ? currentBarWidth
+          : rawHeight.clamp(currentBarWidth, size.height);
       final top = midY - barHeight / 2;
 
       final rect = RRect.fromRectAndRadius(
-        Rect.fromLTWH(x - barWidth / 2, top, barWidth, barHeight),
-        Radius.circular(barWidth / 2),
+        Rect.fromLTWH(x - currentBarWidth / 2, top, currentBarWidth, barHeight),
+        Radius.circular(currentBarWidth / 2),
       );
       canvas.drawRRect(rect, isActive ? activePaint : inactivePaint);
+    }
+
+    // Draw animated seek playhead needle & glowing indicator when seeking
+    if (seekScale > 0.0) {
+      // 1. Luminous halo around cursor
+      final haloWidth = 12.0 + 6.0 * seekScale;
+      final haloPaint = Paint()
+        ..color = activeColor.withValues(alpha: (0.35 * seekScale).clamp(0.0, 1.0))
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6.0);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(
+            center: Offset(cursorX, midY),
+            width: haloWidth,
+            height: currentMaxHeight + 4.0,
+          ),
+          Radius.circular(haloWidth / 2),
+        ),
+        haloPaint,
+      );
+
+      // 2. Crisp refined needle playhead line
+      final needleWidth = 2.2;
+      final needleHeight = currentMaxHeight + 6.0;
+      final needleRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: Offset(cursorX, midY),
+          width: needleWidth,
+          height: needleHeight,
+        ),
+        const Radius.circular(1.1),
+      );
+
+      final needlePaint = Paint()
+        ..color = thumbColor.withValues(alpha: (0.95 * seekScale).clamp(0.0, 1.0))
+        ..style = PaintingStyle.fill;
+      canvas.drawRRect(needleRect, needlePaint);
+
+      // 3. Top and bottom accent indicator diamonds
+      final diamondSize = 5.0 * seekScale;
+      final diamondPaint = Paint()
+        ..color = activeColor
+        ..style = PaintingStyle.fill;
+
+      void drawDiamond(Offset center) {
+        final path = Path()
+          ..moveTo(center.dx, center.dy - diamondSize / 2)
+          ..lineTo(center.dx + diamondSize / 2, center.dy)
+          ..lineTo(center.dx, center.dy + diamondSize / 2)
+          ..lineTo(center.dx - diamondSize / 2, center.dy)
+          ..close();
+        canvas.drawPath(path, diamondPaint);
+      }
+
+      drawDiamond(Offset(cursorX, midY - needleHeight / 2));
+      drawDiamond(Offset(cursorX, midY + needleHeight / 2));
     }
   }
 
   @override
-  bool shouldRepaint(_AudioWaveformPainter oldDelegate) {
+  bool shouldRepaint(_SpectrumBarPainter oldDelegate) {
     return oldDelegate.progress != progress ||
         oldDelegate.amplitudes != amplitudes ||
         oldDelegate.activeColor != activeColor ||
         oldDelegate.inactiveColor != inactiveColor ||
+        oldDelegate.thumbColor != thumbColor ||
+        oldDelegate.seekScale != seekScale ||
         oldDelegate.isSeeking != isSeeking;
   }
 }
@@ -1225,6 +1382,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   bool _isDrawerExpanded = false; // Track drawer state
   bool _initialColorLoad = true;
   bool _isAlbumSwipeNavigationInProgress = false;
+  bool _isUserDraggingAlbumArt = false;
   int? _lastAlbumArtSyncedIndex;
   Orientation? _lastOrientation;
   late AnimationController _heartAnimController;
@@ -1425,6 +1583,19 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     final currentOrientation = MediaQuery.of(context).orientation;
     if (_lastOrientation != currentOrientation) {
       _lastOrientation = currentOrientation;
+      _lastAlbumArtSyncedIndex = currentQueueIndex;
+
+      // Swap out the PageController so the incoming PageView in the new orientation
+      // immediately mounts at the active track index without any initialPage=0 mismatch
+      final oldController = _albumArtPageController;
+      _albumArtPageController = PageController(
+        initialPage: currentQueueIndex >= 0 ? currentQueueIndex : 0,
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        try {
+          oldController.dispose();
+        } catch (_) {}
+      });
 
       if (currentOrientation == Orientation.landscape) {
         // In landscape, ensure tabs are on Lyrics (index 1) without async post-frame jumps
@@ -3990,17 +4161,14 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     required int queueLength,
   }) {
     if (_isAlbumSwipeNavigationInProgress) return;
+    // Strictly require physical user drag so layout resizes or orientation changes never skip tracks
+    if (!_isUserDraggingAlbumArt) return;
     if (pageIndex < 0 || pageIndex >= queueLength) return;
     if (pageIndex == currentIndex) return;
     playerService.skipToIndex(pageIndex);
   }
 
   Widget _buildAlbumArt(Track track, Color accentColor) {
-    final orientation = MediaQuery.of(context).orientation;
-    if (_lastOrientation != orientation) {
-      _lastAlbumArtSyncedIndex = null;
-      _lastOrientation = orientation;
-    }
 
     final lyricsState = ref.watch(lyricsProvider);
     final isFetchingLyrics =
@@ -4012,30 +4180,51 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     final showLyricsBelowArt = ref.watch(showLyricsBelowAlbumArtProvider);
     final shouldExpand =
         !showLyricsBelowArt || (!isFetchingLyrics && !hasSyncedLyrics);
+    final progressBarStyle = ref.watch(progressBarStyleProvider);
+    final isSpectrum = progressBarStyle == ProgressBarStyle.spectrum;
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final screenWidth = MediaQuery.of(context).size.width;
         final screenHeight = MediaQuery.of(context).size.height;
 
-        // Expand album art dynamically when synced lyrics preview is not present
-        final maxHeightRatio = shouldExpand ? 0.47 : 0.40;
+        // Reduce album art size slightly for Spectrum style so the spectrum bar and bottom controls have generous breathing room
+        final double maxHeightRatio;
+        final double widthMargin;
+        if (isSpectrum) {
+          maxHeightRatio = shouldExpand ? 0.41 : 0.35;
+          widthMargin = shouldExpand ? 64 : 76;
+        } else {
+          maxHeightRatio = shouldExpand ? 0.47 : 0.40;
+          widthMargin = shouldExpand ? 36 : 52;
+        }
         final maxHeight = screenHeight * maxHeightRatio;
+
+        // When lyrics are off (shouldExpand), provide generous vertical separation (24px in spectrum)
+        // between the bottom of the album art and the track title.
+        final double topPadding = shouldExpand ? (isSpectrum ? 8.0 : 6.0) : 12.0;
+        final double bottomSpacing = shouldExpand
+            ? (isSpectrum ? 24.0 : 18.0)
+            : 6.0;
+
+        final double maxArtHeight = maxHeight - topPadding - bottomSpacing;
 
         // Constrain to max height while staying square
         final artSize = math.min(
-          screenWidth - (shouldExpand ? 36 : 52),
-          maxHeight,
+          screenWidth - widthMargin,
+          maxArtHeight,
         );
+
+        final double containerHeight = topPadding + artSize + bottomSpacing;
 
         return AnimatedContainer(
           duration: const Duration(milliseconds: 350),
           curve: Curves.easeOutCubic,
-          height: maxHeight,
+          height: containerHeight,
           child: Align(
             alignment: Alignment.topCenter,
             child: Padding(
-              padding: EdgeInsets.only(top: shouldExpand ? 6 : 12),
+              padding: EdgeInsets.only(top: topPadding),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 350),
                 curve: Curves.easeOutCubic,
@@ -4337,21 +4526,36 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       );
     }
 
-    return PageView.builder(
-      controller: _albumArtPageController,
-      clipBehavior: Clip.none,
-      physics: const BouncingScrollPhysics(
-        parent: AlwaysScrollableScrollPhysics(),
-      ),
-      itemCount: queue.length,
-      onPageChanged: (pageIndex) {
-        _handleAlbumArtPageChanged(
-          pageIndex,
-          playerService,
-          currentIndex: currentIndex,
-          queueLength: queue.length,
-        );
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        if (notification is UserScrollNotification) {
+          _isUserDraggingAlbumArt =
+              notification.direction != ScrollDirection.idle;
+        }
+        if (notification is ScrollStartNotification) {
+          if (notification.dragDetails != null) {
+            _isUserDraggingAlbumArt = true;
+          }
+        } else if (notification is ScrollEndNotification) {
+          _isUserDraggingAlbumArt = false;
+        }
+        return false;
       },
+      child: PageView.builder(
+        controller: _albumArtPageController,
+        clipBehavior: Clip.none,
+        physics: const BouncingScrollPhysics(
+          parent: AlwaysScrollableScrollPhysics(),
+        ),
+        itemCount: queue.length,
+        onPageChanged: (pageIndex) {
+          _handleAlbumArtPageChanged(
+            pageIndex,
+            playerService,
+            currentIndex: currentIndex,
+            queueLength: queue.length,
+          );
+        },
       itemBuilder: (context, pageIndex) {
         final displayTrack =
             (pageIndex >= 0 && pageIndex < queue.length)
@@ -4428,8 +4632,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
           },
         );
       },
-    );
-  }
+    ),
+  );
+}
 
   /// Swipeable album art widget for Ripple style (clean unclipped stack for RippleFlowerClipper)
   Widget _buildRippleSwipeableAlbumArt(Track track, Color accentColor) {
@@ -4454,21 +4659,36 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       );
     }
 
-    return PageView.builder(
-      controller: _albumArtPageController,
-      clipBehavior: Clip.none,
-      physics: const BouncingScrollPhysics(
-        parent: AlwaysScrollableScrollPhysics(),
-      ),
-      itemCount: queue.length,
-      onPageChanged: (pageIndex) {
-        _handleAlbumArtPageChanged(
-          pageIndex,
-          playerService,
-          currentIndex: currentIndex,
-          queueLength: queue.length,
-        );
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        if (notification is UserScrollNotification) {
+          _isUserDraggingAlbumArt =
+              notification.direction != ScrollDirection.idle;
+        }
+        if (notification is ScrollStartNotification) {
+          if (notification.dragDetails != null) {
+            _isUserDraggingAlbumArt = true;
+          }
+        } else if (notification is ScrollEndNotification) {
+          _isUserDraggingAlbumArt = false;
+        }
+        return false;
       },
+      child: PageView.builder(
+        controller: _albumArtPageController,
+        clipBehavior: Clip.none,
+        physics: const BouncingScrollPhysics(
+          parent: AlwaysScrollableScrollPhysics(),
+        ),
+        itemCount: queue.length,
+        onPageChanged: (pageIndex) {
+          _handleAlbumArtPageChanged(
+            pageIndex,
+            playerService,
+            currentIndex: currentIndex,
+            queueLength: queue.length,
+          );
+        },
       itemBuilder: (context, pageIndex) {
         final displayTrack = queue[pageIndex];
         return AnimatedBuilder(
@@ -4504,9 +4724,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
           },
         );
       },
-    );
-
-  }
+    ),
+  );
+}
 
   Widget _buildSyncedLyricPreview(
     Color textColor,
@@ -4549,7 +4769,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
         children: [
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 // Marquee for long titles
                 SizedBox(
@@ -4579,7 +4799,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                             color: textColor,
                           ),
                           scrollAxis: Axis.horizontal,
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           blankSpace: 60.0,
                           velocity: 30.0,
                           pauseAfterRound: const Duration(seconds: 2),
@@ -4595,6 +4815,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                       return Text(
                         track.title,
                         maxLines: 1,
+                        textAlign: TextAlign.center,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: titleFontSize,
@@ -4617,6 +4838,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                     ),
                     maxLines: 1,
                     enableMarquee: true,
+                    textAlign: TextAlign.center,
                   ),
                 ),
               ],
@@ -4632,6 +4854,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     required TextStyle style,
     required int maxLines,
     required bool enableMarquee,
+    TextAlign textAlign = TextAlign.start,
   }) {
     final canOpenArtist = track.artistId.isNotEmpty;
 
@@ -4649,7 +4872,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                   text: track.artist,
                   style: style,
                   scrollAxis: Axis.horizontal,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   blankSpace: 60.0,
                   velocity: 30.0,
                   pauseAfterRound: const Duration(seconds: 2),
@@ -4660,6 +4883,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
               return Text(
                 track.artist,
                 maxLines: maxLines,
+                textAlign: textAlign,
                 overflow: TextOverflow.ellipsis,
                 style: style,
               );
@@ -4668,6 +4892,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
         : Text(
             track.artist,
             maxLines: maxLines,
+            textAlign: textAlign,
             overflow: TextOverflow.ellipsis,
             style: style,
           );

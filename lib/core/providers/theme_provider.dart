@@ -440,7 +440,7 @@ class ShowLyricsBelowAlbumArtNotifier extends StateNotifier<bool> {
 enum ProgressBarStyle {
   defaultLinear, // Classic linear slider
   waveform, // Fluid oscillating wavy progress line (Android media style)
-  audioWaveform, // Vertical audio waveform amplitude bars scrubber
+  spectrum, // Dynamic vertical audio spectrum bars with zoom seek
 }
 
 String getProgressBarStyleName(ProgressBarStyle style) {
@@ -449,8 +449,8 @@ String getProgressBarStyleName(ProgressBarStyle style) {
       return 'Default';
     case ProgressBarStyle.waveform:
       return 'Waveform';
-    case ProgressBarStyle.audioWaveform:
-      return 'Audio Waveform';
+    case ProgressBarStyle.spectrum:
+      return 'Spectrum';
   }
 }
 
@@ -460,8 +460,8 @@ String getProgressBarStyleDescription(ProgressBarStyle style) {
       return 'Classic linear slider with smooth seek knob';
     case ProgressBarStyle.waveform:
       return 'Fluid oscillating wavy line with animated playback motion';
-    case ProgressBarStyle.audioWaveform:
-      return 'Dynamic vertical amplitude bars scrubber with tap & drag seek';
+    case ProgressBarStyle.spectrum:
+      return 'Dynamic vertical audio spectrum bars with zoom seek';
   }
 }
 
