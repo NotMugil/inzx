@@ -234,12 +234,14 @@ class SyncedLyricPreview extends ConsumerStatefulWidget {
   final Color textColor;
   final Color accentColor;
   final VoidCallback onTap;
+  final bool isCentered;
 
   const SyncedLyricPreview({
     super.key,
     required this.textColor,
     required this.accentColor,
     required this.onTap,
+    this.isCentered = false,
   });
 
   @override
@@ -458,6 +460,9 @@ class _SyncedLyricPreviewState extends ConsumerState<SyncedLyricPreview>
       switcherKey = 'loading_${lyricsState.videoId}';
       content = Row(
         mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: widget.isCentered
+            ? MainAxisAlignment.center
+            : MainAxisAlignment.start,
         children: [
           Icon(
             Icons.music_note_rounded,
@@ -476,6 +481,8 @@ class _SyncedLyricPreviewState extends ConsumerState<SyncedLyricPreview>
               loadingText,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
+              textAlign:
+                  widget.isCentered ? TextAlign.center : TextAlign.left,
               style: TextStyle(
                 fontSize: 14,
                 fontStyle: FontStyle.italic,
@@ -495,34 +502,23 @@ class _SyncedLyricPreviewState extends ConsumerState<SyncedLyricPreview>
               : null;
       activeLine = currentLine;
 
+      firstSungIdx = lines.indexWhere((l) => !l.isGap);
+
       // Determine whether the player is currently in an instrumental passage:
       // 1. Before the first sung line (intro)
       // 2. An explicit gap line or musical symbol line
-      // 3. After the current vocal has finished singing and the next line is ahead
-      firstSungIdx = lines.indexWhere((l) => !l.isGap);
-      isIntro = _currentLineIndex == -1 ||
-          (firstSungIdx >= 0 && _currentLineIndex < firstSungIdx);
+      // 3. A natural break between non-gap lines (>= 3.5s gap after vocal finishes)
+      if (_inMidSongBreak ||
+          (currentLine != null && currentLine.isGap) ||
+          (_currentLineIndex == -1 && lines.isNotEmpty && pos < lines[0].timeInMs)) {
+        isInstrumental = true;
+        isIntro = (_currentLineIndex == -1 ||
+            (_currentLineIndex >= 0 &&
+                _currentLineIndex < lines.length &&
+                lines[_currentLineIndex].isGap &&
+                (firstSungIdx == -1 || _currentLineIndex < firstSungIdx)));
 
-      final bool isExplicitGap = currentLine != null && currentLine.isGap;
-
-      final bool isMidSongBreak = !isExplicitGap &&
-          (_inMidSongBreak ||
-              (currentLine != null &&
-                  pos >=
-                      (currentLine.hasKnownEnd
-                          ? (currentLine.endMs + 1000)
-                          : (currentLine.timeInMs + 3500)) &&
-                  (_currentLineIndex + 1 < lines.length &&
-                      lines[_currentLineIndex + 1].timeInMs - pos >= 2500)));
-
-      isInstrumental = isIntro || isExplicitGap || isMidSongBreak;
-
-      if (isInstrumental) {
-        final currentTrack = ref.watch(currentTrackProvider);
-        final seed = (currentLine != null && currentLine.timeInMs > 0)
-            ? currentLine.timeInMs
-            : (currentTrack?.id.hashCode ?? pos);
-
+        final seed = (lyricsState.videoId.hashCode ^ _currentLineIndex);
         final String gapText;
         if (isIntro) {
           gapText = (currentLine != null &&
@@ -531,7 +527,7 @@ class _SyncedLyricPreviewState extends ConsumerState<SyncedLyricPreview>
               ? currentLine.text.trim()
               : InstrumentalGapTexts.getIntroText(seed);
         } else {
-          gapText = (isExplicitGap &&
+          gapText = (currentLine != null &&
                   currentLine.text.trim().isNotEmpty &&
                   !LyricLine.isMusicalSymbol(currentLine.text))
               ? currentLine.text.trim()
@@ -541,6 +537,9 @@ class _SyncedLyricPreviewState extends ConsumerState<SyncedLyricPreview>
         switcherKey = 'gap_${_currentLineIndex}_${isIntro ? "intro" : "break"}';
         content = Row(
           mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: widget.isCentered
+              ? MainAxisAlignment.center
+              : MainAxisAlignment.start,
           children: [
             Icon(
               Icons.music_note_rounded,
@@ -559,6 +558,8 @@ class _SyncedLyricPreviewState extends ConsumerState<SyncedLyricPreview>
                 gapText,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
+                textAlign:
+                    widget.isCentered ? TextAlign.center : TextAlign.left,
                 style: TextStyle(
                   fontSize: 14,
                   fontStyle: FontStyle.italic,
@@ -580,7 +581,9 @@ class _SyncedLyricPreviewState extends ConsumerState<SyncedLyricPreview>
         if (currentLine.hasWordSync) {
           switcherKey = 'words_$_currentLineIndex';
           content = Wrap(
-            alignment: WrapAlignment.start,
+            alignment: widget.isCentered
+                ? WrapAlignment.center
+                : WrapAlignment.start,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: currentLine.words!.asMap().entries.map((entry) {
               final wordIdx = entry.key;
@@ -608,7 +611,8 @@ class _SyncedLyricPreviewState extends ConsumerState<SyncedLyricPreview>
             maxLines: 3,
             overflow: TextOverflow.clip,
             softWrap: true,
-            textAlign: TextAlign.left,
+            textAlign:
+                widget.isCentered ? TextAlign.center : TextAlign.left,
             style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w600,
@@ -641,14 +645,18 @@ class _SyncedLyricPreviewState extends ConsumerState<SyncedLyricPreview>
         height: showPreview ? _syncedLyricPreviewHeight : 0.0,
         child: ClipRect(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 6, 24, 6),
+            padding: widget.isCentered
+                ? const EdgeInsets.fromLTRB(16, 4, 16, 4)
+                : const EdgeInsets.fromLTRB(24, 6, 24, 6),
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 360),
               switchInCurve: Curves.easeOutCubic,
               switchOutCurve: Curves.easeInCubic,
               layoutBuilder: (currentChild, previousChildren) {
                 return Stack(
-                  alignment: Alignment.centerLeft,
+                  alignment: widget.isCentered
+                      ? Alignment.center
+                      : Alignment.centerLeft,
                   children: [
                     ...previousChildren,
                     if (currentChild != null) currentChild,
@@ -685,7 +693,9 @@ class _SyncedLyricPreviewState extends ConsumerState<SyncedLyricPreview>
               },
               child: Align(
                 key: ValueKey(switcherKey),
-                alignment: Alignment.centerLeft,
+                alignment: widget.isCentered
+                    ? Alignment.center
+                    : Alignment.centerLeft,
                 child: AnimatedBuilder(
                   animation: _smoothPositionNotifier,
                   builder: (context, child) {
@@ -1324,6 +1334,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                           albumArt: _buildRippleSwipeableAlbumArt(
                             track,
                             accentColor,
+                          ),
+                          lyricPreview: _buildSyncedLyricPreview(
+                            textColor,
+                            accentColor,
+                            isCentered: true,
                           ),
                         )
                       : _buildFullAlbumView(
@@ -4107,13 +4122,18 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
 
   }
 
-  Widget _buildSyncedLyricPreview(Color textColor, Color accentColor) {
+  Widget _buildSyncedLyricPreview(
+    Color textColor,
+    Color accentColor, {
+    bool isCentered = false,
+  }) {
     final showLyricsBelowArt = ref.watch(showLyricsBelowAlbumArtProvider);
     if (!showLyricsBelowArt) return const SizedBox.shrink();
 
     return SyncedLyricPreview(
       textColor: textColor,
       accentColor: accentColor,
+      isCentered: isCentered,
       onTap: () {
         _tabController.animateTo(1);
         if (_pageController.hasClients) {

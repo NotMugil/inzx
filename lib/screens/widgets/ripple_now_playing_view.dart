@@ -9,6 +9,8 @@ import '../../providers/providers.dart';
 import '../../core/providers/theme_provider.dart';
 import '../../core/l10n/app_localizations_x.dart';
 import '../../services/audio_player_service.dart' as player;
+import '../../services/lyrics/lyrics_service.dart';
+import '../../services/lyrics/lyrics_models.dart';
 import '../../core/design_system/design_system.dart';
 import 'artist_screen.dart';
 import 'ripple_circular_progress_scrubber.dart';
@@ -33,6 +35,7 @@ class RippleNowPlayingView extends ConsumerStatefulWidget {
   final Widget? heartOverlay;
   final ValueChanged<bool>? onSeekingChanged;
   final bool isLiked;
+  final Widget? lyricPreview;
 
   const RippleNowPlayingView({
     super.key,
@@ -51,6 +54,7 @@ class RippleNowPlayingView extends ConsumerStatefulWidget {
     this.heartOverlay,
     this.onSeekingChanged,
     this.isLiked = false,
+    this.lyricPreview,
   });
 
   @override
@@ -67,6 +71,16 @@ class _RippleNowPlayingViewState extends ConsumerState<RippleNowPlayingView> {
     final duration = widget.state.duration ?? Duration.zero;
     final isLiquidGlass = ref.watch(liquidGlassNavProvider);
 
+    final lyricsState = ref.watch(lyricsProvider);
+    final isFetchingLyrics =
+        lyricsState.currentStatus.state == LyricsProviderState.fetching ||
+        lyricsState.currentStatus.state == LyricsProviderState.idle;
+    final hasSyncedLyrics =
+        lyricsState.currentLyrics?.hasSyncedLyrics ?? false;
+    final showLyricsBelowArt = ref.watch(showLyricsBelowAlbumArtProvider);
+    final hasLyricsPreview =
+        showLyricsBelowArt && (isFetchingLyrics || hasSyncedLyrics);
+
     return SafeArea(
       top: true,
       bottom: false,
@@ -74,14 +88,24 @@ class _RippleNowPlayingViewState extends ConsumerState<RippleNowPlayingView> {
         builder: (context, constraints) {
           final availableHeight = constraints.maxHeight;
 
-          // Responsive sizing for the centerpiece based on screen height
+          // Responsive sizing for the centerpiece based on screen height and lyrics presence
           final double scrubberSize;
-          if (availableHeight < 640) {
-            scrubberSize = (constraints.maxWidth * 0.76).clamp(220.0, 270.0);
-          } else if (availableHeight < 750) {
-            scrubberSize = (constraints.maxWidth * 0.83).clamp(260.0, 320.0);
+          if (hasLyricsPreview) {
+            if (availableHeight < 640) {
+              scrubberSize = (constraints.maxWidth * 0.68).clamp(190.0, 235.0);
+            } else if (availableHeight < 750) {
+              scrubberSize = (constraints.maxWidth * 0.74).clamp(225.0, 275.0);
+            } else {
+              scrubberSize = (constraints.maxWidth * 0.78).clamp(255.0, 310.0);
+            }
           } else {
-            scrubberSize = (constraints.maxWidth * 0.88).clamp(290.0, 365.0);
+            if (availableHeight < 640) {
+              scrubberSize = (constraints.maxWidth * 0.76).clamp(220.0, 270.0);
+            } else if (availableHeight < 750) {
+              scrubberSize = (constraints.maxWidth * 0.83).clamp(260.0, 320.0);
+            } else {
+              scrubberSize = (constraints.maxWidth * 0.88).clamp(290.0, 365.0);
+            }
           }
 
           return GestureDetector(
@@ -116,7 +140,9 @@ class _RippleNowPlayingViewState extends ConsumerState<RippleNowPlayingView> {
 
                   // 3. Centerpiece: Waveform Seek Ring enclosing 8-Petal Wavy Art
                   Center(
-                    child: SizedBox(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 350),
+                      curve: Curves.easeOutCubic,
                       width: scrubberSize,
                       height: scrubberSize,
                       child: Consumer(
@@ -238,10 +264,14 @@ class _RippleNowPlayingViewState extends ConsumerState<RippleNowPlayingView> {
                   ),
 
 
-                const SizedBox(height: 14),
+                  // 4. Live Synced Lyrics Preview under album art
+                  if (widget.lyricPreview != null)
+                    widget.lyricPreview!,
 
-                // 4. Centered Title & Artist
-                _buildTrackInfo(),
+                  SizedBox(height: hasLyricsPreview ? 4 : 14),
+
+                  // 5. Centered Title & Artist
+                  _buildTrackInfo(),
 
                 const Spacer(flex: 2),
 
