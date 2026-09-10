@@ -254,6 +254,22 @@ class JioSaavnService {
   /// Streams <= 96kbps are a downgrade and are rejected.
   static const int minUsableKbps = 96;
 
+  static String? _sanitizeAlbum(String? album) {
+    if (album == null) return null;
+    final trimmed = album.trim();
+    if (trimmed.isEmpty) return null;
+    if (RegExp(r'^\d+(\.\d+)?[kmb]?\s+(views|plays|view|play)$', caseSensitive: false).hasMatch(trimmed)) {
+      return null;
+    }
+    if (RegExp(r'^\d+:\d{2}(:\d{2})?$').hasMatch(trimmed)) {
+      return null;
+    }
+    if (RegExp(r'^(song|video|track|audio|single)$', caseSensitive: false).hasMatch(trimmed)) {
+      return null;
+    }
+    return trimmed;
+  }
+
   /// Cleans packaging and suffixes from track title
   static String cleanTitle(String title) => TrackMatcher.searchableTitle(title);
 
@@ -267,8 +283,8 @@ class JioSaavnService {
       title: target.title,
       artist: target.artist,
       durationSec: target.duration.inSeconds > 0 ? target.duration.inSeconds : null,
-      album: (target.album != null && target.album!.trim().isNotEmpty) ? target.album : null,
-      isExplicit: target.isExplicit,
+      album: _sanitizeAlbum(target.album),
+      isExplicit: target.isExplicit ? true : null,
     );
 
     var matches = TrackMatcher.ranked(candidates, targetModel);
@@ -299,8 +315,8 @@ class JioSaavnService {
         title: track.title,
         artist: track.artist,
         durationSec: track.duration.inSeconds > 0 ? track.duration.inSeconds : null,
-        album: (track.album != null && track.album!.trim().isNotEmpty) ? track.album : null,
-        isExplicit: track.isExplicit,
+        album: _sanitizeAlbum(track.album),
+        isExplicit: track.isExplicit ? true : null,
       );
 
       final queries = TrackMatcher.queries(target);
@@ -385,7 +401,9 @@ class JioSaavnService {
           continue;
         }
 
-        _streamCache[track.id] = stream;
+        if (target.durationSec != null) {
+          _streamCache[track.id] = stream;
+        }
         if (kDebugMode) {
           print(
             'JioSaavnService: Matched "${track.title}" -> "${bestMatch.title}" (${stream.kbps}kbps)',

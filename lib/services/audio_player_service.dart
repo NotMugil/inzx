@@ -3560,9 +3560,13 @@ class AudioPlayerService {
     }
 
     try {
-      final saavnStream = inFlightStream != null
+      var saavnStream = inFlightStream != null
           ? await inFlightStream
-          : await JioSaavnService.instance.getBestStreamForTrack(track);
+          : null;
+
+      if (saavnStream == null && track.duration > Duration.zero) {
+        saavnStream = await JioSaavnService.instance.getBestStreamForTrack(track);
+      }
 
       // User changed track or queue in the meantime
       if (sessionId != _upgradeSessionId || _currentTrack?.id != track.id) {

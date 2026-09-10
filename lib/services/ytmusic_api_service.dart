@@ -3638,13 +3638,42 @@ class InnerTubeService {
         }
       }
 
-      if (flexColumns.length > 2 && album == null) {
-        final albumRuns = flexColumns[2]['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'] as List?;
-        if (albumRuns != null && albumRuns.isNotEmpty) {
-          final run = albumRuns.first;
-          if (run is Map) {
-            album = run['text'] as String?;
-            albumId = run['navigationEndpoint']?['browseEndpoint']?['browseId'] as String?;
+      for (var i = 2; i < flexColumns.length; i++) {
+        final colRuns = flexColumns[i]['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'] as List?;
+        if (colRuns == null || colRuns.isEmpty) continue;
+        for (final run in colRuns) {
+          if (run is! Map) continue;
+          final text = (run['text'] as String?)?.trim();
+          if (text == null || text.isEmpty) continue;
+
+          if (_isDurationToken(text)) {
+            duration ??= _parseDuration(text);
+            continue;
+          }
+
+          if (RegExp(r'^\d+(\.\d+)?[kmb]?\s+(views|plays|view|play)$', caseSensitive: false).hasMatch(text)) {
+            continue;
+          }
+
+          if (_isMetadataTypeToken(text, hasMultipleChunks: true)) {
+            continue;
+          }
+
+          if (RegExp(r'^\d{4}$').hasMatch(text)) {
+            continue;
+          }
+
+          if (album == null) {
+            final browseEndpoint = run['navigationEndpoint']?['browseEndpoint'];
+            final pageType = (browseEndpoint?['browseEndpointContextSupportedConfigs']
+                    ?['browseEndpointContextMusicConfig']?['pageType'] ?? '')
+                .toString()
+                .toUpperCase();
+
+            if (pageType.contains('ARTIST')) continue;
+
+            album = text;
+            albumId = browseEndpoint?['browseId'] as String?;
           }
         }
       }
@@ -3852,7 +3881,7 @@ class InnerTubeService {
         final candidate = chunks[j];
         if (RegExp(r'^\d{4}$').hasMatch(candidate.text)) continue;
         if (_isMetadataTypeToken(candidate.text, hasMultipleChunks: true)) continue;
-        if (RegExp(r'^\d+(\.\d+)?[kmb]?\s+(views|plays)$', caseSensitive: false)
+        if (RegExp(r'^\d+(\.\d+)?[kmb]?\s+(views|plays|view|play)$', caseSensitive: false)
             .hasMatch(candidate.text)) {
           continue;
         }

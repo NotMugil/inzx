@@ -171,10 +171,12 @@ class TrackMatcher {
     'remix', 'remixes', 'rmx', 'refix', 'flip', 'bootleg', 'mashup', 'medley',
     'live', 'concert', 'unplugged', 'acoustic', 'instrumental', 'karaoke',
     'vocals', 'vocal', 'acapella', 'acappella', 'backing', 'stems', 'stem',
-    'cover', 'demo', 'reprise', 'remake', 'rework', 'extended', 'edit',
+    'cover', 'covers', 'demo', 'reprise', 'remake', 'rework', 'extended', 'edit',
     'version', 'mix', 'dub', 'vip', 'session', 'sessions',
     'sped', 'slowed', 'reverb', 'nightcore', 'lofi', 'orchestral', 'symphonic',
     'part', 'pt', 'chapter',
+    'lullaby', 'lullabies', 'rendition', 'renditions', 'tribute', 'tributes',
+    'parody', 'parodies',
   };
 
   /// Asides that read like a version and describe the ordinary release.
@@ -313,7 +315,7 @@ class TrackMatcher {
     final duration = durationScore(
       target.durationSec,
       candidate.durationSec,
-      allowVideoDrift: creditedArtist != null,
+      allowVideoDrift: target.isVideo && creditedArtist != null,
     );
     if (duration == null) return null;
 
