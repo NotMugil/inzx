@@ -305,3 +305,40 @@ class RotatingMiniPlayerArtNotifier extends StateNotifier<bool> {
 
   Future<void> toggle() => setEnabled(!state);
 }
+
+/// Provider for whether animated album art (Canvas video) is enabled.
+final animatedAlbumArtProvider =
+    StateNotifierProvider<AnimatedAlbumArtNotifier, bool>((ref) {
+  return AnimatedAlbumArtNotifier();
+});
+
+/// Notifier to manage the animated album art preference.
+/// Default: true (enabled by default).
+class AnimatedAlbumArtNotifier extends StateNotifier<bool> {
+  static const String animatedArtPrefKey = 'inzx_animated_album_art_enabled';
+
+  AnimatedAlbumArtNotifier() : super(true) {
+    _loadPreference();
+  }
+
+  Future<void> _loadPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final enabled = prefs.getBool(animatedArtPrefKey);
+      if (enabled != null) {
+        state = enabled;
+      }
+    } catch (_) {}
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    state = enabled;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(animatedArtPrefKey, enabled);
+    } catch (_) {}
+  }
+
+  Future<void> toggle() => setEnabled(!state);
+}
+

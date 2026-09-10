@@ -26,6 +26,7 @@ dependencies:
   # UI & Animations
   cached_network_image: ^3.4.1
   flutter_cache_manager: ^3.4.1
+  video_player: ^2.9.2
   marquee: ^2.3.0
   skeletonizer: ^2.1.3
 

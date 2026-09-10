@@ -30,6 +30,7 @@ import 'ytm_drawer.dart';
 import 'home_shelves.dart' show TrackListShelf;
 import '../../services/local_artwork_service.dart';
 import 'track_artwork_view.dart';
+import 'animated_album_art_view.dart';
 
 /// Progress bar widget that only rebuilds on position changes (isolated)
 class _NowPlayingProgressBar extends ConsumerStatefulWidget {
@@ -253,6 +254,8 @@ class _SyncedLyricPreviewState extends ConsumerState<SyncedLyricPreview>
   int _currentLineIndex = -1;
   bool _inMidSongBreak = false;
   String? _lastVideoId;
+  bool _isPlaying = false;
+  LyricsState? _latestLyricsState;
 
   @override
   void initState() {
@@ -262,11 +265,12 @@ class _SyncedLyricPreviewState extends ConsumerState<SyncedLyricPreview>
     _lastAudioMs = initialPos.inMilliseconds;
     _lastSyncEpochMs = DateTime.now().millisecondsSinceEpoch;
     _smoothPositionNotifier.value = _lastAudioMs;
+    _isPlaying = ref.read(isPlayingProvider);
+    _latestLyricsState = ref.read(lyricsProvider);
 
     _ticker = createTicker((_) {
       if (!mounted) return;
-      final isPlaying = ref.read(isPlayingProvider);
-      if (isPlaying) {
+      if (_isPlaying) {
         final now = DateTime.now().millisecondsSinceEpoch;
         final elapsed = now - _lastSyncEpochMs;
         final current = _lastAudioMs + elapsed;
@@ -279,12 +283,14 @@ class _SyncedLyricPreviewState extends ConsumerState<SyncedLyricPreview>
         _checkLineIndexChange(_lastAudioMs);
       }
     });
-    _ticker.start();
+    if (_isPlaying) {
+      _ticker.start();
+    }
   }
 
   void _checkLineIndexChange(int currentPositionMs) {
-    final lyricsState = ref.read(lyricsProvider);
-    final lines = lyricsState.currentLyrics?.lines;
+    if (!mounted) return;
+    final lines = _latestLyricsState?.currentLyrics?.lines;
     if (lines == null || lines.isEmpty) {
       if (_currentLineIndex != -1 || _inMidSongBreak) {
         _safeSetState(() {
@@ -349,6 +355,20 @@ class _SyncedLyricPreviewState extends ConsumerState<SyncedLyricPreview>
   }
 
   @override
+  void deactivate() {
+    _ticker.stop();
+    super.deactivate();
+  }
+
+  @override
+  void activate() {
+    super.activate();
+    if (_isPlaying && !_ticker.isActive) {
+      _ticker.start();
+    }
+  }
+
+  @override
   void dispose() {
     _ticker.dispose();
     _smoothPositionNotifier.dispose();
@@ -357,15 +377,29 @@ class _SyncedLyricPreviewState extends ConsumerState<SyncedLyricPreview>
 
   @override
   Widget build(BuildContext context) {
+    _isPlaying = ref.watch(isPlayingProvider);
+    final lyricsState = ref.watch(lyricsProvider);
+    _latestLyricsState = lyricsState;
+
     // Synchronize play/pause state
     ref.listen<bool>(isPlayingProvider, (prev, isPlaying) {
+      _isPlaying = isPlaying;
+      if (!mounted) return;
       if (isPlaying) {
         _lastSyncEpochMs = DateTime.now().millisecondsSinceEpoch;
+        if (!_ticker.isActive) {
+          _ticker.start();
+        }
+      } else {
+        if (_ticker.isActive) {
+          _ticker.stop();
+        }
       }
     });
 
     // Synchronize audio stream ticks / seeks without rebuilding widget tree
     ref.listen<AsyncValue<Duration>>(positionStreamProvider, (prev, next) {
+      if (!mounted) return;
       final newMs = next.valueOrNull?.inMilliseconds;
       if (newMs == null) return;
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -380,7 +414,6 @@ class _SyncedLyricPreviewState extends ConsumerState<SyncedLyricPreview>
       }
     });
 
-    final lyricsState = ref.watch(lyricsProvider);
     if (lyricsState.videoId != _lastVideoId) {
       _lastVideoId = lyricsState.videoId;
       _currentLineIndex = -1;
@@ -992,85 +1025,50 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     });
 
     final currentOrientation = MediaQuery.of(context).orientation;
-    if (_lastOrientation != null && _lastOrientation != currentOrientation) {
+    if (_lastOrientation != currentOrientation) {
       _lastOrientation = currentOrientation;
-      _lastAlbumArtSyncedIndex = -1; // Force re-sync of album art controller on orientation change
-      final activeTabIndex = _tabController.index;
 
       if (currentOrientation == Orientation.landscape) {
-        // Horizontal/landscape view always shows Lyrics tab (index 1) first
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            if (_stageViewPageController.hasClients) {
-              _stageViewPageController.jumpToPage(1);
-            }
-            if (_tabController.index != 1) {
-              _tabController.animateTo(1);
-            }
-            setState(() {
-              _showQueue = false;
-              _showLyrics = true;
-            });
-          }
-        });
+        // In landscape, ensure tabs are on Lyrics (index 1) without async post-frame jumps
+        if (_tabController.index != 1) {
+          _tabController.index = 1;
+        }
+        _isDrawerExpanded = false;
       } else {
-        // Returning to portrait: open drawer on the active tab from landscape (e.g., Lyrics)
-        _isDrawerExpanded = true;
-        _showQueue = activeTabIndex == 0;
-        _showLyrics = activeTabIndex == 1;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            if (_pageController.hasClients) {
-              _pageController.jumpToPage(activeTabIndex);
-            }
-            if (_tabController.index != activeTabIndex) {
-              _tabController.animateTo(activeTabIndex);
-            }
-            _drawerKey.currentState?.expand();
-          }
-        });
+        // Returning to portrait: keep drawer collapsed so the user sees the full Now Playing view
+        _isDrawerExpanded = false;
       }
-    } else {
-      if (_lastOrientation == null && currentOrientation == Orientation.landscape) {
-        // Initially launched in landscape: ensure tab controller and stage view are on Lyrics (index 1)
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            if (_stageViewPageController.hasClients) {
-              _stageViewPageController.jumpToPage(1);
-            }
-            if (_tabController.index != 1) {
-              _tabController.animateTo(1);
-            }
-            setState(() {
-              _showQueue = false;
-              _showLyrics = true;
-            });
-          }
-        });
-      }
-      _lastOrientation = currentOrientation;
     }
 
     if (currentQueueIndex >= 0 &&
         currentQueueIndex != _lastAlbumArtSyncedIndex) {
-      _lastAlbumArtSyncedIndex = currentQueueIndex;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !_albumArtPageController.hasClients) return;
-        final activePage =
-            _safeAlbumArtPage(currentQueueIndex.toDouble()).round();
+        _lastAlbumArtSyncedIndex = currentQueueIndex;
+        final activePage = _safeAlbumArtPage(-1.0).round();
         if (activePage != currentQueueIndex) {
           _isAlbumSwipeNavigationInProgress = true;
-          _albumArtPageController
-              .animateToPage(
-                currentQueueIndex,
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeOutCubic,
-              )
-              .whenComplete(() {
-                if (mounted) {
-                  _isAlbumSwipeNavigationInProgress = false;
-                }
-              });
+          if ((activePage - currentQueueIndex).abs() > 1 || _isDrawerExpanded) {
+            _albumArtPageController.jumpToPage(currentQueueIndex);
+            _isAlbumSwipeNavigationInProgress = false;
+          } else {
+            _albumArtPageController
+                .animateToPage(
+                  currentQueueIndex,
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeOutCubic,
+                )
+                .then((_) {
+                  if (mounted) {
+                    _isAlbumSwipeNavigationInProgress = false;
+                  }
+                })
+                .catchError((_) {
+                  if (mounted) {
+                    _isAlbumSwipeNavigationInProgress = false;
+                  }
+                });
+          }
         }
       });
     }
@@ -1257,6 +1255,19 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                 if (expanded && _tabController.index == 0) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     _scrollToActiveTrack(animate: true);
+                  });
+                } else if (!expanded) {
+                  // Sheet collapsed: guarantee album art PageView is centered on the active track
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted || !_albumArtPageController.hasClients) return;
+                    final currentQueueIndex =
+                        ref.read(audioPlayerServiceProvider).currentIndex;
+                    if (currentQueueIndex >= 0) {
+                      final activePage = _safeAlbumArtPage(-1.0).round();
+                      if (activePage != currentQueueIndex) {
+                        _albumArtPageController.jumpToPage(currentQueueIndex);
+                      }
+                    }
                   });
                 }
               },
@@ -3609,6 +3620,17 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   }
 
   Widget _buildAlbumArtContent(Track? displayTrack, Color accentColor) {
+    final staticArt = _buildStaticAlbumArtContent(displayTrack, accentColor);
+    if (displayTrack == null) return staticArt;
+
+    return AnimatedAlbumArtView(
+      key: ValueKey('animated_art_${displayTrack.id}'),
+      track: displayTrack,
+      staticArt: staticArt,
+    );
+  }
+
+  Widget _buildStaticAlbumArtContent(Track? displayTrack, Color accentColor) {
     final localAudioPath = displayTrack?.localFilePath?.trim();
     if (localAudioPath != null && localAudioPath.isNotEmpty) {
       // 1. Fast synchronous check for memory-cached bytes
@@ -3950,10 +3972,15 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                           ),
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(16),
-                            child: _buildAlbumArtContent(
-                              displayTrack,
-                              accentColor,
-                            ),
+                            child: pageIndex == currentIndex
+                                ? _buildAlbumArtContent(
+                                    displayTrack,
+                                    accentColor,
+                                  )
+                                : _buildStaticAlbumArtContent(
+                                    displayTrack,
+                                    accentColor,
+                                  ),
                           ),
                         ),
                       ),

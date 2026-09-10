@@ -225,17 +225,14 @@ class YTMDrawerState extends State<YTMDrawer>
         child: Stack(
           children: [
             // Now Playing content (bottom layer)
-            if (_dragProgress == 0.0)
-              widget.nowPlayingContent
-            else
-              Opacity(
-                opacity: nowPlayingOpacity.clamp(0.0, 1.0),
-                child: Transform.scale(
-                  scale: albumScale,
-                  alignment: Alignment.topCenter,
-                  child: widget.nowPlayingContent,
-                ),
+            Opacity(
+              opacity: nowPlayingOpacity.clamp(0.0, 1.0),
+              child: Transform.scale(
+                scale: albumScale,
+                alignment: Alignment.topCenter,
+                child: widget.nowPlayingContent,
               ),
+            ),
 
             // Dim overlay
             if (_dragProgress > 0)

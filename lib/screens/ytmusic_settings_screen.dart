@@ -997,6 +997,19 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
           onChanged: (val) =>
               ref.read(rotatingMiniPlayerArtProvider.notifier).setEnabled(val),
         ),
+        Divider(
+          height: 1,
+          color: _isDark ? InzxColors.darkDivider : InzxColors.divider,
+        ),
+        _switchTile(
+          icon: Icons.play_circle_outline_rounded,
+          iconBg: _accentColor,
+          title: 'Animated Album Art',
+          subtitle: 'Display motion canvas video for supported songs',
+          value: ref.watch(animatedAlbumArtProvider),
+          onChanged: (val) =>
+              ref.read(animatedAlbumArtProvider.notifier).setEnabled(val),
+        ),
       ],
     );
   }
