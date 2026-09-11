@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../models/models.dart';
 import '../../providers/providers.dart';
 import '../../services/deep_link_handler.dart';
 import 'podcast_screen.dart' show RichDescription, PodcastScreen;
+import 'youtube_webview_player.dart';
 
 /// Plays a podcast episode using YouTube's embedded player in a dedicated screen.
 ///
@@ -25,10 +25,11 @@ class PodcastVideoScreen extends ConsumerStatefulWidget {
 
 class _PodcastVideoScreenState extends ConsumerState<PodcastVideoScreen>
     with SingleTickerProviderStateMixin {
-  late final WebViewController _webController;
+  final _playerKey = GlobalKey<YouTubeWebViewPlayerState>();
   late final TabController _tabController;
   late final PageController _pageController;
   bool _loading = true;
+  int? _playerError; // IFrame API error code (101/150 = embedding disabled)
 
   // Like / Dislike optimistic states
   bool? _liked;
@@ -39,40 +40,8 @@ class _PodcastVideoScreenState extends ConsumerState<PodcastVideoScreen>
     super.initState();
     // Pause background audio when opening video
     ref.read(audioPlayerServiceProvider).pause();
-
     _tabController = TabController(length: 3, vsync: this);
     _pageController = PageController();
-
-    _webController = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.black)
-      ..setUserAgent(
-        'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 '
-        '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (_) {
-            if (mounted) {
-              setState(() => _loading = false);
-            }
-          },
-          onNavigationRequest: (request) {
-            // Keep player inside iframe/page, let external links launch out
-            if (request.url.contains('youtube.com') ||
-                request.url.contains('googlevideo.com') ||
-                request.url.contains('ytimg.com')) {
-              return NavigationDecision.navigate;
-            }
-            _openLink(request.url);
-            return NavigationDecision.prevent;
-          },
-        ),
-      )
-      ..loadHtmlString(
-        _buildPlayerHtml(widget.episode.videoId),
-        baseUrl: 'https://www.youtube.com',
-      );
   }
 
   @override
@@ -82,80 +51,22 @@ class _PodcastVideoScreenState extends ConsumerState<PodcastVideoScreen>
     super.dispose();
   }
 
-  String _buildPlayerHtml(String videoId) {
-    return '''
-<!DOCTYPE html>
-<html>
-<head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; background: #000; }
-    html, body { width: 100%; height: 100%; overflow: hidden; }
-    #player { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
-  </style>
-</head>
-<body>
-  <div id="player"></div>
-  <script src="https://www.youtube.com/iframe_api"></script>
-  <script>
-    var player;
-    function onYouTubeIframeAPIReady() {
-      player = new YT.Player('player', {
-        videoId: '$videoId',
-        playerVars: {
-          'autoplay': 1,
-          'mute': 1,
-          'playsinline': 1,
-          'rel': 0,
-          'modestbranding': 1,
-          'fs': 1
-        },
-        events: {
-          'onReady': onPlayerReady
-        }
-      });
-    }
-    function onPlayerReady(event) {
-      event.target.mute();
-      event.target.playVideo();
-    }
-    function seekTo(seconds) {
-      if (player && player.seekTo) {
-        player.seekTo(seconds, true);
-        player.playVideo();
-      }
-    }
-  </script>
-</body>
-</html>
-''';
-  }
-
   void _seekVideo(Duration pos) {
-    _webController.runJavaScript('''
-      (function() {
-        if (typeof seekTo === 'function') {
-          seekTo(${pos.inSeconds});
-          return;
-        }
-        var el = document.querySelector('iframe') || document.querySelector('video');
-        if (el && el.contentWindow) {
-          el.contentWindow.postMessage(JSON.stringify({
-            "event": "command",
-            "func": "seekTo",
-            "args": [${pos.inSeconds}, true]
-          }), "*");
-        } else if (el && el.currentTime !== undefined) {
-          el.currentTime = ${pos.inSeconds};
-        }
-      })();
-    ''');
+    _playerKey.currentState?.seekTo(pos.inSeconds);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Jumped to ${_formatDuration(pos)}'),
         duration: const Duration(seconds: 1),
       ),
     );
+  }
+
+  Future<void> _openInYouTube() async {
+    final uri = Uri.parse(
+        'https://www.youtube.com/watch?v=${widget.episode.videoId}');
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {}
   }
 
   String _formatDuration(Duration d) {
@@ -267,19 +178,55 @@ class _PodcastVideoScreenState extends ConsumerState<PodcastVideoScreen>
       ),
       body: Column(
         children: [
-          // 16:9 Embedded YouTube Player (with muted autoplay)
+          // 16:9 Embedded YouTube Player (official IFrame API + origin trick)
           AspectRatio(
             aspectRatio: 16 / 9,
             child: Stack(
               children: [
-                WebViewWidget(controller: _webController),
-                if (_loading)
+                YouTubeWebViewPlayer(
+                  key: _playerKey,
+                  videoId: widget.episode.videoId,
+                  autoPlay: true,
+                  onReady: () {
+                    if (mounted) setState(() => _loading = false);
+                  },
+                  onError: (code) {
+                    if (mounted) setState(() => _playerError = code);
+                  },
+                ),
+                if (_loading && _playerError == null)
                   Container(
                     color: Colors.black,
                     child: Center(
                       child: CircularProgressIndicator(
                         strokeWidth: 2.5,
                         color: accent,
+                      ),
+                    ),
+                  ),
+                // Embedding disabled by the uploader (101/150) — offer YouTube.
+                if (_playerError == 101 || _playerError == 150)
+                  Container(
+                    color: Colors.black,
+                    padding: const EdgeInsets.all(20),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.smart_display_outlined,
+                              color: Colors.white70, size: 40),
+                          const SizedBox(height: 10),
+                          const Text(
+                            "This episode can't be embedded.",
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                          const SizedBox(height: 12),
+                          FilledButton.icon(
+                            onPressed: _openInYouTube,
+                            icon: const Icon(Icons.open_in_new_rounded),
+                            label: const Text('Open in YouTube'),
+                          ),
+                        ],
                       ),
                     ),
                   ),
