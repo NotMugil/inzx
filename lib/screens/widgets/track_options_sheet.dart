@@ -14,6 +14,7 @@ import '../../services/download_service.dart';
 import '../../services/local_music_scanner.dart';
 import 'album_screen.dart' hide albumColorsProvider;
 import 'artist_screen.dart';
+import 'podcast_screen.dart' show PodcastScreen;
 import 'playlist_picker_sheet.dart';
 import 'track_artwork_view.dart';
 import 'jams_panel.dart';
@@ -496,8 +497,26 @@ class _TrackOptionsSheetState extends ConsumerState<TrackOptionsSheet> {
                       _buildSectionCard(
                         textColor: textColor,
                         children: [
+                          // Go to Podcast (if episode)
+                          if (track.isPodcast || (track.podcastId != null && track.podcastId!.isNotEmpty))
+                            _buildOptionTile(
+                              icon: Icons.podcasts_rounded,
+                              iconColor: accentColor,
+                              title: 'Go to Podcast',
+                              textColor: textColor,
+                              onTap: () {
+                                Navigator.pop(context);
+                                PodcastScreen.open(
+                                  context,
+                                  podcastId: track.podcastId!,
+                                  title: track.album ?? track.artist,
+                                  thumbnailUrl: track.thumbnailUrl,
+                                );
+                              },
+                            ),
+
                           // Go to Artist
-                          if (track.artistId.isNotEmpty)
+                          if (track.artistId.isNotEmpty && !track.isPodcast && (track.podcastId == null || track.podcastId!.isEmpty))
                             _buildOptionTile(
                               icon: Iconsax.profile_2user,
                               iconColor: accentColor,

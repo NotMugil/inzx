@@ -8,6 +8,7 @@ import '../models/track.dart';
 import '../providers/music_providers.dart';
 import '../providers/ytmusic_providers.dart';
 import '../screens/widgets/playlist_screen.dart';
+import '../screens/widgets/podcast_screen.dart';
 import '../screens/widgets/artist_screen.dart';
 import '../screens/widgets/album_screen.dart';
 import '../screens/widgets/now_playing_screen.dart';
@@ -86,8 +87,15 @@ class DeepLinkHandler {
     }
 
     switch (type) {
+      case 'podcast':
+        PodcastScreen.open(context, podcastId: id);
+        break;
       case 'playlist':
-        PlaylistScreen.open(context, playlistId: id);
+        if (id.startsWith('MPSP')) {
+          PodcastScreen.open(context, podcastId: id);
+        } else {
+          PlaylistScreen.open(context, playlistId: id);
+        }
         break;
       case 'album':
         AlbumScreen.open(context, albumId: id);
@@ -177,6 +185,9 @@ class DeepLinkHandler {
     switch (type) {
       case 'song':
         return 'https://music.youtube.com/watch?v=$id';
+      case 'podcast':
+        final pl = id.startsWith('MPSP') ? id.substring(4) : id;
+        return 'https://music.youtube.com/playlist?list=$pl';
       case 'playlist':
         final list = id.startsWith('VL') ? id.substring(2) : id;
         return 'https://music.youtube.com/playlist?list=$list';

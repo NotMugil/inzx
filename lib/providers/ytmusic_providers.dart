@@ -1055,21 +1055,109 @@ final ytMusicPodcastProvider =
   return innerTube.getPodcast(id);
 });
 
+/// Fetch full episode details (unabridged description, etc.) by videoId.
+final ytMusicEpisodeDetailsProvider =
+    FutureProvider.family<Map<String, dynamic>?, String>((ref, videoId) async {
+  final innerTube = ref.watch(innerTubeServiceProvider);
+  return innerTube.getEpisodeDetails(videoId);
+});
+
+/// Locally-tracked set of saved podcast ids. The server's toggle state is
+/// unreliable to parse back from the browse response, so we remember the user's
+/// save action here — this is the source of truth for the save button and the
+/// library's saved-podcasts list.
+final savedPodcastsProvider =
+    StateNotifierProvider<SavedPodcastsNotifier, Set<String>>((ref) {
+  return SavedPodcastsNotifier();
+});
+
+class SavedPodcastsNotifier extends StateNotifier<Set<String>> {
+  static const String _prefKey = 'inzx_saved_podcast_ids';
+
+  SavedPodcastsNotifier() : super(const {}) {
+    _load();
+  }
+
+  static String normalize(String id) {
+    var p = id;
+    if (p.startsWith('MPSP')) p = p.substring(4);
+    if (p.startsWith('VL')) p = p.substring(2);
+    return p;
+  }
+
+  Future<void> _load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      state = (prefs.getStringList(_prefKey) ?? const []).toSet();
+    } catch (_) {}
+  }
+
+  bool contains(String id) => state.contains(normalize(id));
+
+  Future<void> _persist() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_prefKey, state.toList());
+    } catch (_) {}
+  }
+
+  void setSaved(String id, bool saved) {
+    final norm = normalize(id);
+    final next = {...state};
+    if (saved) {
+      next.add(norm);
+    } else {
+      next.remove(norm);
+    }
+    state = next;
+    _persist();
+  }
+
+  /// Seed the store with ids the server reports as saved (add-only, so it never
+  /// undoes a fresh local un-save). Called once when the library loads.
+  void mergeServerSaved(Iterable<String> ids) {
+    final normalized = ids.map(normalize).toSet();
+    if (normalized.difference(state).isEmpty) return;
+    state = {...state, ...normalized};
+    _persist();
+  }
+}
+
+/// The user's saved podcasts (shows) plus "New Episodes" / "Episodes for Later"
+/// auto-lists, for the library tab.
+final ytMusicSavedPodcastsProvider =
+    FutureProvider<List<Playlist>>((ref) async {
+  final authState = ref.watch(ytMusicAuthStateProvider);
+  if (!authState.isLoggedIn) return const [];
+  final innerTube = ref.watch(innerTubeServiceProvider);
+  final podcasts = await innerTube.getLibraryPodcasts();
+  // Seed the local saved store with the saved SHOW ids so the podcast page's
+  // save button reflects the library.
+  final showIds =
+      podcasts.where((p) => p.id.startsWith('MPSP')).map((p) => p.id);
+  ref.read(savedPodcastsProvider.notifier).mergeServerSaved(showIds);
+  return podcasts;
+});
+
 /// Action to save/unsave a podcast to the user's library.
 final ytMusicPodcastSaveActionProvider =
     Provider<YTMusicPodcastSaveAction>((ref) {
   final innerTube = ref.watch(innerTubeServiceProvider);
   final authState = ref.watch(ytMusicAuthStateProvider);
-  return YTMusicPodcastSaveAction(innerTube, authState.isLoggedIn);
+  return YTMusicPodcastSaveAction(innerTube, authState.isLoggedIn, ref);
 });
 
 class YTMusicPodcastSaveAction {
   final InnerTubeService _innerTube;
   final bool _isLoggedIn;
+  final Ref _ref;
 
-  YTMusicPodcastSaveAction(this._innerTube, this._isLoggedIn);
+  YTMusicPodcastSaveAction(this._innerTube, this._isLoggedIn, this._ref);
 
   Future<bool> setSaved(String playlistId, bool saved) async {
+    // Track locally first so the UI persists the choice regardless of what the
+    // server's toggle state parses back to.
+    _ref.read(savedPodcastsProvider.notifier).setSaved(playlistId, saved);
     if (!_isLoggedIn) return false;
     return _innerTube.savePodcast(playlistId, saved);
   }
@@ -1150,7 +1238,33 @@ class YTMusicLikeAction {
     if (!_isLoggedIn) return false;
     return _innerTube.likeVideo(videoId, false);
   }
+
+  Future<bool> dislike(String videoId) async {
+    if (!_isLoggedIn) return false;
+    return _innerTube.dislikeVideo(videoId, true);
+  }
+
+  Future<bool> undislike(String videoId) async {
+    if (!_isLoggedIn) return false;
+    return _innerTube.dislikeVideo(videoId, false);
+  }
 }
+
+/// Provider for video comments
+final ytMusicCommentsProvider =
+    FutureProvider.family<List<Map<String, dynamic>>, String>((ref, videoId) async {
+  final innerTube = ref.watch(innerTubeServiceProvider);
+  return innerTube.getVideoComments(videoId);
+});
+
+/// Provider for video related content
+final ytMusicWatchRelatedProvider =
+    FutureProvider.family<WatchRelatedContent, String>((ref, videoId) async {
+  final innerTube = ref.watch(innerTubeServiceProvider);
+  // Podcast episodes: use regular YouTube's related videos (YT Music radio
+  // doesn't surface related content for them).
+  return innerTube.getYouTubeRelated(videoId);
+});
 
 /// Provider to manage playlists
 final ytMusicPlaylistActionProvider = Provider<YTMusicPlaylistAction>((ref) {

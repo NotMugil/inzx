@@ -11,6 +11,7 @@ import '../../models/models.dart';
 import '../../services/ytmusic_api_service.dart';
 import '../../services/download_service.dart';
 import '../widgets/playlist_screen.dart';
+import '../widgets/podcast_screen.dart';
 import '../widgets/now_playing_screen.dart';
 import '../widgets/history_screen.dart';
 import '../widgets/artist_page_screen.dart';
@@ -549,6 +550,20 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
     final ytPlaylistsAsync = ytAuthState.isLoggedIn
         ? ref.watch(ytMusicSavedPlaylistsProvider)
         : const AsyncValue<List<Playlist>>.data([]);
+    // Saved podcasts live in a separate library feed; merge them in.
+    final ytPodcasts = ytAuthState.isLoggedIn
+        ? (ref.watch(ytMusicSavedPodcastsProvider).valueOrNull ?? const [])
+        : const <Playlist>[];
+    // The saved-playlists feed also lists podcasts / auto-episode-lists in a
+    // playlist style — drop those so they don't duplicate the podcast cards.
+    final podcastKeys =
+        ytPodcasts.map((p) => SavedPodcastsNotifier.normalize(p.id)).toSet();
+    final podcastTitles =
+        ytPodcasts.map((p) => p.title.trim().toLowerCase()).toSet();
+    bool isPodcastDuplicate(Playlist p) =>
+        p.isPodcast ||
+        podcastKeys.contains(SavedPodcastsNotifier.normalize(p.id)) ||
+        podcastTitles.contains(p.title.trim().toLowerCase());
 
     // Get counts for auto playlists
     final likedSongs = ref.watch(likedSongsProvider);
@@ -622,10 +637,12 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
                       p.id != 'VLLM' &&
                       title != 'liked songs' &&
                       title != 'liked music' &&
-                      title != 'your likes';
+                      title != 'your likes' &&
+                      !isPodcastDuplicate(p);
                 }).toList();
 
-                final sorted = _sortPlaylists(filtered, _sortOption);
+                final sorted =
+                    _sortPlaylists([...filtered, ...ytPodcasts], _sortOption);
                 return _buildYTPlaylistsList(
                   sorted,
                   isDark,
@@ -676,10 +693,12 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
                     p.id != 'VLLM' &&
                     title != 'liked songs' &&
                     title != 'liked music' &&
-                    title != 'your likes';
+                    title != 'your likes' &&
+                    !isPodcastDuplicate(p);
               }).toList();
 
-              final sorted = _sortPlaylists(filtered, _sortOption);
+              final sorted =
+                  _sortPlaylists([...filtered, ...ytPodcasts], _sortOption);
               return _buildPlaylistsGrid(
                 autoPlaylists,
                 sorted,
@@ -833,20 +852,31 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
             ),
           ),
           subtitle: Text(
-            context.l10n.songsCount(displayCount),
+            (playlist.isPodcast || playlist.id.startsWith('MPSP') || playlist.id.startsWith('FEmusic_library_podcasts'))
+                ? (displayCount > 0 ? '$displayCount episodes' : 'Podcasts')
+                : context.l10n.songsCount(displayCount),
             style: TextStyle(
               fontSize: 12,
               color: isDark ? Colors.white54 : InzxColors.textSecondary,
             ),
           ),
           onTap: () {
-            // Open playlist screen
-            PlaylistScreen.open(
-              context,
-              playlistId: playlist.id,
-              title: playlist.title,
-              thumbnailUrl: playlist.thumbnailUrl,
-            );
+            if (playlist.isPodcast || playlist.id.startsWith('MPSP') || playlist.id.startsWith('FEmusic_library_podcasts')) {
+              PodcastScreen.open(
+                context,
+                podcastId: playlist.id,
+                title: playlist.title,
+                thumbnailUrl: playlist.thumbnailUrl,
+              );
+            } else {
+              // Open playlist screen
+              PlaylistScreen.open(
+                context,
+                playlistId: playlist.id,
+                title: playlist.title,
+                thumbnailUrl: playlist.thumbnailUrl,
+              );
+            }
           },
         );
       },
@@ -908,31 +938,60 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
   ) {
     return InkWell(
       onTap: () {
-        PlaylistScreen.open(
-          context,
-          playlistId: playlist.id,
-          title: playlist.title,
-          thumbnailUrl: playlist.thumbnailUrl,
-        );
+        if (playlist.isPodcast || playlist.id.startsWith('MPSP') || playlist.id.startsWith('FEmusic_library_podcasts')) {
+          PodcastScreen.open(
+            context,
+            podcastId: playlist.id,
+            title: playlist.title,
+            thumbnailUrl: playlist.thumbnailUrl,
+          );
+        } else {
+          PlaylistScreen.open(
+            context,
+            playlistId: playlist.id,
+            title: playlist.title,
+            thumbnailUrl: playlist.thumbnailUrl,
+          );
+        }
       },
       borderRadius: BorderRadius.circular(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AspectRatio(
-            aspectRatio: 1.0,
+            aspectRatio: 1,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: playlist.thumbnailUrl != null
                   ? CachedNetworkImage(
                       imageUrl: playlist.thumbnailUrl!,
                       fit: BoxFit.cover,
+                      placeholder: (_, _) => Container(
+                        color: isDark ? Colors.white10 : Colors.grey.shade200,
+                        child: Icon(
+                          (playlist.isPodcast || playlist.id.startsWith('MPSP') || playlist.id.startsWith('FEmusic_library_podcasts'))
+                              ? Icons.podcasts_rounded
+                              : Icons.music_note,
+                          color: isDark ? Colors.white24 : Colors.black26,
+                        ),
+                      ),
+                      errorWidget: (_, _, _) => Container(
+                        color: isDark ? Colors.white10 : Colors.grey.shade200,
+                        child: Icon(
+                          (playlist.isPodcast || playlist.id.startsWith('MPSP') || playlist.id.startsWith('FEmusic_library_podcasts'))
+                              ? Icons.podcasts_rounded
+                              : Icons.music_note,
+                          color: isDark ? Colors.white24 : Colors.black26,
+                        ),
+                      ),
                     )
                   : Container(
                       color: isDark ? Colors.white10 : Colors.grey.shade200,
-                      child: const Icon(
-                        Icons.queue_music_rounded,
-                        size: 40,
+                      child: Icon(
+                        (playlist.isPodcast || playlist.id.startsWith('MPSP') || playlist.id.startsWith('FEmusic_library_podcasts'))
+                            ? Icons.podcasts_rounded
+                            : Icons.music_note,
+                        color: isDark ? Colors.white24 : Colors.black26,
                       ),
                     ),
             ),
@@ -949,7 +1008,9 @@ class _MusicLibraryTabState extends ConsumerState<MusicLibraryTab> {
             ),
           ),
           Text(
-            context.l10n.songsCount(displayCount),
+            (playlist.isPodcast || playlist.id.startsWith('MPSP') || playlist.id.startsWith('FEmusic_library_podcasts'))
+                ? (displayCount > 0 ? '$displayCount episodes' : 'Podcasts')
+                : context.l10n.songsCount(displayCount),
             style: TextStyle(
               fontSize: 12,
               color: isDark ? Colors.white54 : InzxColors.textSecondary,

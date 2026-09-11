@@ -7,6 +7,7 @@ import '../core/design_system/design_system.dart';
 import '../providers/providers.dart';
 import '../models/models.dart';
 import 'widgets/playlist_screen.dart';
+import 'widgets/podcast_screen.dart';
 import 'widgets/album_screen.dart';
 import 'widgets/artist_screen.dart';
 import 'widgets/now_playing_screen.dart';
@@ -1029,12 +1030,23 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
           color: isDark ? Colors.white54 : InzxColors.textSecondary,
         ),
       ),
-      onTap: () => PlaylistScreen.open(
-        context,
-        playlistId: playlist.id,
-        title: playlist.title,
-        thumbnailUrl: playlist.thumbnailUrl,
-      ),
+      onTap: () {
+        if (playlist.isPodcast || playlist.id.startsWith('MPSP')) {
+          PodcastScreen.open(
+            context,
+            podcastId: playlist.id,
+            title: playlist.title,
+            thumbnailUrl: playlist.thumbnailUrl,
+          );
+        } else {
+          PlaylistScreen.open(
+            context,
+            playlistId: playlist.id,
+            title: playlist.title,
+            thumbnailUrl: playlist.thumbnailUrl,
+          );
+        }
+      },
     );
   }
 

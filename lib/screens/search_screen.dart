@@ -14,6 +14,7 @@ import '../services/search_service.dart';
 import '../services/download_service.dart';
 import '../services/local_music_scanner.dart';
 import 'widgets/playlist_screen.dart';
+import 'widgets/podcast_screen.dart';
 import 'widgets/album_screen.dart' hide albumColorsProvider;
 import 'widgets/artist_screen.dart';
 import 'widgets/now_playing_screen.dart';
@@ -415,6 +416,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       (SearchFilter.albums, context.l10n.albums),
       (SearchFilter.artists, context.l10n.artists),
       (SearchFilter.playlists, context.l10n.playlists),
+      (SearchFilter.podcasts, 'Podcasts'),
     ];
 
     return SizedBox(
@@ -719,6 +721,18 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                 colorScheme,
                 filter,
               ),
+
+            // Podcasts section
+            if ((filter == SearchFilter.all || filter == SearchFilter.podcasts) &&
+                results.onlinePodcasts.isNotEmpty)
+              _buildPodcastsSection(
+                results.onlinePodcasts,
+                accentColor,
+                textColor,
+                secondaryTextColor,
+                colorScheme,
+                filter,
+              ),
           ],
         );
       },
@@ -1002,15 +1016,32 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           playlist.author ?? context.l10n.youtubeMusicLabel,
         );
         actionIcon = Icons.chevron_right_rounded;
-        onTap = () => PlaylistScreen.open(
-          context,
-          playlistId: playlist.id,
-          title: playlist.title,
-          thumbnailUrl: playlist.thumbnailUrl,
-        );
+        onTap = () {
+          if (playlist.isPodcast || playlist.id.startsWith('MPSP')) {
+            PodcastScreen.open(
+              context,
+              podcastId: playlist.id,
+              title: playlist.title,
+              thumbnailUrl: playlist.thumbnailUrl,
+            );
+          } else {
+            PlaylistScreen.open(
+              context,
+              playlistId: playlist.id,
+              title: playlist.title,
+              thumbnailUrl: playlist.thumbnailUrl,
+            );
+          }
+        };
         imageWidget = ClipRRect(
           borderRadius: BorderRadius.circular(16),
-          child: _buildImage(playlist.thumbnailUrl, 76, Icons.queue_music_rounded),
+          child: _buildImage(
+            playlist.thumbnailUrl,
+            76,
+            playlist.isPodcast || playlist.id.startsWith('MPSP')
+                ? Icons.podcasts_rounded
+                : Icons.queue_music_rounded,
+          ),
         );
         break;
     }
@@ -1648,6 +1679,42 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     );
   }
 
+  Widget _buildPodcastsSection(
+    List<Playlist> podcasts,
+    Color accentColor,
+    Color textColor,
+    Color secondaryTextColor,
+    ColorScheme colorScheme,
+    SearchFilter filter,
+  ) {
+    final displayPodcasts = filter == SearchFilter.podcasts
+        ? podcasts
+        : podcasts.take(5).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (filter == SearchFilter.all)
+          Padding(
+            padding: const EdgeInsets.only(left: 4, top: 18, bottom: 10),
+            child: Text(
+              'Podcasts',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.3,
+                color: textColor,
+              ),
+            ),
+          ),
+        ...displayPodcasts.map(
+          (podcast) => _buildPlaylistTile(podcast, accentColor, textColor, secondaryTextColor),
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
   Widget _buildPlaylistTile(
     Playlist playlist,
     Color accentColor,
@@ -1659,17 +1726,28 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       child: BouncyTouch(
         style: BouncyStyle.card,
         customScale: 0.98,
-        onTap: () => PlaylistScreen.open(
-          context,
-          playlistId: playlist.id,
-          title: playlist.title,
-          thumbnailUrl: playlist.thumbnailUrl,
-        ),
+        onTap: () {
+          if (playlist.isPodcast || playlist.id.startsWith('MPSP')) {
+            PodcastScreen.open(
+              context,
+              podcastId: playlist.id,
+              title: playlist.title,
+              thumbnailUrl: playlist.thumbnailUrl,
+            );
+          } else {
+            PlaylistScreen.open(
+              context,
+              playlistId: playlist.id,
+              title: playlist.title,
+              thumbnailUrl: playlist.thumbnailUrl,
+            );
+          }
+        },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             color: textColor.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(14),
           ),
           child: Row(
             children: [
@@ -1677,8 +1755,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                 borderRadius: BorderRadius.circular(10),
                 child: _buildImage(
                   playlist.thumbnailUrl,
-                  48,
-                  Icons.queue_music_rounded,
+                  52,
+                  playlist.isPodcast ? Iconsax.microphone : Iconsax.music_playlist,
                 ),
               ),
               const SizedBox(width: 14),
@@ -1698,10 +1776,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      context.playlistSubtitle(
-                        playlist.author ?? context.l10n.playlist,
-                        playlist.trackCount,
-                      ),
+                      playlist.isPodcast
+                          ? (playlist.author ?? 'Podcast')
+                          : context.playlistSubtitle(
+                              playlist.author ?? context.l10n.playlist,
+                              (playlist.trackCount != null && playlist.trackCount! > 0)
+                                  ? playlist.trackCount
+                                  : null,
+                            ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(

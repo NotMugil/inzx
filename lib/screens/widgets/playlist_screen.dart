@@ -15,6 +15,7 @@ import 'track_options_sheet.dart';
 import 'playlist_edit_screen.dart';
 import 'mini_player.dart';
 import 'now_playing_screen.dart';
+import 'podcast_screen.dart' show PodcastScreen;
 
 import 'package:palette_generator/palette_generator.dart';
 import 'package:skeletonizer/skeletonizer.dart';
@@ -104,6 +105,20 @@ class PlaylistScreen extends ConsumerStatefulWidget {
     String? title,
     String? thumbnailUrl,
   }) {
+    if (playlistId.startsWith('MPSP') ||
+        playlistId.startsWith('RDPN') ||
+        playlistId == 'SE' ||
+        playlistId == 'FEmusic_library_podcasts_new_episodes' ||
+        playlistId == 'FEmusic_library_podcasts_episodes_for_later') {
+      PodcastScreen.open(
+        context,
+        podcastId: playlistId,
+        title: title,
+        thumbnailUrl: thumbnailUrl,
+      );
+      return;
+    }
+
     Navigator.push(
       context,
       MaterialPageRoute(

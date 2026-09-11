@@ -24,6 +24,7 @@ import '../../core/providers/theme_provider.dart';
 import 'artist_screen.dart';
 import 'album_screen.dart' show AlbumScreen;
 import 'playlist_screen.dart' show PlaylistScreen;
+import 'podcast_screen.dart' show PodcastScreen;
 import 'track_options_sheet.dart';
 import 'lyrics_view.dart';
 import 'karaoke_word.dart';
@@ -2292,11 +2293,22 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
               }
 
               return InkWell(
-                onTap: () => ArtistScreen.open(
-                  context,
-                  artistId: track.artistId,
-                  name: track.artist,
-                ),
+                onTap: () {
+                  if (track.isPodcast || (track.podcastId != null && track.podcastId!.isNotEmpty)) {
+                    PodcastScreen.open(
+                      context,
+                      podcastId: track.podcastId!,
+                      title: track.album ?? track.artist,
+                      thumbnailUrl: track.thumbnailUrl,
+                    );
+                  } else if (track.artistId.isNotEmpty) {
+                    ArtistScreen.open(
+                      context,
+                      artistId: track.artistId,
+                      name: track.artist,
+                    );
+                  }
+                },
                 child: Text(
                   track.artist,
                   maxLines: 1,
@@ -3791,15 +3803,33 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
 
   void _handleRelatedItemTap(HomeShelf shelf, HomeShelfItem item) {
     switch (item.itemType) {
-      case HomeShelfItemType.playlist:
-      case HomeShelfItemType.mix:
-        final playlistId = item.playlistId ?? item.navigationId ?? item.id;
-        PlaylistScreen.open(
+      case HomeShelfItemType.podcast:
+        final podcastId = item.playlistId ?? item.navigationId ?? item.id;
+        PodcastScreen.open(
           context,
-          playlistId: playlistId,
+          podcastId: podcastId,
           title: item.title,
           thumbnailUrl: item.thumbnailUrl,
         );
+        break;
+      case HomeShelfItemType.playlist:
+      case HomeShelfItemType.mix:
+        final playlistId = item.playlistId ?? item.navigationId ?? item.id;
+        if (playlistId.startsWith('MPSP')) {
+          PodcastScreen.open(
+            context,
+            podcastId: playlistId,
+            title: item.title,
+            thumbnailUrl: item.thumbnailUrl,
+          );
+        } else {
+          PlaylistScreen.open(
+            context,
+            playlistId: playlistId,
+            title: item.title,
+            thumbnailUrl: item.thumbnailUrl,
+          );
+        }
         break;
       case HomeShelfItemType.album:
         final albumId = item.navigationId ?? item.id;
@@ -4856,7 +4886,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     required bool enableMarquee,
     TextAlign textAlign = TextAlign.start,
   }) {
-    final canOpenArtist = track.artistId.isNotEmpty;
+    final canOpen = track.isPodcast ||
+        (track.podcastId != null && track.podcastId!.isNotEmpty) ||
+        track.artistId.isNotEmpty;
 
     final artistLabel = enableMarquee
         ? LayoutBuilder(
@@ -4897,7 +4929,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
             style: style,
           );
 
-    if (!canOpenArtist) {
+    if (!canOpen) {
       return artistLabel;
     }
 
@@ -4909,6 +4941,15 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   }
 
   void _openArtist(Track track) {
+    if (track.isPodcast || (track.podcastId != null && track.podcastId!.isNotEmpty)) {
+      PodcastScreen.open(
+        context,
+        podcastId: track.podcastId!,
+        title: track.album ?? track.artist,
+        thumbnailUrl: track.thumbnailUrl,
+      );
+      return;
+    }
     if (track.artistId.isEmpty) return;
     ArtistScreen.open(context, artistId: track.artistId, name: track.artist);
   }

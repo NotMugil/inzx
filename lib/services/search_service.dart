@@ -3,7 +3,7 @@ import '../models/models.dart';
 import 'ytmusic_api_service.dart';
 
 /// Search filter types matching YouTube Music's categories
-enum SearchFilter { all, songs, albums, artists, playlists, videos }
+enum SearchFilter { all, songs, albums, artists, playlists, videos, podcasts }
 
 /// Represents a "top result" from YouTube Music search
 /// This is YouTube's best guess at what the user is looking for
@@ -44,6 +44,7 @@ class EnhancedSearchResults {
   final List<Album> onlineAlbums;
   final List<Artist> onlineArtists;
   final List<Playlist> onlinePlaylists;
+  final List<Playlist> onlinePodcasts;
 
   // Local results (downloaded/library)
   final List<Track> localTracks;
@@ -59,6 +60,7 @@ class EnhancedSearchResults {
     this.onlineAlbums = const [],
     this.onlineArtists = const [],
     this.onlinePlaylists = const [],
+    this.onlinePodcasts = const [],
     this.localTracks = const [],
     this.hasMore = false,
     required this.fetchedAt,
@@ -69,7 +71,8 @@ class EnhancedSearchResults {
       onlineTracks.isEmpty &&
       onlineAlbums.isEmpty &&
       onlineArtists.isEmpty &&
-      onlinePlaylists.isEmpty;
+      onlinePlaylists.isEmpty &&
+      onlinePodcasts.isEmpty;
 
   /// Check if all results are empty
   bool get isEmpty => isOnlineEmpty && localTracks.isEmpty;
@@ -79,7 +82,8 @@ class EnhancedSearchResults {
       onlineTracks.length +
       onlineAlbums.length +
       onlineArtists.length +
-      onlinePlaylists.length;
+      onlinePlaylists.length +
+      onlinePodcasts.length;
 
   /// Create empty results
   factory EnhancedSearchResults.empty(String query) {
@@ -95,6 +99,7 @@ class EnhancedSearchResults {
       onlineAlbums: onlineAlbums,
       onlineArtists: onlineArtists,
       onlinePlaylists: onlinePlaylists,
+      onlinePodcasts: onlinePodcasts,
       localTracks: tracks,
       hasMore: hasMore,
       fetchedAt: fetchedAt,
@@ -171,11 +176,22 @@ class SearchService {
       localMatches = await _searchLocalTracks(query, localLibrary);
     }
 
+    // Separate podcasts from playlists
+    final onlinePodcasts = <Playlist>[];
+    final onlinePlaylists = <Playlist>[];
+    for (final p in results.playlists) {
+      if (p.isPodcast || p.id.startsWith('MPSP')) {
+        onlinePodcasts.add(p);
+      } else {
+        onlinePlaylists.add(p);
+      }
+    }
+
     if (kDebugMode) {
       print(
         'Search "$query": ${results.tracks.length} songs, '
         '${results.albums.length} albums, ${results.artists.length} artists, '
-        '${results.playlists.length} playlists, ${localMatches.length} local',
+        '${onlinePlaylists.length} playlists, ${onlinePodcasts.length} podcasts, ${localMatches.length} local',
       );
     }
 
@@ -185,7 +201,8 @@ class SearchService {
       onlineTracks: results.tracks,
       onlineAlbums: results.albums,
       onlineArtists: results.artists,
-      onlinePlaylists: results.playlists,
+      onlinePlaylists: onlinePlaylists,
+      onlinePodcasts: onlinePodcasts,
       localTracks: localMatches,
       hasMore: results.hasMore,
       fetchedAt: DateTime.now(),
@@ -240,9 +257,11 @@ class SearchService {
       case SearchFilter.artists:
         return 'EgWKAQIgAWoKEAkQBRAKEAMQBA%3D%3D'; // Artists filter
       case SearchFilter.playlists:
-        return 'EgeKAQQoADgBagwQDhAKEAMQBRAJEAQ%3D'; // Playlists filter
+        return 'EgeKAQQoAEABag4QERAQEAQQAxAKEBUQCQ=='; // Community playlists filter
       case SearchFilter.videos:
         return 'EgWKAQIQAWoKEAkQChAFEAMQBA%3D%3D'; // Videos filter
+      case SearchFilter.podcasts:
+        return 'EgWKAQJQAWoOEBEQEBAEEAMQChAVEAk='; // Podcasts filter
     }
   }
 }

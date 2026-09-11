@@ -13,6 +13,7 @@ import '../../services/lyrics/lyrics_service.dart';
 import '../../services/lyrics/lyrics_models.dart';
 import '../../core/design_system/design_system.dart';
 import 'artist_screen.dart';
+import 'podcast_screen.dart' show PodcastScreen;
 import 'ripple_circular_progress_scrubber.dart';
 import 'ripple_flower_clipper.dart';
 
@@ -479,7 +480,9 @@ class _RippleNowPlayingViewState extends ConsumerState<RippleNowPlayingView> {
 
   /// Clean, bold, centered track title and artist
   Widget _buildTrackInfo() {
-    final canOpenArtist = widget.track.artistId.isNotEmpty;
+    final isPodcast = widget.track.isPodcast ||
+        (widget.track.podcastId != null && widget.track.podcastId!.isNotEmpty);
+    final canOpen = isPodcast || widget.track.artistId.isNotEmpty;
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
@@ -549,15 +552,26 @@ class _RippleNowPlayingViewState extends ConsumerState<RippleNowPlayingView> {
             ),
             const SizedBox(height: 4),
 
-            // Artist name (tappable to open artist profile)
+            // Artist name (tappable to open podcast or artist profile)
             GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: canOpenArtist
-                  ? () => ArtistScreen.open(
-                        context,
-                        artistId: widget.track.artistId,
-                        name: widget.track.artist,
-                      )
+              onTap: canOpen
+                  ? () {
+                      if (isPodcast) {
+                        PodcastScreen.open(
+                          context,
+                          podcastId: widget.track.podcastId!,
+                          title: widget.track.album ?? widget.track.artist,
+                          thumbnailUrl: widget.track.thumbnailUrl,
+                        );
+                      } else {
+                        ArtistScreen.open(
+                          context,
+                          artistId: widget.track.artistId,
+                          name: widget.track.artist,
+                        );
+                      }
+                    }
                   : null,
               child: Text(
                 widget.track.artist,

@@ -16,6 +16,7 @@ class Track extends Equatable {
   final DateTime? addedAt;
   final String? setVideoId; // Used for playlist operations
   final String? localFilePath; // For offline playback
+  final String? podcastId; // If this track belongs to a podcast show
 
   const Track({
     required this.id,
@@ -32,7 +33,11 @@ class Track extends Equatable {
     this.addedAt,
     this.setVideoId,
     this.localFilePath,
+    this.podcastId,
   });
+
+  /// Whether this track is a podcast episode
+  bool get isPodcast => podcastId != null && podcastId!.isNotEmpty;
 
   /// Create from YouTube Music data
   factory Track.fromYouTube({
@@ -82,6 +87,7 @@ class Track extends Equatable {
     DateTime? addedAt,
     String? setVideoId,
     String? localFilePath,
+    String? podcastId,
   }) {
     return Track(
       id: id ?? this.id,
@@ -98,6 +104,7 @@ class Track extends Equatable {
       addedAt: addedAt ?? this.addedAt,
       setVideoId: setVideoId ?? this.setVideoId,
       localFilePath: localFilePath ?? this.localFilePath,
+      podcastId: podcastId ?? this.podcastId,
     );
   }
 
@@ -136,6 +143,7 @@ class Track extends Equatable {
       'addedAt': addedAt?.millisecondsSinceEpoch,
       'setVideoId': setVideoId,
       'localFilePath': localFilePath,
+      'podcastId': podcastId,
     };
   }
 
@@ -158,6 +166,7 @@ class Track extends Equatable {
           : null,
       setVideoId: json['setVideoId'] as String?,
       localFilePath: json['localFilePath'] as String?,
+      podcastId: json['podcastId'] as String?,
     );
   }
 }

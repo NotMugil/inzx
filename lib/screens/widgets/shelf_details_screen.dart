@@ -7,6 +7,7 @@ import '../../models/models.dart';
 import '../../providers/providers.dart';
 import 'track_options_sheet.dart';
 import 'playlist_screen.dart';
+import 'podcast_screen.dart';
 import 'album_screen.dart';
 import 'artist_screen.dart';
 import 'now_playing_screen.dart';
@@ -478,15 +479,33 @@ class _ShelfDetailsScreenState extends ConsumerState<ShelfDetailsScreen> {
 
   void _navigateToItem(HomeShelfItem item) {
     switch (item.itemType) {
-      case HomeShelfItemType.playlist:
-      case HomeShelfItemType.mix:
-        final playlistId = item.playlistId ?? item.navigationId ?? item.id;
-        PlaylistScreen.open(
+      case HomeShelfItemType.podcast:
+        final podcastId = item.playlistId ?? item.navigationId ?? item.id;
+        PodcastScreen.open(
           context,
-          playlistId: playlistId,
+          podcastId: podcastId,
           title: item.title,
           thumbnailUrl: item.thumbnailUrl,
         );
+        break;
+      case HomeShelfItemType.playlist:
+      case HomeShelfItemType.mix:
+        final playlistId = item.playlistId ?? item.navigationId ?? item.id;
+        if (playlistId.startsWith('MPSP')) {
+          PodcastScreen.open(
+            context,
+            podcastId: playlistId,
+            title: item.title,
+            thumbnailUrl: item.thumbnailUrl,
+          );
+        } else {
+          PlaylistScreen.open(
+            context,
+            playlistId: playlistId,
+            title: item.title,
+            thumbnailUrl: item.thumbnailUrl,
+          );
+        }
         break;
       case HomeShelfItemType.album:
         final albumId = item.navigationId ?? item.id;
@@ -507,6 +526,15 @@ class _ShelfDetailsScreenState extends ConsumerState<ShelfDetailsScreen> {
         );
         break;
       default:
+        if (item.navigationId != null && item.navigationId!.startsWith('MPSP')) {
+          PodcastScreen.open(
+            context,
+            podcastId: item.navigationId!,
+            title: item.title,
+            thumbnailUrl: item.thumbnailUrl,
+          );
+          break;
+        }
         // For songs, play them
         final track = item.toTrack();
         if (track != null) {
@@ -520,6 +548,8 @@ class _ShelfDetailsScreenState extends ConsumerState<ShelfDetailsScreen> {
 
   IconData _getIconForType(HomeShelfItemType type) {
     switch (type) {
+      case HomeShelfItemType.podcast:
+        return Icons.podcasts_rounded;
       case HomeShelfItemType.playlist:
       case HomeShelfItemType.mix:
         return Iconsax.music_playlist;

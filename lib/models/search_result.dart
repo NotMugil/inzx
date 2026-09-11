@@ -80,6 +80,10 @@ class SearchResultItem {
         return playlist!.thumbnailUrl;
     }
   }
+
+  /// Whether this item represents a podcast
+  bool get isPodcast =>
+      type == SearchResultType.playlist && playlist?.isPodcast == true;
 }
 
 /// Complete search results containing all types

@@ -248,6 +248,7 @@ class Playlist extends Equatable {
   final List<Track>? tracks;
   final bool isLocal; // true if created by user locally
   final bool isYTMusic; // true if from YouTube Music
+  final bool isPodcast; // true if this playlist is a podcast show
   final bool isEditable; // true if the signed-in user owns/can edit this playlist
   final String? privacy; // YT Music privacy: PUBLIC | PRIVATE | UNLISTED
   final DateTime? createdAt;
@@ -265,6 +266,7 @@ class Playlist extends Equatable {
     this.tracks,
     this.isLocal = false,
     this.isYTMusic = false,
+    this.isPodcast = false,
     this.isEditable = false,
     this.privacy,
     this.createdAt,
@@ -284,6 +286,7 @@ class Playlist extends Equatable {
     List<Track>? tracks,
     bool? isLocal,
     bool? isYTMusic,
+    bool? isPodcast,
     bool? isEditable,
     String? privacy,
     DateTime? createdAt,
@@ -301,6 +304,7 @@ class Playlist extends Equatable {
       tracks: tracks ?? this.tracks,
       isLocal: isLocal ?? this.isLocal,
       isYTMusic: isYTMusic ?? this.isYTMusic,
+      isPodcast: isPodcast ?? this.isPodcast,
       isEditable: isEditable ?? this.isEditable,
       privacy: privacy ?? this.privacy,
       createdAt: createdAt ?? this.createdAt,
@@ -309,7 +313,7 @@ class Playlist extends Equatable {
   }
 
   @override
-  List<Object?> get props => [id, isLocal, isYTMusic];
+  List<Object?> get props => [id, isLocal, isYTMusic, isPodcast];
 
   /// Convert to JSON for storage
   Map<String, dynamic> toJson() {
@@ -325,6 +329,7 @@ class Playlist extends Equatable {
       'tracks': tracks?.map((t) => t.toJson()).toList(),
       'isLocal': isLocal,
       'isYTMusic': isYTMusic,
+      'isPodcast': isPodcast,
       'isEditable': isEditable,
       'privacy': privacy,
       'createdAt': createdAt?.millisecondsSinceEpoch,
@@ -348,6 +353,7 @@ class Playlist extends Equatable {
           .toList(),
       isLocal: json['isLocal'] as bool? ?? false,
       isYTMusic: json['isYTMusic'] as bool? ?? false,
+      isPodcast: json['isPodcast'] as bool? ?? false,
       isEditable: json['isEditable'] as bool? ?? false,
       privacy: json['privacy'] as String?,
       createdAt: json['createdAt'] != null

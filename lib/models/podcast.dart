@@ -44,6 +44,7 @@ class Episode extends Equatable {
         duration: duration,
         thumbnailUrl: thumbnailUrl,
         highResThumbnailUrl: thumbnailUrl,
+        podcastId: podcastId.isNotEmpty ? podcastId : null,
       );
 
   Episode copyWith({double? progress, bool? isPlayed}) => Episode(

@@ -57,7 +57,7 @@ extension AppLocalizationsX on BuildContext {
   String playlistSubtitle(String author, int? trackCount) {
     return metadataLine([
       author,
-      trackCount == null ? null : l10n.songsCount(trackCount),
+      (trackCount == null || trackCount <= 0) ? null : l10n.songsCount(trackCount),
     ]);
   }
 

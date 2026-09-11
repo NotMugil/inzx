@@ -15,6 +15,7 @@ import '../../services/local_music_scanner.dart';
 import 'track_options_sheet.dart';
 import 'album_screen.dart';
 import 'playlist_screen.dart';
+import 'podcast_screen.dart';
 import 'mini_player.dart';
 import 'now_playing_screen.dart';
 import 'shelf_details_screen.dart';
@@ -1206,12 +1207,23 @@ class _ArtistContent extends ConsumerWidget {
                     : colorScheme.onSurface.withValues(alpha: 0.6),
               ),
             ),
-            onTap: () => PlaylistScreen.open(
-              context,
-              playlistId: playlist.id,
-              title: playlist.title,
-              thumbnailUrl: playlist.thumbnailUrl,
-            ),
+            onTap: () {
+              if (playlist.isPodcast || playlist.id.startsWith('MPSP')) {
+                PodcastScreen.open(
+                  context,
+                  podcastId: playlist.id,
+                  title: playlist.title,
+                  thumbnailUrl: playlist.thumbnailUrl,
+                );
+              } else {
+                PlaylistScreen.open(
+                  context,
+                  playlistId: playlist.id,
+                  title: playlist.title,
+                  thumbnailUrl: playlist.thumbnailUrl,
+                );
+              }
+            },
           );
         }, childCount: playlists.length),
       ),

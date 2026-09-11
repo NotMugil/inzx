@@ -836,6 +836,68 @@ class InnerTubeService {
     return _parseLibraryPlaylists(response);
   }
 
+  /// Get the user's saved podcasts (shows) plus the "New Episodes" and
+  /// "Episodes for Later" auto-lists, from the non-music-audio library feed.
+  Future<List<Playlist>> getLibraryPodcasts() async {
+    if (!isAuthenticated) return [];
+
+    final response = await _request('browse', {
+      'browseId': 'FEmusic_library_non_music_audio_list',
+    }, authenticated: true);
+    if (response == null) return [];
+
+    final podcasts = <Playlist>[];
+    final seen = <String>{};
+
+    void walk(dynamic node) {
+      if (node is List) {
+        for (final e in node) {
+          walk(e);
+        }
+        return;
+      }
+      if (node is! Map) return;
+      final it = node['musicTwoRowItemRenderer'];
+      if (it is Map) {
+        final title = (it['title']?['runs'] as List?)
+                ?.map((r) => r['text']?.toString() ?? '')
+                .join() ??
+            '';
+        final browseId = _navigateJson(it.cast<String, dynamic>(), [
+          'navigationEndpoint',
+          'browseEndpoint',
+          'browseId',
+        ]) as String?;
+        // Skip action tiles (e.g. "Add podcast") that carry no browse id.
+        if (browseId != null &&
+            browseId.isNotEmpty &&
+            title.isNotEmpty &&
+            seen.add(browseId)) {
+          final subtitle = (it['subtitle']?['runs'] as List?)
+              ?.map((r) => r['text']?.toString() ?? '')
+              .join();
+          final thumb = _extractThumbnail(
+            it['thumbnailRenderer']?['musicThumbnailRenderer']?['thumbnail'],
+          );
+          podcasts.add(Playlist(
+            id: browseId,
+            title: title,
+            author: subtitle,
+            thumbnailUrl: thumb,
+            isPodcast: true,
+            isYTMusic: true,
+          ));
+        }
+      }
+      for (final v in node.values) {
+        walk(v);
+      }
+    }
+
+    walk(response['contents']);
+    return podcasts;
+  }
+
   /// Get user's library artists (artists from saved songs)
   Future<List<Artist>> getLibraryArtists({LibraryArtistSort? sort}) async {
     if (!isAuthenticated) return [];
@@ -934,6 +996,17 @@ class InnerTubeService {
     if (!isAuthenticated) return false;
 
     final response = await _request(like ? 'like/like' : 'like/removelike', {
+      'target': {'videoId': videoId},
+    }, authenticated: true);
+
+    return response != null;
+  }
+
+  /// Dislike or undislike a video
+  Future<bool> dislikeVideo(String videoId, bool dislike) async {
+    if (!isAuthenticated) return false;
+
+    final response = await _request(dislike ? 'like/dislike' : 'like/removelike', {
       'target': {'videoId': videoId},
     }, authenticated: true);
 
@@ -1279,11 +1352,23 @@ class InnerTubeService {
       'params': 'wAEB',
     };
 
-    final response = await _request(
+    var response = await _request(
       'next',
       body,
       authenticated: isAuthenticated,
     );
+
+    // Fallback for podcast episodes or single videos that don't have automated radio
+    if (response == null || _extractWatchRelatedBrowseId(response) == null) {
+      final retryResp = await _request(
+        'next',
+        {'videoId': videoId},
+        authenticated: isAuthenticated,
+      );
+      if (retryResp != null) {
+        response = retryResp;
+      }
+    }
 
     if (response == null) {
       return WatchRelatedContent.empty;
@@ -1318,25 +1403,47 @@ class InnerTubeService {
       }
     }
 
-    var fallbackContent = _parseWatchRelatedContent(
-      response,
-      videoId,
-      limitPerShelf,
-    );
+    var fallbackContent = _parseWatchRelatedContent(response, videoId, limitPerShelf);
     if (!fallbackContent.hasAboutSection && languageCode != 'en') {
-      final englishRelatedBrowseId = await _fetchEnglishRelatedBrowseId(
-        videoId,
-        radioPlaylistId,
-      );
+      final englishRelatedBrowseId = await _fetchEnglishRelatedBrowseId(videoId, radioPlaylistId);
       if (englishRelatedBrowseId != null) {
         final englishAboutContent = await _fetchEnglishRelatedAboutContent(
           englishRelatedBrowseId,
           videoId,
           limitPerShelf,
         );
-        fallbackContent = _mergeRelatedAboutContent(
-          fallbackContent,
-          englishAboutContent,
+        fallbackContent = _mergeRelatedAboutContent(fallbackContent, englishAboutContent);
+      }
+    }
+
+    if (fallbackContent.isEmpty) {
+      final queueTracks = _parseWatchPlaylist(response, videoId, limitPerShelf);
+      if (queueTracks.isNotEmpty) {
+        final items = queueTracks
+            .map(
+              (t) => HomeShelfItem(
+                id: t.id,
+                title: t.title,
+                subtitle: t.artist,
+                thumbnailUrl: t.thumbnailUrl,
+                itemType: HomeShelfItemType.song,
+                videoId: t.id,
+                artistId: t.artistId,
+                album: t.album,
+                albumId: t.albumId,
+                duration: t.duration,
+              ),
+            )
+            .toList();
+        return WatchRelatedContent(
+          shelves: [
+            HomeShelf(
+              id: 'related_queue',
+              title: 'Recommended & Up Next',
+              type: HomeShelfType.quickPicks,
+              items: items,
+            ),
+          ],
         );
       }
     }
@@ -1717,6 +1824,208 @@ class InnerTubeService {
     return null;
   }
 
+  /// Fetch YouTube video comments (top comments) for an episode/video
+  Future<List<Map<String, dynamic>>> getVideoComments(String videoId) async {
+    try {
+      // Comments only exist on regular YouTube (youtube.com WEB), not on
+      // YouTube Music (WEB_REMIX), so this uses the youtube.com InnerTube host.
+      final nextResp = await _requestYouTube('next', {'videoId': videoId});
+      if (nextResp == null) return [];
+
+      final token = _findCommentsContinuation(nextResp);
+      if (token == null) return [];
+
+      final commentsResp =
+          await _requestYouTube('next', {'continuation': token});
+      if (commentsResp == null) return [];
+
+      // Modern comments are delivered as entity payloads keyed in
+      // frameworkUpdates, referenced by commentViewModels in the render tree.
+      final comments = <Map<String, dynamic>>[];
+      final mutations = _navigateJson(commentsResp, [
+        'frameworkUpdates',
+        'entityBatchUpdate',
+        'mutations',
+      ]) as List?;
+
+      if (mutations != null) {
+        for (final m in mutations) {
+          final cp = m['payload']?['commentEntityPayload'];
+          if (cp is! Map) continue;
+          final text = cp['properties']?['content']?['content'] as String?;
+          if (text == null || text.isEmpty) continue;
+          final toolbar = cp['toolbar'] as Map?;
+          comments.add({
+            'author': cp['author']?['displayName'] as String? ?? 'User',
+            'text': text,
+            'time': cp['properties']?['publishedTime'] as String? ?? '',
+            'likes': (toolbar?['likeCountLiked'] ??
+                    toolbar?['likeCountNotliked'] ??
+                    '') as String,
+            'authorThumbnail': cp['author']?['avatarThumbnailUrl'] as String?,
+          });
+        }
+      }
+      return comments;
+    } catch (e) {
+      if (kDebugMode) {
+        print('getVideoComments error: $e');
+      }
+      return [];
+    }
+  }
+
+  /// InnerTube request against regular YouTube (youtube.com) with the WEB
+  /// client — used for data YT Music doesn't serve (comments, related videos).
+  Future<Map<String, dynamic>?> _requestYouTube(
+    String endpoint,
+    Map<String, dynamic> body,
+  ) async {
+    try {
+      final url = Uri.parse(
+        'https://www.youtube.com/youtubei/v1/$endpoint?prettyPrint=false',
+      );
+      final headers = _buildHeaders(
+        authenticated: false,
+        origin: 'https://www.youtube.com',
+        referer: 'https://www.youtube.com/',
+      );
+      final requestBody = {
+        'context': {
+          'client': {
+            'clientName': 'WEB',
+            'clientVersion': '2.20240101.00.00',
+            'hl': 'en',
+            'gl': 'US',
+          },
+          'user': {'lockedSafetyMode': false},
+        },
+        ...body,
+      };
+      final response = await http
+          .post(url, headers: headers, body: jsonEncode(requestBody))
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+      return null;
+    } catch (e) {
+      if (kDebugMode) print('_requestYouTube($endpoint) failed: $e');
+      return null;
+    }
+  }
+
+  /// Related videos for an episode/video, from regular YouTube's watch-next
+  /// secondary results (YT Music's radio doesn't surface these for podcasts).
+  Future<WatchRelatedContent> getYouTubeRelated(String videoId) async {
+    try {
+      final resp = await _requestYouTube('next', {'videoId': videoId});
+      if (resp == null) return WatchRelatedContent.empty;
+
+      final results = _navigateJson(resp, [
+        'contents',
+        'twoColumnWatchNextResults',
+        'secondaryResults',
+        'secondaryResults',
+        'results',
+      ]) as List?;
+      if (results == null) return WatchRelatedContent.empty;
+
+      final items = <HomeShelfItem>[];
+      for (final r in results) {
+        final lmRaw = r['lockupViewModel'];
+        if (lmRaw is! Map) continue;
+        final lm = lmRaw.cast<String, dynamic>();
+        final vid = lm['contentId'] as String?;
+        if (vid == null || vid.isEmpty) continue;
+        final title = _navigateJson(lm, [
+          'metadata',
+          'lockupMetadataViewModel',
+          'title',
+          'content',
+        ]) as String?;
+        final sources = _navigateJson(lm, [
+          'contentImage',
+          'thumbnailViewModel',
+          'image',
+          'sources',
+        ]) as List?;
+        final thumb = (sources != null && sources.isNotEmpty)
+            ? sources.last['url'] as String?
+            : null;
+        final subtitle = _navigateJson(lm, [
+          'metadata',
+          'lockupMetadataViewModel',
+          'metadata',
+          'contentMetadataViewModel',
+          'metadataRows',
+          0,
+          'metadataParts',
+          0,
+          'text',
+          'content',
+        ]) as String?;
+        items.add(HomeShelfItem(
+          id: vid,
+          title: title ?? '',
+          subtitle: subtitle,
+          thumbnailUrl: thumb,
+          videoId: vid,
+          navigationId: vid,
+          itemType: HomeShelfItemType.video,
+        ));
+      }
+      if (items.isEmpty) return WatchRelatedContent.empty;
+      return WatchRelatedContent(shelves: [
+        HomeShelf(
+          id: 'related',
+          title: 'Related videos',
+          type: HomeShelfType.videos,
+          items: items,
+        ),
+      ]);
+    } catch (e) {
+      if (kDebugMode) print('getYouTubeRelated failed: $e');
+      return WatchRelatedContent.empty;
+    }
+  }
+
+  String? _findCommentsContinuation(dynamic node) {
+    if (node is List) {
+      for (final item in node) {
+        final res = _findCommentsContinuation(item);
+        if (res != null) return res;
+      }
+      return null;
+    }
+    if (node is! Map) return null;
+
+    // youtube.com: an itemSectionRenderer targeting the comments section holds a
+    // continuationItemRenderer whose token loads the comment threads.
+    final itemSection = node['itemSectionRenderer'];
+    if (itemSection is Map &&
+        (itemSection['targetId'] == 'comments-section' ||
+            itemSection['targetId'] == 'comment-item-section')) {
+      final token = _navigateJson(itemSection.cast<String, dynamic>(), [
+        'contents',
+        0,
+        'continuationItemRenderer',
+        'continuationEndpoint',
+        'continuationCommand',
+        'token',
+      ]) as String?;
+      if (token != null) return token;
+      final fallback = _extractContinuationToken(itemSection);
+      if (fallback != null) return fallback;
+    }
+
+    for (final value in node.values) {
+      final res = _findCommentsContinuation(value);
+      if (res != null) return res;
+    }
+    return null;
+  }
+
   Future<String?> _fetchEnglishRelatedBrowseId(
     String videoId,
     String playlistId,
@@ -2069,21 +2378,47 @@ class InnerTubeService {
   /// Fetch a podcast show and its episodes. [podcastId] may be the show's
   /// playlist id (PL…), a VL-prefixed id, or an MPSP browse id.
   Future<Podcast?> getPodcast(String podcastId) async {
+    // Normalize to the bare id (strip MPSP / VL prefixes).
     var pl = podcastId;
     if (pl.startsWith('MPSP')) pl = pl.substring(4);
     if (pl.startsWith('VL')) pl = pl.substring(2);
 
-    final response = await _request('browse', {
-      'browseId': 'VL$pl',
-    }, authenticated: isAuthenticated);
-    if (response == null) return null;
+    // Podcast SHOWS resolve with the MPSP prefix (browsing VL+PL returns an
+    // empty response). Special auto-lists — "New Episodes" (RDPN), "Episodes
+    // for Later" (SE), and library feeds (FE…) — resolve with the VL prefix.
+    final isSpecial = pl.startsWith('RDPN') ||
+        pl == 'SE' ||
+        pl.startsWith('SE') && pl.length <= 4 ||
+        pl.startsWith('FE');
 
-    return _parsePodcast(response, pl);
+    Future<Podcast?> tryBrowse(String browseId) async {
+      final response = await _request('browse', {
+        'browseId': browseId,
+      }, authenticated: isAuthenticated);
+      if (response == null) return null;
+      return _parsePodcast(response, pl);
+    }
+
+    final primary = isSpecial ? 'VL$pl' : 'MPSP$pl';
+    final alt = isSpecial ? 'MPSP$pl' : 'VL$pl';
+
+    final parsed = await tryBrowse(primary);
+    if (parsed != null && parsed.episodes.isNotEmpty) return parsed;
+
+    // Fall back to the other prefix form if the first returned nothing usable.
+    final altParsed = await tryBrowse(alt);
+    if (altParsed != null && altParsed.episodes.isNotEmpty) return altParsed;
+
+    return parsed ?? altParsed;
   }
 
   Podcast? _parsePodcast(Map<String, dynamic> response, String playlistId) {
     try {
-      final header = _navigateJson(response, [
+      String runsText(dynamic runs) => (runs is List)
+          ? runs.map((r) => r['text']?.toString() ?? '').join()
+          : '';
+
+      final responsiveHeader = _navigateJson(response, [
             'contents',
             'twoColumnBrowseResultsRenderer',
             'tabs',
@@ -2095,66 +2430,144 @@ class InnerTubeService {
             0,
             'musicResponsiveHeaderRenderer',
           ]) ??
+          _navigateJson(response, [
+            'contents',
+            'singleColumnBrowseResultsRenderer',
+            'tabs',
+            0,
+            'tabRenderer',
+            'content',
+            'sectionListRenderer',
+            'contents',
+            0,
+            'musicResponsiveHeaderRenderer',
+          ]) ??
           response['header']?['musicResponsiveHeaderRenderer'];
-      if (header is! Map) return null;
 
-      String runsText(dynamic runs) => (runs is List)
-          ? runs.map((r) => r['text']?.toString() ?? '').join()
-          : '';
+      final genericHeader = response['header']?['musicHeaderRenderer'] ??
+          response['header']?['musicDetailHeaderRenderer'];
 
-      final title = runsText(header['title']?['runs']);
-      final author = runsText(header['straplineTextOne']?['runs']);
-      final thumbnailUrl = _extractThumbnail(
-        header['thumbnail']?['musicThumbnailRenderer']?['thumbnail'],
-      );
-
-      // Show description lives in a musicDescriptionShelfRenderer somewhere in
-      // the tab content.
+      String title = '';
+      String? author;
+      String? thumbnailUrl;
       String? description;
-      final descShelf = _findFirstRenderer(response, 'musicDescriptionShelfRenderer');
-      if (descShelf != null) {
-        description = runsText(descShelf['description']?['runs']);
+      bool saved = false;
+
+      if (responsiveHeader is Map) {
+        title = runsText(responsiveHeader['title']?['runs']);
+        author = runsText(
+          responsiveHeader['straplineTextOne']?['runs'] ??
+              responsiveHeader['subtitle']?['runs'],
+        );
+        thumbnailUrl = _extractThumbnail(
+          responsiveHeader['thumbnail']?['musicThumbnailRenderer']?['thumbnail'],
+        );
+
+        if (responsiveHeader['description'] != null) {
+          description = runsText(responsiveHeader['description']?['runs']);
+        }
+        if (description == null || description.isEmpty) {
+          final descShelf =
+              _findFirstRenderer(response, 'musicDescriptionShelfRenderer');
+          if (descShelf != null) {
+            description = runsText(descShelf['description']?['runs']);
+          }
+        }
+
+        final buttons = responsiveHeader['buttons'];
+        if (buttons is List) {
+          for (final b in buttons) {
+            final toggle = b['toggleButtonRenderer'];
+            if (toggle is Map) {
+              saved = toggle['isToggled'] == true;
+              break;
+            }
+          }
+        }
+      } else if (genericHeader is Map) {
+        title = runsText(genericHeader['title']?['runs']);
+        author = runsText(genericHeader['subtitle']?['runs']);
+        thumbnailUrl = _extractThumbnail(
+          genericHeader['thumbnail']?['musicThumbnailRenderer']?['thumbnail'],
+        );
       }
 
-      // Save-to-library toggle state + target.
-      bool saved = false;
-      final buttons = header['buttons'];
-      if (buttons is List) {
-        for (final b in buttons) {
-          final toggle = b['toggleButtonRenderer'];
-          if (toggle is Map) {
-            saved = toggle['isToggled'] == true;
-            break;
-          }
+      // Default title for special library podcast playlists
+      if (title.isEmpty) {
+        if (playlistId.contains('new_episodes')) {
+          title = 'New Episodes';
+        } else if (playlistId.contains('episodes_for_later')) {
+          title = 'Episodes for Later';
+        } else {
+          title = 'Podcasts';
         }
       }
 
-      // Episodes live in secondaryContents.
+      // Episodes live in secondaryContents, tab contents, or sectionListRenderer
       final episodes = <Episode>[];
       final secContents = _navigateJson(response, [
-        'contents',
-        'twoColumnBrowseResultsRenderer',
-        'secondaryContents',
-        'sectionListRenderer',
-        'contents',
-      ]);
+            'contents',
+            'twoColumnBrowseResultsRenderer',
+            'secondaryContents',
+            'sectionListRenderer',
+            'contents',
+          ]) ??
+          _navigateJson(response, [
+            'contents',
+            'singleColumnBrowseResultsRenderer',
+            'tabs',
+            0,
+            'tabRenderer',
+            'content',
+            'sectionListRenderer',
+            'contents',
+          ]) ??
+          _navigateJson(response, [
+            'contents',
+            'sectionListRenderer',
+            'contents',
+          ]);
+
       String? continuation;
       if (secContents is List) {
         for (final section in secContents) {
-          final shelf = section['musicShelfRenderer'];
+          final shelf = section['musicShelfRenderer'] ??
+              section['musicPlaylistShelfRenderer'];
           if (shelf is! Map) continue;
           final items = shelf['contents'];
           if (items is List) {
             for (final item in items) {
-              final renderer = item['musicMultiRowListItemRenderer'];
+              final renderer = item['musicMultiRowListItemRenderer'] ??
+                  item['musicResponsiveListItemRenderer'];
               if (renderer is Map) {
                 final ep = _parseEpisode(
                   renderer.cast<String, dynamic>(),
                   playlistId,
                   title,
-                  author,
+                  author ?? '',
                 );
-                if (ep != null) episodes.add(ep);
+                if (ep != null) {
+                  episodes.add(ep);
+                } else {
+                  // Fallback: try parsing as a track and converting to Episode
+                  final tr = _parseTrackItem({
+                    'musicResponsiveListItemRenderer': renderer,
+                  });
+                  if (tr != null && tr.id.isNotEmpty) {
+                    episodes.add(
+                      Episode(
+                        videoId: tr.id,
+                        title: tr.title,
+                        subtitle: tr.artist,
+                        duration: tr.duration,
+                        thumbnailUrl: tr.thumbnailUrl,
+                        podcastId: playlistId,
+                        podcastTitle: title,
+                        podcastAuthor: author ?? tr.artist,
+                      ),
+                    );
+                  }
+                }
               }
             }
           }
@@ -2165,7 +2578,7 @@ class InnerTubeService {
       return Podcast(
         id: playlistId,
         title: title.isNotEmpty ? title : 'Podcast',
-        author: author.isNotEmpty ? author : null,
+        author: author?.isNotEmpty == true ? author : null,
         description: (description != null && description.isNotEmpty)
             ? description
             : null,
@@ -2258,6 +2671,120 @@ class InnerTubeService {
       return _parseDuration(text);
     }
     return Duration(hours: hours, minutes: minutes, seconds: seconds);
+  }
+
+  /// Fetch more episodes for a podcast show using its continuation token.
+  Future<(List<Episode>, String?)> getPodcastContinuation({
+    required String continuationToken,
+    required String podcastId,
+    required String podcastTitle,
+    String? author,
+  }) async {
+    final response = await _request('browse', {
+      'continuation': continuationToken,
+    }, authenticated: isAuthenticated);
+    if (response == null) return (const <Episode>[], null);
+
+    final episodes = <Episode>[];
+    String? nextContinuation;
+    try {
+      final shelf = response['continuationContents']?['musicShelfContinuation'] ??
+          response['continuationContents']?['musicPlaylistShelfContinuation'];
+      if (shelf is Map) {
+        final items = shelf['contents'] as List?;
+        if (items != null) {
+          for (final item in items) {
+            final renderer = item['musicMultiRowListItemRenderer'] ??
+                item['musicResponsiveListItemRenderer'];
+            if (renderer is Map) {
+              final ep = _parseEpisode(
+                renderer.cast<String, dynamic>(),
+                podcastId,
+                podcastTitle,
+                author ?? '',
+              );
+              if (ep != null) episodes.add(ep);
+            }
+          }
+        }
+        nextContinuation = _extractContinuationToken(shelf);
+      }
+    } catch (e) {
+      if (kDebugMode) print('Error parsing podcast continuation: $e');
+    }
+    return (episodes, nextContinuation);
+  }
+
+  /// Fetch full episode details and unabridged show notes by video/browse id.
+  Future<Map<String, dynamic>?> getEpisodeDetails(String videoId) async {
+    final browseId = videoId.startsWith('MPED') ? videoId : 'MPED$videoId';
+    final response = await _request('browse', {
+      'browseId': browseId,
+    }, authenticated: isAuthenticated);
+    if (response == null) return null;
+
+    try {
+      final header = _navigateJson(response, [
+            'contents',
+            'twoColumnBrowseResultsRenderer',
+            'tabs',
+            0,
+            'tabRenderer',
+            'content',
+            'sectionListRenderer',
+            'contents',
+            0,
+            'musicResponsiveHeaderRenderer',
+          ]) ??
+          _navigateJson(response, [
+            'contents',
+            'singleColumnBrowseResultsRenderer',
+            'tabs',
+            0,
+            'tabRenderer',
+            'content',
+            'sectionListRenderer',
+            'contents',
+            0,
+            'musicResponsiveHeaderRenderer',
+          ]) ??
+          response['header']?['musicResponsiveHeaderRenderer'];
+
+      String runsText(dynamic runs) => (runs is List)
+          ? runs.map((r) => r['text']?.toString() ?? '').join()
+          : '';
+
+      String? title;
+      String? subtitle;
+      String? thumbnailUrl;
+      if (header is Map) {
+        title = runsText(header['title']?['runs']);
+        subtitle = runsText(header['subtitle']?['runs'] ?? header['straplineTextOne']?['runs']);
+        thumbnailUrl = _extractThumbnail(
+          header['thumbnail']?['musicThumbnailRenderer']?['thumbnail'],
+        );
+      }
+
+      // Full description lives in musicDescriptionShelfRenderer
+      String? description;
+      final descShelf = _findFirstRenderer(response, 'musicDescriptionShelfRenderer');
+      if (descShelf != null) {
+        description = runsText(descShelf['description']?['runs']);
+      } else if (header is Map && header['description'] != null) {
+        description = runsText(header['description']?['runs']);
+      }
+
+      return {
+        'videoId': videoId.startsWith('MPED') ? videoId.substring(4) : videoId,
+        'title': title,
+        'subtitle': subtitle,
+        'description': description,
+        'thumbnailUrl': thumbnailUrl,
+      };
+    } catch (e) {
+      if (kDebugMode) print('Error parsing episode details: $e');
+      return null;
+    }
   }
 
   /// Return the highest-resolution thumbnail URL from a `{thumbnails:[…]}` node.
@@ -4641,8 +5168,18 @@ class InnerTubeService {
       var playlistId = browseEndpoint?['browseId'] as String?;
       if (playlistId == null) return null;
 
-      // Must be a playlist (VL prefix) or RDCLAK (radio)
-      if (!playlistId.startsWith('VL') && !playlistId.startsWith('RDCLAK')) {
+      final pageType = browseEndpoint?['browseEndpointContextSupportedConfigs']
+          ?['browseEndpointContextMusicConfig']?['pageType'] as String?;
+      final isPodcast = playlistId.startsWith('MPSP') ||
+          playlistId.startsWith('FEmusic_library_podcasts') ||
+          pageType == 'MUSIC_PAGE_TYPE_PODCAST_SHOW_DETAIL_PAGE' ||
+          pageType == 'MUSIC_PAGE_TYPE_PODCAST_EPISODE_DETAIL_PAGE';
+
+      // Must be a playlist (VL, MPSP, or library podcasts prefix), RDCLAK (radio), or podcast show
+      if (!playlistId.startsWith('VL') &&
+          !playlistId.startsWith('RDCLAK') &&
+          !playlistId.startsWith('FEmusic_library_podcasts') &&
+          !isPodcast) {
         return null;
       }
 
@@ -4694,11 +5231,20 @@ class InnerTubeService {
             }
             // Parse track count
             final countMatch = RegExp(
-              r'(\d+)\s*(song|track|video)',
+              r'(\d+)\s*(song|track|video|episode)',
               caseSensitive: false,
             ).firstMatch(subtitleText);
             if (countMatch != null) {
               trackCount = int.tryParse(countMatch.group(1)!) ?? 0;
+            } else {
+              // Try finding any digit in runs after the author
+              for (var i = 1; i < subtitleRuns.length; i++) {
+                final runText = (subtitleRuns[i]['text'] as String?)?.trim();
+                if (runText != null && RegExp(r'^\d+$').hasMatch(runText)) {
+                  trackCount = int.tryParse(runText) ?? 0;
+                  if (trackCount > 0) break;
+                }
+              }
             }
           }
         }
@@ -4728,7 +5274,7 @@ class InnerTubeService {
             final text = run['text'] as String?;
             if (text != null) {
               final match = RegExp(
-                r'(\d+)\s*(song|track|video)?',
+                r'(\d+)\s*(song|track|video|episode)?',
                 caseSensitive: false,
               ).firstMatch(text);
               if (match != null) {
@@ -4747,6 +5293,7 @@ class InnerTubeService {
         trackCount: trackCount,
         author: author,
         isYTMusic: true,
+        isPodcast: isPodcast,
       );
     } catch (e) {
       return null;
@@ -5031,8 +5578,16 @@ class InnerTubeService {
               ),
             );
           }
-          // Playlist (VL or RDCLAK prefix)
-          if (browseId.startsWith('VL') || browseId.startsWith('RDCLAK')) {
+          // Playlist (VL or RDCLAK prefix) or Podcast (MPSP prefix)
+          final pageType = browseEndpoint['browseEndpointContextSupportedConfigs']
+              ?['browseEndpointContextMusicConfig']?['pageType'] as String?;
+          final isPodcast = browseId.startsWith('MPSP') ||
+              pageType == 'MUSIC_PAGE_TYPE_PODCAST_SHOW_DETAIL_PAGE' ||
+              pageType == 'MUSIC_PAGE_TYPE_PODCAST_EPISODE_DETAIL_PAGE';
+
+          if (browseId.startsWith('VL') ||
+              browseId.startsWith('RDCLAK') ||
+              isPodcast) {
             return SearchResultItem.playlist(
               Playlist(
                 id: browseId.startsWith('VL')
@@ -5040,6 +5595,8 @@ class InnerTubeService {
                     : browseId,
                 title: title,
                 thumbnailUrl: thumbnailUrl,
+                isPodcast: isPodcast,
+                isYTMusic: true,
               ),
             );
           }
