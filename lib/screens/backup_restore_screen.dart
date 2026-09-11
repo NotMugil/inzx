@@ -1,7 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
+import 'package:inzx/data/entities/download_entity.dart';
+import 'package:inzx/data/entities/downloaded_playlist_entity.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:path_provider/path_provider.dart';
@@ -44,6 +47,7 @@ class BackupRestoreScreen extends ConsumerStatefulWidget {
 
 class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
   bool _isBackingUp = false;
+  bool _isBackingUpWithAudio = false;
   bool _isRestoring = false;
 
   @override
@@ -115,6 +119,17 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
             subtitle: l10n.exportBackupSubtitle,
             isLoading: _isBackingUp,
             onTap: _createBackup,
+          ),
+          const SizedBox(height: 12),
+          _buildActionCard(
+            context,
+            isDark: isDark,
+            icon: Iconsax.music_dashboard,
+            title: 'Export with audio',
+            subtitle:
+                'Bundle downloaded songs into a .zip (can be large)',
+            isLoading: _isBackingUpWithAudio,
+            onTap: _createBackupWithAudio,
           ),
 
           const SizedBox(height: 24),
@@ -277,13 +292,67 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
     setState(() => _isBackingUp = false);
   }
 
+  Future<void> _createBackupWithAudio() async {
+    setState(() => _isBackingUpWithAudio = true);
+    final l10n = context.l10n;
+
+    try {
+      final backup = await _generateBackupData();
+      final json = await compute(_encodeBackupIsolate, backup);
+
+      final tempDir = await getTemporaryDirectory();
+      final timestamp = DateTime.now().toIso8601String().split('T')[0];
+      final zipPath = '${tempDir.path}/inzx_backup_$timestamp.zip';
+      final zipFile = File(zipPath);
+      if (await zipFile.exists()) await zipFile.delete();
+
+      // Manifest written to a temp file so it can be added to the archive.
+      final jsonFile = File('${tempDir.path}/backup.json');
+      await jsonFile.writeAsString(json);
+
+      final encoder = ZipFileEncoder();
+      encoder.create(zipPath);
+      await encoder.addFile(jsonFile, 'backup.json');
+
+      final seen = <String>{};
+      for (final e in HiveService.downloadsBox.values) {
+        final f = File(e.localPath);
+        if (!await f.exists()) continue;
+        final name = _fileName(e.localPath);
+        if (!seen.add(name)) continue; // de-dup by file name
+        await encoder.addFile(f, 'audio/$name');
+      }
+      await encoder.close();
+      try {
+        await jsonFile.delete();
+      } catch (_) {}
+
+      await SharePlus.instance.share(
+        ShareParams(files: [XFile(zipPath)], subject: l10n.backupSubject),
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l10n.backupCreatedSuccessfully)));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l10n.backupFailed('$e'))));
+      }
+    }
+
+    if (mounted) setState(() => _isBackingUpWithAudio = false);
+  }
+
   Future<void> _restoreBackup() async {
     setState(() => _isRestoring = true);
 
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['json'],
+        allowedExtensions: ['json', 'zip'],
       );
 
       if (result == null || result.files.isEmpty) {
@@ -291,11 +360,15 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
         return;
       }
 
-      final file = File(result.files.single.path!);
-      final json = await file.readAsString();
-      final backup = await compute(_parseBackupIsolate, json);
-
-      await _restoreFromBackup(backup);
+      final path = result.files.single.path!;
+      if (path.toLowerCase().endsWith('.zip')) {
+        await _restoreFromZip(path);
+      } else {
+        final file = File(path);
+        final json = await file.readAsString();
+        final backup = await compute(_parseBackupIsolate, json);
+        await _restoreFromBackup(backup);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -398,17 +471,95 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
     }
 
     return {
-      'version': 1,
+      'version': 2,
       'created_at': DateTime.now().toIso8601String(),
       'liked_songs': likedSongs.map((t) => t.toJson()).toList(),
       'playlists': playlists.map((p) => p.toJson()).toList(),
       'search_history': searchHistory,
       'recently_played': recentlyPlayed.map((t) => t.toJson()).toList(),
       'settings': settings,
+      'downloads': HiveService.downloadsBox.values
+          .map(_downloadToJson)
+          .toList(),
+      'downloaded_playlists': HiveService.downloadedPlaylistsBox.values
+          .map(_downloadedPlaylistToJson)
+          .toList(),
     };
   }
 
-  Future<void> _restoreFromBackup(Map<String, dynamic> backup) async {
+  static String _fileName(String path) => path.split(RegExp(r'[\\/]')).last;
+
+  Map<String, dynamic> _downloadToJson(DownloadEntity e) => {
+        'trackId': e.trackId,
+        'title': e.title,
+        'artist': e.artist,
+        'album': e.album,
+        'durationMs': e.durationMs,
+        'thumbnailUrl': e.thumbnailUrl,
+        'localPath': e.localPath,
+        'fileName': _fileName(e.localPath),
+        'totalBytes': e.totalBytes,
+        'downloadedAt': e.downloadedAt.toIso8601String(),
+        'quality': e.quality,
+      };
+
+  Map<String, dynamic> _downloadedPlaylistToJson(DownloadedPlaylistEntity e) => {
+        'sourcePlaylistId': e.sourcePlaylistId,
+        'title': e.title,
+        'thumbnailUrl': e.thumbnailUrl,
+        'trackIds': e.trackIds,
+        'trackTitles': e.trackTitles,
+        'trackArtists': e.trackArtists,
+        'createdAt': e.createdAt.toIso8601String(),
+        'updatedAt': e.updatedAt.toIso8601String(),
+      };
+
+  Future<void> _restoreFromZip(String zipPath) async {
+    final tempDir = await getTemporaryDirectory();
+    final extractDir = Directory(
+      '${tempDir.path}/inzx_restore_${DateTime.now().millisecondsSinceEpoch}',
+    );
+    await extractDir.create(recursive: true);
+
+    try {
+      await extractFileToDisk(zipPath, extractDir.path);
+
+      final jsonFile = File('${extractDir.path}/backup.json');
+      if (!await jsonFile.exists()) {
+        throw const FormatException('Invalid backup: backup.json missing');
+      }
+      final json = await jsonFile.readAsString();
+      final backup = await compute(_parseBackupIsolate, json);
+
+      // Copy any bundled audio into the real downloads directory and remember
+      // where each file landed so the records can point at it.
+      final extractedByName = <String, String>{};
+      final audioDir = Directory('${extractDir.path}/audio');
+      if (await audioDir.exists()) {
+        final downloadsDir = await resolveDownloadsDirPath();
+        await for (final ent in audioDir.list()) {
+          if (ent is! File) continue;
+          final name = _fileName(ent.path);
+          final dest = '$downloadsDir/$name';
+          try {
+            await ent.copy(dest);
+            extractedByName[name] = dest;
+          } catch (_) {}
+        }
+      }
+
+      await _restoreFromBackup(backup, extractedAudioByName: extractedByName);
+    } finally {
+      try {
+        await extractDir.delete(recursive: true);
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _restoreFromBackup(
+    Map<String, dynamic> backup, {
+    Map<String, String> extractedAudioByName = const {},
+  }) async {
     // Restore liked songs
     if (backup['liked_songs'] != null) {
       final songs = (backup['liked_songs'] as List)
@@ -447,6 +598,110 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
     final settingsRaw = backup['settings'];
     if (settingsRaw is Map) {
       await _restoreSettings(Map<String, dynamic>.from(settingsRaw));
+    }
+
+    // Restore downloaded-playlist snapshots (metadata only).
+    if (backup['downloaded_playlists'] is List) {
+      final box = HiveService.downloadedPlaylistsBox;
+      for (final raw in (backup['downloaded_playlists'] as List)) {
+        if (raw is! Map) continue;
+        final m = Map<String, dynamic>.from(raw);
+        final id = m['sourcePlaylistId'] as String?;
+        if (id == null || box.containsKey(id)) continue;
+        box.put(
+          id,
+          DownloadedPlaylistEntity(
+            sourcePlaylistId: id,
+            title: (m['title'] as String?) ?? '',
+            thumbnailUrl: m['thumbnailUrl'] as String?,
+            trackIds:
+                (m['trackIds'] as List?)?.map((e) => e.toString()).toList() ??
+                    <String>[],
+            trackTitles: (m['trackTitles'] as Map?)
+                    ?.map((k, v) => MapEntry(k.toString(), v.toString())) ??
+                <String, String>{},
+            trackArtists: (m['trackArtists'] as Map?)
+                    ?.map((k, v) => MapEntry(k.toString(), v.toString())) ??
+                <String, String>{},
+            createdAt: DateTime.tryParse(m['createdAt'] as String? ?? '') ??
+                DateTime.now(),
+            updatedAt: DateTime.tryParse(m['updatedAt'] as String? ?? '') ??
+                DateTime.now(),
+          ),
+        );
+      }
+    }
+
+    // Restore downloaded songs: re-link existing/extracted files, else queue
+    // them to re-download.
+    if (backup['downloads'] is List) {
+      await _restoreDownloads(
+        (backup['downloads'] as List),
+        extractedAudioByName: extractedAudioByName,
+      );
+    }
+  }
+
+  Future<void> _restoreDownloads(
+    List<dynamic> records, {
+    required Map<String, String> extractedAudioByName,
+  }) async {
+    final box = HiveService.downloadsBox;
+    final toRedownload = <Track>[];
+
+    for (final raw in records) {
+      if (raw is! Map) continue;
+      final m = Map<String, dynamic>.from(raw);
+      final trackId = m['trackId'] as String?;
+      if (trackId == null || box.containsKey(trackId)) continue;
+
+      String? localPath;
+      final fileName = m['fileName'] as String?;
+      // 1. Prefer a file that came bundled in a .zip backup.
+      if (fileName != null && extractedAudioByName.containsKey(fileName)) {
+        localPath = extractedAudioByName[fileName];
+      } else {
+        // 2. Otherwise re-link the original path if the file is still present
+        //    (same-device restore, e.g. after clearing app data).
+        final orig = m['localPath'] as String?;
+        if (orig != null && await File(orig).exists()) localPath = orig;
+      }
+
+      if (localPath != null) {
+        box.put(
+          trackId,
+          DownloadEntity(
+            trackId: trackId,
+            title: (m['title'] as String?) ?? '',
+            artist: (m['artist'] as String?) ?? '',
+            album: m['album'] as String?,
+            durationMs: (m['durationMs'] as num?)?.toInt() ?? 0,
+            thumbnailUrl: m['thumbnailUrl'] as String?,
+            localPath: localPath,
+            totalBytes: (m['totalBytes'] as num?)?.toInt() ?? 0,
+            downloadedAt:
+                DateTime.tryParse(m['downloadedAt'] as String? ?? ''),
+            quality: m['quality'] as String?,
+          ),
+        );
+      } else {
+        // 3. No file available — queue a fresh download.
+        toRedownload.add(Track(
+          id: trackId,
+          title: (m['title'] as String?) ?? '',
+          artist: (m['artist'] as String?) ?? '',
+          album: m['album'] as String?,
+          thumbnailUrl: m['thumbnailUrl'] as String?,
+          duration: Duration(milliseconds: (m['durationMs'] as num?)?.toInt() ?? 0),
+        ));
+      }
+    }
+
+    if (toRedownload.isNotEmpty) {
+      final dm = ref.read(downloadManagerProvider.notifier);
+      for (final t in toRedownload) {
+        await dm.addToQueue(t);
+      }
     }
   }
 

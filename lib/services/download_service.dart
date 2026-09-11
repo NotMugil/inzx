@@ -37,6 +37,10 @@ const int kMinParallelDownloadMinSizeMb = 1;
 const int kMaxParallelDownloadMinSizeMb = 32;
 const int kMaxTransientDownloadRetries = 8;
 
+/// Public accessor for the resolved downloads directory. Used by backup/restore
+/// to place audio files extracted from a `.zip` backup.
+Future<String> resolveDownloadsDirPath() => _getDownloadsDirPath();
+
 /// Get downloads directory path - checks custom path first, then app-private storage
 Future<String> _getDownloadsDirPath() async {
   // 1. Check custom path selected by user

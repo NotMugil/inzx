@@ -163,9 +163,42 @@ class DeepLinkHandler {
     _linkSubscription?.cancel();
   }
 
-  /// Creates a base64 encoded redirect URL for sharing.
+  /// When true, [createShareUrl] returns the native YouTube Music link instead
+  /// of an Inzx deep link. Kept in sync with the user's setting by
+  /// [ShareNativeLinksNotifier].
+  static bool useNativeYtMusicLinks = false;
+
+  static const String shareNativeLinksPrefKey =
+      'inzx_share_native_ytmusic_links';
+
+  /// Build a plain YouTube Music URL for a shared item, or null for a type
+  /// that has no direct equivalent.
+  static String? nativeYtMusicUrl(String type, String id) {
+    switch (type) {
+      case 'song':
+        return 'https://music.youtube.com/watch?v=$id';
+      case 'playlist':
+        final list = id.startsWith('VL') ? id.substring(2) : id;
+        return 'https://music.youtube.com/playlist?list=$list';
+      case 'album':
+        return 'https://music.youtube.com/browse/$id';
+      case 'artist':
+        return 'https://music.youtube.com/channel/$id';
+    }
+    return null;
+  }
+
+  /// Creates a share URL for the given item.
   /// [type] should be 'playlist', 'album', 'artist', or 'song'.
+  ///
+  /// Returns a native YouTube Music link when the user has opted out of Inzx
+  /// deep links; otherwise a base64 redirect that opens the item in Inzx.
   static String createShareUrl(String type, String id) {
+    if (useNativeYtMusicLinks) {
+      final native = nativeYtMusicUrl(type, id);
+      if (native != null) return native;
+    }
+
     final deepLink = 'inzx://open/$type?id=$id';
     final bytes = utf8.encode(deepLink);
     final base64DeepLink = base64.encode(bytes);

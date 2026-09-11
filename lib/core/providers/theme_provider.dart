@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../design_system/colors.dart';
+import '../../services/deep_link_handler.dart';
 
 /// Theme mode options for the app
 enum InzxThemeMode { system, light, dark }
@@ -430,6 +431,44 @@ class ShowLyricsBelowAlbumArtNotifier extends StateNotifier<bool> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(showLyricsBelowArtPrefKey, enabled);
+    } catch (_) {}
+  }
+
+  Future<void> toggle() => setEnabled(!state);
+}
+
+/// Provider for whether shares use native YouTube Music links instead of Inzx
+/// deep links. Default: false (share Inzx links).
+final shareNativeLinksProvider =
+    StateNotifierProvider<ShareNativeLinksNotifier, bool>((ref) {
+  return ShareNativeLinksNotifier();
+});
+
+/// Notifier for the "share YouTube Music links" preference. Mirrors the value
+/// into [DeepLinkHandler.useNativeYtMusicLinks] so the static share-URL builder
+/// picks it up without threading the provider through every call site.
+class ShareNativeLinksNotifier extends StateNotifier<bool> {
+  ShareNativeLinksNotifier() : super(false) {
+    _loadPreference();
+  }
+
+  Future<void> _loadPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final enabled = prefs.getBool(DeepLinkHandler.shareNativeLinksPrefKey);
+      if (enabled != null) {
+        state = enabled;
+        DeepLinkHandler.useNativeYtMusicLinks = enabled;
+      }
+    } catch (_) {}
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    state = enabled;
+    DeepLinkHandler.useNativeYtMusicLinks = enabled;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(DeepLinkHandler.shareNativeLinksPrefKey, enabled);
     } catch (_) {}
   }
 

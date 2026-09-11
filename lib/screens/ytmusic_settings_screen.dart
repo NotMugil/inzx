@@ -1070,6 +1070,20 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
           onChanged: (val) =>
               ref.read(audioPlayerServiceProvider).setShowNerdStats(val),
         ),
+        Divider(
+          height: 1,
+          color: _isDark ? InzxColors.darkDivider : InzxColors.divider,
+        ),
+        _switchTile(
+          icon: Iconsax.share,
+          iconBg: _accentColor,
+          title: 'Share YouTube Music links',
+          subtitle:
+              'Share plain music.youtube.com links instead of Inzx links',
+          value: ref.watch(shareNativeLinksProvider),
+          onChanged: (val) =>
+              ref.read(shareNativeLinksProvider.notifier).setEnabled(val),
+        ),
       ],
     );
   }

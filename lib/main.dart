@@ -50,6 +50,14 @@ void main() async {
     debugPrint('⚠️ Hive initialization failed: $e');
   }
 
+  // Load the "share native YouTube Music links" preference so shares honor it
+  // even before the settings screen is opened.
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    DeepLinkHandler.useNativeYtMusicLinks =
+        prefs.getBool(DeepLinkHandler.shareNativeLinksPrefKey) ?? false;
+  } catch (_) {}
+
   // Initialize Supabase for Jams feature
   try {
     await SupabaseConfig.initialize();
