@@ -1048,6 +1048,33 @@ final ytMusicAlbumProvider = FutureProvider.family<Album?, String>((
   return album;
 });
 
+/// Fetch a podcast show (header + episodes) by its playlist/browse id.
+final ytMusicPodcastProvider =
+    FutureProvider.family<Podcast?, String>((ref, id) async {
+  final innerTube = ref.watch(innerTubeServiceProvider);
+  return innerTube.getPodcast(id);
+});
+
+/// Action to save/unsave a podcast to the user's library.
+final ytMusicPodcastSaveActionProvider =
+    Provider<YTMusicPodcastSaveAction>((ref) {
+  final innerTube = ref.watch(innerTubeServiceProvider);
+  final authState = ref.watch(ytMusicAuthStateProvider);
+  return YTMusicPodcastSaveAction(innerTube, authState.isLoggedIn);
+});
+
+class YTMusicPodcastSaveAction {
+  final InnerTubeService _innerTube;
+  final bool _isLoggedIn;
+
+  YTMusicPodcastSaveAction(this._innerTube, this._isLoggedIn);
+
+  Future<bool> setSaved(String playlistId, bool saved) async {
+    if (!_isLoggedIn) return false;
+    return _innerTube.savePodcast(playlistId, saved);
+  }
+}
+
 final ytMusicArtistProvider = FutureProvider.family<Artist?, String>((
   ref,
   artistId,

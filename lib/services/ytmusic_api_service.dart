@@ -940,6 +940,18 @@ class InnerTubeService {
     return response != null;
   }
 
+  /// Save (subscribe) or unsave a podcast show to the user's library. The show
+  /// is targeted by its playlist id, via the same like endpoint YT Music uses.
+  Future<bool> savePodcast(String playlistId, bool save) async {
+    if (!isAuthenticated) return false;
+    var pl = playlistId;
+    if (pl.startsWith('VL')) pl = pl.substring(2);
+    final response = await _request(save ? 'like/like' : 'like/removelike', {
+      'target': {'playlistId': pl},
+    }, authenticated: true);
+    return response != null;
+  }
+
   /// Subscribe or unsubscribe from an artist
   Future<bool> subscribeArtist(String channelId, bool subscribe) async {
     if (!isAuthenticated) return false;
@@ -2052,6 +2064,231 @@ class InnerTubeService {
     );
   }
 
+  // ============ PODCASTS ============
+
+  /// Fetch a podcast show and its episodes. [podcastId] may be the show's
+  /// playlist id (PL…), a VL-prefixed id, or an MPSP browse id.
+  Future<Podcast?> getPodcast(String podcastId) async {
+    var pl = podcastId;
+    if (pl.startsWith('MPSP')) pl = pl.substring(4);
+    if (pl.startsWith('VL')) pl = pl.substring(2);
+
+    final response = await _request('browse', {
+      'browseId': 'VL$pl',
+    }, authenticated: isAuthenticated);
+    if (response == null) return null;
+
+    return _parsePodcast(response, pl);
+  }
+
+  Podcast? _parsePodcast(Map<String, dynamic> response, String playlistId) {
+    try {
+      final header = _navigateJson(response, [
+            'contents',
+            'twoColumnBrowseResultsRenderer',
+            'tabs',
+            0,
+            'tabRenderer',
+            'content',
+            'sectionListRenderer',
+            'contents',
+            0,
+            'musicResponsiveHeaderRenderer',
+          ]) ??
+          response['header']?['musicResponsiveHeaderRenderer'];
+      if (header is! Map) return null;
+
+      String runsText(dynamic runs) => (runs is List)
+          ? runs.map((r) => r['text']?.toString() ?? '').join()
+          : '';
+
+      final title = runsText(header['title']?['runs']);
+      final author = runsText(header['straplineTextOne']?['runs']);
+      final thumbnailUrl = _extractThumbnail(
+        header['thumbnail']?['musicThumbnailRenderer']?['thumbnail'],
+      );
+
+      // Show description lives in a musicDescriptionShelfRenderer somewhere in
+      // the tab content.
+      String? description;
+      final descShelf = _findFirstRenderer(response, 'musicDescriptionShelfRenderer');
+      if (descShelf != null) {
+        description = runsText(descShelf['description']?['runs']);
+      }
+
+      // Save-to-library toggle state + target.
+      bool saved = false;
+      final buttons = header['buttons'];
+      if (buttons is List) {
+        for (final b in buttons) {
+          final toggle = b['toggleButtonRenderer'];
+          if (toggle is Map) {
+            saved = toggle['isToggled'] == true;
+            break;
+          }
+        }
+      }
+
+      // Episodes live in secondaryContents.
+      final episodes = <Episode>[];
+      final secContents = _navigateJson(response, [
+        'contents',
+        'twoColumnBrowseResultsRenderer',
+        'secondaryContents',
+        'sectionListRenderer',
+        'contents',
+      ]);
+      String? continuation;
+      if (secContents is List) {
+        for (final section in secContents) {
+          final shelf = section['musicShelfRenderer'];
+          if (shelf is! Map) continue;
+          final items = shelf['contents'];
+          if (items is List) {
+            for (final item in items) {
+              final renderer = item['musicMultiRowListItemRenderer'];
+              if (renderer is Map) {
+                final ep = _parseEpisode(
+                  renderer.cast<String, dynamic>(),
+                  playlistId,
+                  title,
+                  author,
+                );
+                if (ep != null) episodes.add(ep);
+              }
+            }
+          }
+          continuation ??= _extractContinuationToken(shelf);
+        }
+      }
+
+      return Podcast(
+        id: playlistId,
+        title: title.isNotEmpty ? title : 'Podcast',
+        author: author.isNotEmpty ? author : null,
+        description: (description != null && description.isNotEmpty)
+            ? description
+            : null,
+        thumbnailUrl: thumbnailUrl,
+        episodes: episodes,
+        saved: saved,
+        continuation: continuation,
+      );
+    } catch (e) {
+      if (kDebugMode) print('Error parsing podcast: $e');
+      return null;
+    }
+  }
+
+  Episode? _parseEpisode(
+    Map<String, dynamic> r,
+    String podcastId,
+    String podcastTitle,
+    String author,
+  ) {
+    try {
+      String runsText(dynamic runs) => (runs is List)
+          ? runs.map((x) => x['text']?.toString() ?? '').join()
+          : '';
+
+      final title = runsText(r['title']?['runs']);
+      final subtitle = runsText(r['subtitle']?['runs']);
+      final description = runsText(r['description']?['runs']);
+
+      String? videoId = _navigateJson(r, ['onTap', 'watchEndpoint', 'videoId'])
+          as String?;
+      videoId ??= _navigateJson(r, [
+        'overlay',
+        'musicItemThumbnailOverlayRenderer',
+        'content',
+        'musicPlayButtonRenderer',
+        'playNavigationEndpoint',
+        'watchEndpoint',
+        'videoId',
+      ]) as String?;
+      if (videoId == null || videoId.isEmpty) return null;
+
+      final thumbnailUrl = _extractThumbnail(
+        r['thumbnail']?['musicThumbnailRenderer']?['thumbnail'],
+      );
+
+      final prog = r['playbackProgress']?['musicPlaybackProgressRenderer'];
+      double progress = 0.0;
+      String? durationText;
+      if (prog is Map) {
+        final pct = prog['playbackProgressPercentage'];
+        if (pct is num) progress = (pct / 100).clamp(0.0, 1.0).toDouble();
+        final runs = prog['playbackProgressText']?['runs'];
+        if (runs is List && runs.isNotEmpty) {
+          durationText = runs.last['text']?.toString().trim();
+        }
+      }
+      final duration = _parseHumanDuration(durationText);
+
+      return Episode(
+        videoId: videoId,
+        title: title,
+        description: description.isNotEmpty ? description : null,
+        subtitle: subtitle.isNotEmpty ? subtitle : null,
+        durationText: durationText,
+        duration: duration,
+        thumbnailUrl: thumbnailUrl,
+        progress: progress,
+        podcastId: podcastId,
+        podcastTitle: podcastTitle,
+        podcastAuthor: author.isNotEmpty ? author : null,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Parse a human duration string like "58 min", "1 hr 5 min", "45 sec".
+  Duration _parseHumanDuration(String? text) {
+    if (text == null || text.isEmpty) return Duration.zero;
+    int hours = 0, minutes = 0, seconds = 0;
+    final h = RegExp(r'(\d+)\s*hr').firstMatch(text);
+    final m = RegExp(r'(\d+)\s*min').firstMatch(text);
+    final s = RegExp(r'(\d+)\s*sec').firstMatch(text);
+    if (h != null) hours = int.tryParse(h.group(1)!) ?? 0;
+    if (m != null) minutes = int.tryParse(m.group(1)!) ?? 0;
+    if (s != null) seconds = int.tryParse(s.group(1)!) ?? 0;
+    // Fallback: "mm:ss" / "hh:mm:ss"
+    if (hours == 0 && minutes == 0 && seconds == 0 && text.contains(':')) {
+      return _parseDuration(text);
+    }
+    return Duration(hours: hours, minutes: minutes, seconds: seconds);
+  }
+
+  /// Return the highest-resolution thumbnail URL from a `{thumbnails:[…]}` node.
+  String? _extractThumbnail(dynamic thumbnailNode) {
+    if (thumbnailNode is Map) {
+      final thumbs = thumbnailNode['thumbnails'];
+      if (thumbs is List && thumbs.isNotEmpty) {
+        return thumbs.last['url'] as String?;
+      }
+    }
+    return null;
+  }
+
+  /// Depth-first search for the first occurrence of a renderer key.
+  Map<String, dynamic>? _findFirstRenderer(dynamic node, String key) {
+    if (node is Map) {
+      final direct = node[key];
+      if (direct is Map) return direct.cast<String, dynamic>();
+      for (final v in node.values) {
+        final found = _findFirstRenderer(v, key);
+        if (found != null) return found;
+      }
+    } else if (node is List) {
+      for (final v in node) {
+        final found = _findFirstRenderer(v, key);
+        if (found != null) return found;
+      }
+    }
+    return null;
+  }
+
   /// Get album details
   Future<Album?> getAlbum(String albumId) async {
     final response = await _request('browse', {
@@ -2807,6 +3044,65 @@ class InnerTubeService {
       if (kDebugMode) {
         print('Auth: Failed: $e');
       }
+      return null;
+    }
+  }
+
+  /// Resolve a muxed (video+audio) stream URL for a video/episode, used by the
+  /// podcast video player. Uses the IOS_MUSIC client, which returns direct URLs
+  /// (no signature deciphering) for the progressive `formats` list.
+  Future<String?> getVideoStreamUrl(String videoId) async {
+    try {
+      final url = Uri.parse(
+        'https://music.youtube.com/youtubei/v1/player?key=$_apiKey',
+      );
+      final iosMusicContext = {
+        'client': {
+          'clientName': 'IOS_MUSIC',
+          'clientVersion': '6.42',
+          'deviceMake': 'Apple',
+          'deviceModel': 'iPhone14,3',
+          'hl': 'en',
+          'gl': 'US',
+          'osName': 'iOS',
+          'osVersion': '17.2.1',
+          'platform': 'MOBILE',
+        },
+        'user': {'lockedSafetyMode': false},
+      };
+
+      final response = await http
+          .post(
+            url,
+            headers: _buildHeaders(authenticated: isAuthenticated),
+            body: jsonEncode({
+              'context': iosMusicContext,
+              'videoId': videoId,
+              'racyCheckOk': true,
+              'contentCheckOk': true,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode != 200) return null;
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final streamingData = data['streamingData'] as Map<String, dynamic>?;
+      if (streamingData == null) return null;
+
+      // Progressive muxed formats carry both video and audio in one URL.
+      final formats = (streamingData['formats'] as List?) ?? const [];
+      final muxed = formats
+          .where((f) =>
+              f is Map &&
+              f['url'] != null &&
+              (f['mimeType'] as String?)?.startsWith('video/') == true)
+          .toList();
+      if (muxed.isEmpty) return null;
+      muxed.sort((a, b) =>
+          ((b['width'] as num?) ?? 0).compareTo((a['width'] as num?) ?? 0));
+      return muxed.first['url'] as String?;
+    } catch (e) {
+      if (kDebugMode) print('getVideoStreamUrl failed: $e');
       return null;
     }
   }

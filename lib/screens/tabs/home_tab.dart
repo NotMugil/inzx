@@ -14,6 +14,7 @@ import '../ytmusic_login_screen.dart';
 import '../ytmusic_settings_screen.dart';
 import '../widgets/home_shelves.dart';
 import '../widgets/playlist_screen.dart';
+import '../widgets/podcast_screen.dart';
 import '../widgets/album_screen.dart' hide albumColorsProvider;
 import '../widgets/artist_screen.dart';
 import '../widgets/now_playing_screen.dart';
@@ -238,11 +239,24 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab>
       return;
     }
 
+    // Podcast shows get their own screen (episodes, rich descriptions, video).
+    if (item.itemType == HomeShelfItemType.podcast ||
+        (item.navigationId != null &&
+            item.navigationId!.startsWith('MPSP'))) {
+      final podcastId = item.playlistId ?? item.navigationId ?? item.id;
+      PodcastScreen.open(
+        context,
+        podcastId: podcastId,
+        title: item.title,
+        thumbnailUrl: item.thumbnailUrl,
+      );
+      return;
+    }
+
     // Check for playlist or podcast
     if (item.playlistId != null ||
         item.itemType == HomeShelfItemType.playlist ||
         item.itemType == HomeShelfItemType.mix ||
-        item.itemType == HomeShelfItemType.podcast ||
         (item.navigationId != null &&
             (item.navigationId!.startsWith('MPSP') ||
                 item.navigationId!.startsWith('MPED') ||
