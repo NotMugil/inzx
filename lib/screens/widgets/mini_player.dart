@@ -260,9 +260,12 @@ class _MusicMiniPlayerState extends ConsumerState<MusicMiniPlayer> {
             const Color(0xFF101010).withValues(alpha: 0.56),
           ];
         } else {
+          // Over a light page the translucent glass washes out to grey and the
+          // white text/icons lose contrast — keep it a solid dark tint so they
+          // stay clearly readable.
           gradientColors = [
-            const Color(0xFF202020).withValues(alpha: 0.62),
-            const Color(0xFF141414).withValues(alpha: 0.56),
+            const Color(0xFF1F1F1F).withValues(alpha: 0.94),
+            const Color(0xFF121212).withValues(alpha: 0.92),
           ];
         }
 

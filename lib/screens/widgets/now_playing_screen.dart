@@ -2004,7 +2004,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                     child: Column(
                       children: [
                         // Current synced lyric line (shown only when synced lyrics are available)
-                        _buildSyncedLyricPreview(textColor, accentColor),
+                        _buildSyncedLyricPreview(
+                          textColor,
+                          accentColor,
+                          isCentered: true,
+                        ),
 
                         // Track info
                         _buildTrackInfo(

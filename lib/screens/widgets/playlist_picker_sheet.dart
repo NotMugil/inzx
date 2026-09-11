@@ -309,6 +309,8 @@ class _PlaylistPickerSheetState extends ConsumerState<PlaylistPickerSheet> {
           await ref.read(ytMusicSavedPlaylistsProvider.notifier).incrementPlaylistTrackCount(playlistId);
           // Refresh playlists list
           ref.invalidate(ytMusicSavedPlaylistsProvider);
+          // Drop any (empty) cached detail page so it reloads with the song.
+          _invalidatePlaylistDetail(playlistId);
           if (!mounted) return;
           Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
@@ -355,6 +357,20 @@ class _PlaylistPickerSheetState extends ConsumerState<PlaylistPickerSheet> {
     }
   }
 
+  /// Reflect a just-added song immediately: append it to the cached detail page
+  /// so an open (or next-opened) playlist screen shows it without waiting for the
+  /// cache to expire, then invalidate so any live screen rebuilds from it.
+  void _invalidatePlaylistDetail(String playlistId) {
+    addTrackToPlaylistCache(playlistId, widget.track);
+    final variants = <String>{
+      playlistId,
+      playlistId.startsWith('VL') ? playlistId.substring(2) : 'VL$playlistId',
+    };
+    for (final id in variants) {
+      ref.invalidate(ytMusicPlaylistProvider(id));
+    }
+  }
+
   void _addToPlaylist(Playlist playlist, {bool isYtPlaylist = false}) async {
     final l10n = context.l10n;
     if (isYtPlaylist) {
@@ -369,6 +385,7 @@ class _PlaylistPickerSheetState extends ConsumerState<PlaylistPickerSheet> {
           if (success) {
             await ref.read(ytMusicSavedPlaylistsProvider.notifier).incrementPlaylistTrackCount(playlist.id);
             ref.invalidate(ytMusicSavedPlaylistsProvider);
+            _invalidatePlaylistDetail(playlist.id);
           }
           if (!mounted) return;
           Navigator.pop(context);

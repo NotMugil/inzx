@@ -100,6 +100,17 @@ class HiveService {
     _albumsBox = await Hive.openBox<AlbumCacheEntity>(_albumsBoxName);
     _artistsBox = await Hive.openBox<ArtistCacheEntity>(_artistsBoxName);
     _playlistsBox = await Hive.openBox<PlaylistCacheEntity>(_playlistsBoxName);
+    // One-time migration: earlier builds cached playlists before ownership info
+    // (isEditable/privacy) existed, so every cached playlist reads as
+    // non-editable. Clear the playlist cache once so owned playlists re-fetch
+    // and light up the edit/reorder UI.
+    const playlistEditableMigrationKey = 'playlist_cache_editable_migration_v1';
+    try {
+      if (_searchCacheBox.get(playlistEditableMigrationKey) != true) {
+        await _playlistsBox.clear();
+        await _searchCacheBox.put(playlistEditableMigrationKey, true);
+      }
+    } catch (_) {}
     _colorsBox = await Hive.openBox<ColorCacheEntity>(_colorsBoxName);
     _streamCacheBox = await Hive.openBox<StreamCacheEntity>(
       _streamCacheBoxName,

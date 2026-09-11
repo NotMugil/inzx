@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show compute, kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -787,7 +788,19 @@ class YtMusicPlaylistNotifier extends FamilyAsyncNotifier<Playlist?, String> {
         // Older builds could cache only the first page (~100 tracks).
         // Force one network refresh for this suspicious payload shape.
         // Also force a network refresh if it's missing the new rich header metadata.
+        // Entries cached before the editable-playlist support was added lack the
+        // `isEditable`/`privacy` fields entirely; refetch those once so owned
+        // playlists light up the edit/reorder UI instead of staying read-only.
+        final predatesEditableSupport =
+            !cached.playlistJson.contains('"isEditable"');
+        // A YT playlist cached while it was still empty (e.g. just created, or
+        // songs added elsewhere) should not keep serving an empty page — refetch
+        // so newly added songs and the generated thumbnail show up.
+        final cachedEmptyYtPlaylist =
+            cachedPlaylist.isYTMusic && (cachedPlaylist.tracks?.isEmpty ?? true);
         final needsMetadataRefresh = cachedPlaylist.isYTMusic && (
+            predatesEditableSupport ||
+            cachedEmptyYtPlaylist ||
             cachedPlaylist.extraSubtitle == null ||
             cachedPlaylist.author == null ||
             cachedPlaylist.authorAvatarUrl == null ||
@@ -819,8 +832,11 @@ class YtMusicPlaylistNotifier extends FamilyAsyncNotifier<Playlist?, String> {
     final innerTube = ref.watch(innerTubeServiceProvider);
     final playlist = await innerTube.getPlaylist(arg);
 
-    // Save to cache
-    if (playlist != null) {
+    // Save to cache. Skip caching an empty YT playlist so a freshly created one
+    // (or a propagation-lagged fetch) isn't pinned to an empty page for 30 min.
+    final isEmptyYtResult =
+        (playlist?.isYTMusic ?? false) && (playlist?.tracks?.isEmpty ?? true);
+    if (playlist != null && !isEmptyYtResult) {
       try {
         HiveService.playlistsBox.put(
           arg,
@@ -879,6 +895,88 @@ class YtMusicPlaylistNotifier extends FamilyAsyncNotifier<Playlist?, String> {
       } catch (_) {}
       state = AsyncData(updatedPlaylist);
     }
+  }
+}
+
+/// Patch the cached detail page(s) of a playlist in place — any combination of
+/// track [order], [title], [description] and [privacy].
+///
+/// YouTube applies edits server-side but its browse response can lag by a few
+/// seconds, so refetching right after an edit often returns the old data.
+/// Writing the known-good local values into the cache (and then invalidating the
+/// provider) lets the playlist screen reflect them immediately. No-op if the
+/// playlist isn't cached. Note: a new cover image can't be patched here (its URL
+/// is generated server-side), so cover changes still need a refetch.
+void patchPlaylistCache(
+  String playlistId, {
+  List<Track>? order,
+  String? title,
+  String? description,
+  String? privacy,
+}) {
+  final ids = <String>{
+    playlistId,
+    playlistId.startsWith('VL') ? playlistId.substring(2) : 'VL$playlistId',
+  };
+  for (final id in ids) {
+    try {
+      final cached = HiveService.playlistsBox.get(id);
+      if (cached == null) continue;
+      final map = jsonDecode(cached.playlistJson) as Map<String, dynamic>;
+      if (order != null) {
+        map['tracks'] = order.map((t) => t.toJson()).toList();
+        map['trackCount'] = order.length;
+      }
+      if (title != null) map['title'] = title;
+      if (description != null) map['description'] = description;
+      if (privacy != null) map['privacy'] = privacy;
+      HiveService.playlistsBox.put(
+        id,
+        PlaylistCacheEntity(
+          playlistId: id,
+          playlistJson: jsonEncode(map),
+          cachedAt: cached.cachedAt,
+          ttlMinutes: 30,
+        ),
+      );
+    } catch (_) {}
+  }
+}
+
+/// Optimistically append [track] to the cached detail page(s) of a playlist so
+/// it appears the instant a song is added — no waiting for the 30-minute cache
+/// to expire. Updates every id variant (with/without the `VL` prefix) and is a
+/// safe no-op when nothing is cached yet (e.g. a brand-new playlist).
+///
+/// The appended track has no `setVideoId` until the next real fetch, so a full
+/// refresh is still needed before that specific row can be reordered/removed;
+/// the preserved cache age ensures that refresh happens on schedule.
+void addTrackToPlaylistCache(String playlistId, Track track) {
+  final ids = <String>{
+    playlistId,
+    playlistId.startsWith('VL') ? playlistId.substring(2) : 'VL$playlistId',
+  };
+  for (final id in ids) {
+    try {
+      final cached = HiveService.playlistsBox.get(id);
+      if (cached == null) continue;
+      final map = jsonDecode(cached.playlistJson) as Map<String, dynamic>;
+      final tracks = (map['tracks'] as List?)?.toList() ?? <dynamic>[];
+      final exists = tracks.any((t) => t is Map && t['id'] == track.id);
+      if (exists) continue;
+      tracks.add(track.toJson());
+      map['tracks'] = tracks;
+      map['trackCount'] = tracks.length;
+      HiveService.playlistsBox.put(
+        id,
+        PlaylistCacheEntity(
+          playlistId: id,
+          playlistJson: jsonEncode(map),
+          cachedAt: cached.cachedAt, // preserve age so it still refreshes on time
+          ttlMinutes: 30,
+        ),
+      );
+    } catch (_) {}
   }
 }
 
@@ -1070,6 +1168,42 @@ class YTMusicPlaylistAction {
   ) async {
     if (!_isLoggedIn) return false;
     return _innerTube.removeFromPlaylist(playlistId, videoId, setVideoId);
+  }
+
+  /// Update an owned playlist's title, description and/or privacy.
+  Future<bool> editMetadata(
+    String playlistId, {
+    String? title,
+    String? description,
+    String? privacyStatus,
+  }) async {
+    if (!_isLoggedIn) return false;
+    return _innerTube.editPlaylistMetadata(
+      playlistId,
+      title: title,
+      description: description,
+      privacyStatus: privacyStatus,
+    );
+  }
+
+  /// Move a track before [successorSetVideoId] (null = move to end).
+  Future<bool> moveSong(
+    String playlistId,
+    String setVideoId, {
+    String? successorSetVideoId,
+  }) async {
+    if (!_isLoggedIn) return false;
+    return _innerTube.movePlaylistItem(
+      playlistId,
+      setVideoId,
+      successorSetVideoId: successorSetVideoId,
+    );
+  }
+
+  /// Upload a custom cover image for an owned playlist.
+  Future<bool> uploadImage(String playlistId, Uint8List imageBytes) async {
+    if (!_isLoggedIn) return false;
+    return _innerTube.uploadPlaylistImage(playlistId, imageBytes);
   }
 }
 

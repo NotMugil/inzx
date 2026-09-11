@@ -325,9 +325,11 @@ class _StandardFloatingNavState extends ConsumerState<_StandardFloatingNav>
         const Color(0xFF101010).withValues(alpha: 0.56),
       ];
     } else {
+      // Keep the glass a solid dark tint in light mode so the nav labels/icons
+      // stay readable instead of washing out over the light page behind it.
       gradientColors = [
-        const Color(0xFF202020).withValues(alpha: 0.62),
-        const Color(0xFF141414).withValues(alpha: 0.56),
+        const Color(0xFF1F1F1F).withValues(alpha: 0.94),
+        const Color(0xFF121212).withValues(alpha: 0.92),
       ];
     }
 
@@ -515,7 +517,7 @@ class _StandardNavItemWidget extends StatelessWidget {
             size: isSelected ? 23 : 21,
             color: isSelected
                 ? accentColor
-                : (isDark ? Colors.white60 : Colors.grey.shade600),
+                : Colors.white70,
           ),
         ),
         const SizedBox(height: 1),
@@ -526,7 +528,7 @@ class _StandardNavItemWidget extends StatelessWidget {
             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
             color: isSelected
                 ? accentColor
-                : (isDark ? Colors.white60 : Colors.grey.shade600),
+                : Colors.white70,
             letterSpacing: isSelected ? 0.2 : 0,
           ),
           child: Text(label),

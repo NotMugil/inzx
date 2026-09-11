@@ -1266,6 +1266,12 @@ class _MusicHomeTabState extends ConsumerState<MusicHomeTab>
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: isDark ? Colors.white10 : Colors.grey.shade200,
+                    border: isDark
+                        ? null
+                        : Border.all(
+                            color: Colors.black.withValues(alpha: 0.12),
+                            width: 1,
+                          ),
                   ),
                   child: Icon(
                     Iconsax.profile_2user,

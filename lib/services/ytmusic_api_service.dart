@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show compute, debugPrint, kDebugMode;
@@ -1033,6 +1034,178 @@ class InnerTubeService {
     return response != null;
   }
 
+  /// Strip the "VL" prefix YouTube Music uses for browse ids so the value can
+  /// be sent to the edit_playlist endpoint (which expects the bare id).
+  String _cleanPlaylistId(String playlistId) {
+    if (playlistId.startsWith('VL')) return playlistId.substring(2);
+    return playlistId;
+  }
+
+  /// Edit an owned playlist's metadata: title, description and/or privacy.
+  ///
+  /// Any combination of fields may be supplied; only the provided ones are
+  /// changed. [privacyStatus] must be one of `PUBLIC`, `PRIVATE`, `UNLISTED`.
+  Future<bool> editPlaylistMetadata(
+    String playlistId, {
+    String? title,
+    String? description,
+    String? privacyStatus,
+  }) async {
+    if (!isAuthenticated) return false;
+
+    final actions = <Map<String, dynamic>>[];
+    if (title != null) {
+      actions.add({'action': 'ACTION_SET_PLAYLIST_NAME', 'playlistName': title});
+    }
+    if (description != null) {
+      actions.add({
+        'action': 'ACTION_SET_PLAYLIST_DESCRIPTION',
+        'playlistDescription': description,
+      });
+    }
+    if (privacyStatus != null) {
+      actions.add({
+        'action': 'ACTION_SET_PLAYLIST_PRIVACY',
+        'playlistPrivacy': privacyStatus,
+      });
+    }
+    if (actions.isEmpty) return true;
+
+    final response = await _request('browse/edit_playlist', {
+      'playlistId': _cleanPlaylistId(playlistId),
+      'actions': actions,
+    }, authenticated: true);
+
+    return response != null;
+  }
+
+  /// Move a track within an owned playlist (drag-to-reorder).
+  ///
+  /// [setVideoId] is the moved item's set-video-id. The item is inserted
+  /// directly before [successorSetVideoId]; pass null to move it to the end.
+  Future<bool> movePlaylistItem(
+    String playlistId,
+    String setVideoId, {
+    String? successorSetVideoId,
+  }) async {
+    if (!isAuthenticated) return false;
+    if (setVideoId.isEmpty) return false;
+
+    final action = <String, dynamic>{
+      'action': 'ACTION_MOVE_VIDEO_BEFORE',
+      'setVideoId': setVideoId,
+    };
+    if (successorSetVideoId != null && successorSetVideoId.isNotEmpty) {
+      action['movedSetVideoIdSuccessor'] = successorSetVideoId;
+    }
+
+    final response = await _request('browse/edit_playlist', {
+      'playlistId': _cleanPlaylistId(playlistId),
+      'actions': [action],
+    }, authenticated: true);
+
+    return response != null;
+  }
+
+  /// Upload a custom cover image for an owned playlist.
+  ///
+  /// Mirrors the three-step flow the YT Music web client uses: start a
+  /// resumable upload, stream the raw image bytes to finalize it, then attach
+  /// the returned upload token to the playlist via edit_playlist.
+  Future<bool> uploadPlaylistImage(
+    String playlistId,
+    Uint8List imageBytes,
+  ) async {
+    if (!isAuthenticated) return false;
+    if (imageBytes.isEmpty) return false;
+
+    final cleanId = _cleanPlaylistId(playlistId);
+    final referer = 'https://music.youtube.com/playlist?list=$cleanId';
+
+    try {
+      // Step 1 — initiate the resumable upload and read back the upload URL.
+      final startHeaders = _buildHeaders(authenticated: true, referer: referer)
+        ..['Content-Type'] = 'application/x-www-form-urlencoded;charset=utf-8'
+        ..['X-Goog-Upload-Protocol'] = 'resumable'
+        ..['X-Goog-Upload-Command'] = 'start'
+        ..['X-Goog-Upload-Header-Content-Length'] = imageBytes.length.toString();
+
+      final startResp = await http
+          .post(
+            Uri.parse(
+              'https://music.youtube.com/playlist_image_upload/playlist_custom_thumbnail',
+            ),
+            headers: startHeaders,
+            body: '',
+          )
+          .timeout(const Duration(seconds: 20));
+
+      final uploadUrl = startResp.headers['x-goog-upload-url'];
+      if (startResp.statusCode != 200 || uploadUrl == null) {
+        if (kDebugMode) {
+          print('Playlist image upload: start failed '
+              '(${startResp.statusCode}) ${startResp.body}');
+        }
+        return false;
+      }
+
+      // Step 2 — upload the raw bytes and finalize in a single request.
+      final uploadHeaders = _buildHeaders(authenticated: true, referer: referer)
+        ..['Content-Type'] = 'application/x-www-form-urlencoded;charset=utf-8'
+        ..['X-Goog-Upload-Command'] = 'upload, finalize'
+        ..['X-Goog-Upload-Offset'] = '0';
+
+      final uploadResp = await http
+          .post(Uri.parse(uploadUrl), headers: uploadHeaders, body: imageBytes)
+          .timeout(const Duration(seconds: 60));
+
+      if (uploadResp.statusCode != 200) {
+        if (kDebugMode) {
+          print('Playlist image upload: finalize failed '
+              '(${uploadResp.statusCode}) ${uploadResp.body}');
+        }
+        return false;
+      }
+
+      // The finalize response is JSON: {"encryptedBlobId":"..."}. Older/edge
+      // responses may return the bare id as plain text, so fall back to that.
+      String? encryptedBlobId;
+      try {
+        final decoded = jsonDecode(uploadResp.body);
+        if (decoded is Map) {
+          encryptedBlobId = decoded['encryptedBlobId'] as String?;
+        }
+      } catch (_) {
+        // Not JSON; treat the whole body as the id below.
+      }
+      encryptedBlobId ??=
+          uploadResp.body.trim().isNotEmpty ? uploadResp.body.trim() : null;
+      if (encryptedBlobId == null || encryptedBlobId.isEmpty) return false;
+
+      // Step 3 — attach the uploaded image to the playlist.
+      final response = await _request('browse/edit_playlist', {
+        'playlistId': cleanId,
+        'actions': [
+          {
+            'action': 'ACTION_SET_CUSTOM_THUMBNAIL',
+            'addedCustomThumbnail': {
+              'imageKey': {
+                'type': 'PLAYLIST_IMAGE_TYPE_CUSTOM_THUMBNAIL',
+                'name': 'studio_square_thumbnail',
+              },
+              'playlistScottyEncryptedBlobId': encryptedBlobId,
+            },
+          },
+        ],
+      }, authenticated: true);
+
+      return response != null;
+    } catch (e) {
+      if (kDebugMode) print('Playlist image upload failed: $e');
+      return false;
+    }
+  }
+
   // ============ YOUTUBE MUSIC RADIO / WATCH PLAYLIST ============
 
   /// Get YouTube Music radio queue (Up Next) for a video
@@ -1870,17 +2043,12 @@ class InnerTubeService {
       if (allTracks.length > 5000) break;
     }
 
-    return Playlist(
-      id: playlist.id,
-      title: playlist.title,
-      description: playlist.description,
-      thumbnailUrl: playlist.thumbnailUrl,
-      author: playlist.author,
-      authorAvatarUrl: playlist.authorAvatarUrl,
-      extraSubtitle: playlist.extraSubtitle,
+    // Preserve every parsed field (including isEditable/privacy) — rebuilding a
+    // fresh Playlist here previously dropped ownership info, so owned playlists
+    // never showed the edit/reorder UI.
+    return playlist.copyWith(
       trackCount: allTracks.length,
       tracks: allTracks,
-      isYTMusic: playlist.isYTMusic,
     );
   }
 
@@ -4606,6 +4774,49 @@ class InnerTubeService {
     }
   }
 
+  /// Locate the `musicEditablePlaylistDetailHeaderRenderer`, which the API only
+  /// returns for playlists the signed-in user owns (and can therefore edit).
+  Map<String, dynamic>? _findEditablePlaylistHeader(
+    Map<String, dynamic> response,
+  ) {
+    final direct =
+        response['header']?['musicEditablePlaylistDetailHeaderRenderer'];
+    if (direct is Map<String, dynamic>) return direct;
+
+    for (final key in const [
+      'singleColumnBrowseResultsRenderer',
+      'twoColumnBrowseResultsRenderer',
+    ]) {
+      final container = _navigateJson(response, [
+        'contents',
+        key,
+        'tabs',
+        0,
+        'tabRenderer',
+        'content',
+        'sectionListRenderer',
+        'contents',
+        0,
+      ]);
+      final editable = (container is Map)
+          ? container['musicEditablePlaylistDetailHeaderRenderer']
+          : null;
+      if (editable is Map<String, dynamic>) return editable;
+    }
+    return null;
+  }
+
+  /// Read the current privacy (PUBLIC/PRIVATE/UNLISTED) from an editable header.
+  String? _extractPlaylistPrivacy(Map<String, dynamic>? editableHeader) {
+    if (editableHeader == null) return null;
+    final privacy = _navigateJson(editableHeader, [
+      'editHeader',
+      'musicPlaylistEditHeaderRenderer',
+      'privacy',
+    ]);
+    return privacy is String ? privacy : null;
+  }
+
   Playlist? _parsePlaylistDetails(
     Map<String, dynamic> response,
     String playlistId,
@@ -4657,6 +4868,7 @@ class InnerTubeService {
       }
 
       final activeHeader = header ?? fallbackHeader;
+      final editableHeader = _findEditablePlaylistHeader(response);
 
       // Debug logging
       if (activeHeader == null) {
@@ -4949,6 +5161,8 @@ class InnerTubeService {
           trackCount: tracks.length,
           tracks: tracks,
           isYTMusic: true,
+          isEditable: editableHeader != null,
+          privacy: _extractPlaylistPrivacy(editableHeader),
         );
       }
 
@@ -5019,6 +5233,7 @@ class InnerTubeService {
       }
 
       final activeHeader = header ?? fallbackHeader;
+      final editableHeader = _findEditablePlaylistHeader(response);
 
       if (activeHeader == null) {
         if (kDebugMode) {
@@ -5403,6 +5618,8 @@ class InnerTubeService {
             trackCount: tracks.length,
             tracks: tracks,
             isYTMusic: true,
+            isEditable: editableHeader != null,
+            privacy: _extractPlaylistPrivacy(editableHeader),
           ),
           continuation,
         );

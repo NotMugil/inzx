@@ -12,6 +12,7 @@ import '../../models/models.dart';
 import '../../providers/providers.dart';
 import '../../services/download_service.dart';
 import 'track_options_sheet.dart';
+import 'playlist_edit_screen.dart';
 import 'mini_player.dart';
 import 'now_playing_screen.dart';
 
@@ -463,6 +464,45 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
     );
   }
 
+  /// A pill showing a user-owned playlist's privacy (Public / Unlisted /
+  /// Private) with a matching icon.
+  Widget _buildPrivacyPill(String privacy, bool isDark) {
+    final p = privacy.toUpperCase();
+    final (IconData icon, String label) = switch (p) {
+      'PUBLIC' => (Icons.public_rounded, 'Public'),
+      'UNLISTED' => (Icons.link_rounded, 'Unlisted'),
+      _ => (Icons.lock_rounded, 'Private'),
+    };
+    final fg =
+        isDark ? Colors.white.withValues(alpha: 0.85) : Colors.black87;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.16),
+          width: 1.0,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: fg),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w500,
+              color: fg,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSheetActionTile({
     required IconData icon,
     required Color iconColor,
@@ -771,6 +811,16 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
       year = playlist.createdAt!.year.toString();
     }
 
+    // Extract a view count (e.g. "1.2M views") from the subtitle if present.
+    String? views;
+    if (playlist.extraSubtitle != null) {
+      final m = RegExp(
+        r'([\d.,]+\s*[KMB]?)\s+views?',
+        caseSensitive: false,
+      ).firstMatch(playlist.extraSubtitle!);
+      if (m != null) views = m.group(0)!.trim();
+    }
+
     // Track count
     final trackCount =
         allTracks.isNotEmpty ? allTracks.length : (playlist.trackCount ?? 0);
@@ -784,15 +834,13 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
     if (totalDurationSeconds > 0) {
       final hours = totalDurationSeconds ~/ 3600;
       final minutes = (totalDurationSeconds % 3600) ~/ 60;
-      if (hours > 0) {
-        if (minutes > 0) {
-          totalTimeFormatted = '$hours hr $minutes min';
-        } else {
-          totalTimeFormatted = '$hours hr';
-        }
-      } else {
-        totalTimeFormatted = '$minutes min';
-      }
+      final seconds = totalDurationSeconds % 60;
+      final parts = <String>[
+        if (hours > 0) '$hours hr',
+        if (minutes > 0) '$minutes min',
+        if (seconds > 0) '$seconds sec',
+      ];
+      totalTimeFormatted = parts.join(' ');
     }
 
     // Filter tracks based on search query
@@ -809,7 +857,7 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
               .toList();
 
     // Sort tracks
-    final displayTracks = _getSortedTracks(searchedTracks);
+    List<Track> displayTracks = _getSortedTracks(searchedTracks);
 
     // Check if this is the Liked Music auto playlist
     final isLikedPlaylist = playlist.id == 'LM' ||
@@ -842,6 +890,17 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
         : null;
     final liveAccent = ref?.watch(effectiveAccentColorProvider);
     final themeColor = playlistColor ?? liveAccent ?? colorScheme.primary;
+    // On a light background the dynamic accent can be too pale to read as the
+    // active-song highlight, so darken it enough for solid contrast.
+    final activeTrackColor = isDark
+        ? themeColor
+        : () {
+            final hsl = HSLColor.fromColor(themeColor);
+            return hsl
+                .withLightness((hsl.lightness * 0.6).clamp(0.0, 0.42))
+                .withSaturation((hsl.saturation).clamp(0.35, 1.0))
+                .toColor();
+          }();
 
     // Use high-res thumbnail if available (for Liked playlist, keep null so Like icon is shown on cover)
     final lowResThumb = bgThumbnailUrl;
@@ -1000,7 +1059,10 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
                             const SizedBox(height: 10),
                             // Centered Album Art
                             Center(
-                              child: Container(
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Container(
                                 height: 240,
                                 width: 240,
                                 decoration: BoxDecoration(
@@ -1060,6 +1122,19 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
                                           ),
                                         ),
                                 ),
+                                  ),
+                                  if (playlist.isEditable && !isLikedPlaylist)
+                                    Positioned(
+                                      right: 8,
+                                      bottom: 8,
+                                      child: _buildCoverEditButton(
+                                        context,
+                                        isDark,
+                                        colorScheme,
+                                        playlist,
+                                      ),
+                                    ),
+                                ],
                               ),
                             ),
                             const SizedBox(height: 24),
@@ -1125,25 +1200,57 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
 
                             // Glassy outlined metadata pills: Year, Tracks, Total Time
                             Center(
-                              child: Wrap(
-                                alignment: WrapAlignment.center,
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  if (year != null && year.isNotEmpty)
-                                    _buildMetadataPill(year, isDark),
-                                  if (trackCount > 0)
-                                    _buildMetadataPill(
-                                      '$trackCount ${trackCount == 1 ? "track" : "tracks"}',
-                                      isDark,
-                                    ),
-                                  if (totalTimeFormatted.isNotEmpty)
-                                    _buildMetadataPill(
-                                      totalTimeFormatted,
-                                      isDark,
-                                    ),
-                                ],
+                              child: Builder(
+                                builder: (context) {
+                                  final showPrivacy = playlist.isEditable &&
+                                      playlist.privacy != null;
+                                  final hasYear =
+                                      year != null && year.isNotEmpty;
+                                  final row1 = <Widget>[
+                                    if (showPrivacy)
+                                      _buildPrivacyPill(
+                                          playlist.privacy!, isDark),
+                                    if (hasYear)
+                                      _buildMetadataPill(year, isDark),
+                                  ];
+                                  final row2 = <Widget>[
+                                    if (views != null && views.isNotEmpty)
+                                      _buildMetadataPill(views, isDark),
+                                    if (trackCount > 0)
+                                      _buildMetadataPill(
+                                        '$trackCount ${trackCount == 1 ? "track" : "tracks"}',
+                                        isDark,
+                                      ),
+                                    if (totalTimeFormatted.isNotEmpty)
+                                      _buildMetadataPill(
+                                          totalTimeFormatted, isDark),
+                                  ];
+                                  return Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (row1.isNotEmpty)
+                                        Wrap(
+                                          alignment: WrapAlignment.center,
+                                          crossAxisAlignment:
+                                              WrapCrossAlignment.center,
+                                          spacing: 8,
+                                          runSpacing: 8,
+                                          children: row1,
+                                        ),
+                                      if (row1.isNotEmpty && row2.isNotEmpty)
+                                        const SizedBox(height: 8),
+                                      if (row2.isNotEmpty)
+                                        Wrap(
+                                          alignment: WrapAlignment.center,
+                                          crossAxisAlignment:
+                                              WrapCrossAlignment.center,
+                                          spacing: 8,
+                                          runSpacing: 8,
+                                          children: row2,
+                                        ),
+                                    ],
+                                  );
+                                },
                               ),
                             ),
                             const SizedBox(height: 12),
@@ -1362,7 +1469,7 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: isTrackPlaying
-                                    ? themeColor
+                                    ? activeTrackColor
                                     : (isDark
                                         ? Colors.white
                                         : colorScheme.onSurface),
@@ -1378,7 +1485,7 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: isTrackPlaying
-                                    ? themeColor.withValues(alpha: 0.7)
+                                    ? activeTrackColor.withValues(alpha: 0.7)
                                     : (isDark
                                         ? Colors.white60
                                         : colorScheme.onSurface.withValues(
@@ -1476,7 +1583,7 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: isTrackPlaying
-                                  ? themeColor
+                                  ? activeTrackColor
                                   : (isDark
                                       ? Colors.white
                                       : colorScheme.onSurface),
@@ -1492,7 +1599,7 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: isTrackPlaying
-                                  ? themeColor.withValues(alpha: 0.7)
+                                  ? activeTrackColor.withValues(alpha: 0.7)
                                   : (isDark
                                       ? Colors.white60
                                       : colorScheme.onSurface.withValues(
@@ -1547,6 +1654,45 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
           ],
         ),
       ],
+    );
+  }
+
+  /// Open the full-screen playlist editor (cover, title, description, privacy
+  /// and inline reorder). The editor patches the cache itself, so no extra
+  /// refresh is needed on return.
+  void _openEditScreen(Playlist playlist) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlaylistEditScreen(playlist: playlist),
+      ),
+    );
+  }
+
+  /// Small pencil overlay on the playlist cover that opens the editor.
+  /// Shown only for owned, editable playlists.
+  Widget _buildCoverEditButton(
+    BuildContext? ctx,
+    bool isDark,
+    ColorScheme colorScheme,
+    Playlist playlist,
+  ) {
+    return Material(
+      color: isDark ? const Color(0xFF202020) : Colors.white,
+      shape: const CircleBorder(),
+      elevation: 3,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: () => _openEditScreen(playlist),
+        child: Padding(
+          padding: const EdgeInsets.all(9),
+          child: Icon(
+            Icons.edit_rounded,
+            size: 20,
+            color: isDark ? Colors.white : colorScheme.onSurface,
+          ),
+        ),
+      ),
     );
   }
 
@@ -1866,6 +2012,18 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
                                         }
                                       },
                                     ),
+                                    if (playlist.isEditable &&
+                                        !isLikedPlaylist)
+                                      _buildSheetActionTile(
+                                        icon: Icons.edit_rounded,
+                                        iconColor: liveAccent,
+                                        title: 'Edit playlist',
+                                        textColor: textColor,
+                                        onTap: () {
+                                          Navigator.pop(ctx);
+                                          _openEditScreen(playlist);
+                                        },
+                                      ),
                                     _buildSheetActionTile(
                                       icon: Iconsax.add_square,
                                       iconColor: liveAccent,
@@ -1989,9 +2147,24 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
 
                                                     if (!context.mounted) return;
                                                     if (success) {
+                                                      // Close the playlist screen
+                                                      // and confirm on the screen
+                                                      // beneath it (library).
                                                       Navigator.pop(
                                                         context,
                                                       );
+                                                      scaffoldMessenger
+                                                          .showSnackBar(
+                                                            SnackBar(
+                                                              content: Text(
+                                                                'Deleted "${playlist.title}"',
+                                                              ),
+                                                              duration:
+                                                                  const Duration(
+                                                                seconds: 2,
+                                                              ),
+                                                            ),
+                                                          );
                                                     } else {
                                                       scaffoldMessenger
                                                           .showSnackBar(
