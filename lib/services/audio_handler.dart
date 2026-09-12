@@ -39,6 +39,11 @@ class InzxAudioHandler extends BaseAudioHandler with SeekHandler {
   int? _lastQueueLength;
   DateTime? _lastPositionSyncAt;
 
+  // Like status integration
+  bool Function(String trackId)? isTrackLikedChecker;
+  Future<void> Function(Track track)? onToggleLike;
+  final Set<String> _likedTrackIds = {};
+
   // Current position for system updates (not from stateStream)
   Duration _currentPosition = Duration.zero;
   Duration _bufferedPosition = Duration.zero;
@@ -49,6 +54,7 @@ class InzxAudioHandler extends BaseAudioHandler with SeekHandler {
 
   void _init() {
     _initAuth();
+    _loadLikedTrackIds();
     // Listen to player service state for track/play state changes
     // Position is handled separately via positionStream
     _stateSubscription = _playerService.stateStream.listen((state) {
@@ -108,12 +114,23 @@ class InzxAudioHandler extends BaseAudioHandler with SeekHandler {
 
 
   void _updatePlaybackState(player.PlaybackState state) {
+    final track = state.currentTrack;
+    final isLiked = track != null && _isCurrentTrackLiked(track.id);
+
+    final likeControl = MediaControl.custom(
+      androidIcon:
+          isLiked ? 'drawable/ic_heart_filled' : 'drawable/ic_heart_outline',
+      label: isLiked ? 'Unlike' : 'Like',
+      name: 'toggle_like',
+    );
+
     playbackState.add(
       playbackState.value.copyWith(
         controls: [
           MediaControl.skipToPrevious,
           state.isPlaying ? MediaControl.pause : MediaControl.play,
           MediaControl.skipToNext,
+          likeControl,
           MediaControl.stop,
         ],
         systemActions: const {
@@ -233,6 +250,96 @@ class InzxAudioHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> rewind() => _playerService.seekBy(const Duration(seconds: -10));
+
+  @override
+  Future<void> customAction(String name, [Map<String, dynamic>? extras]) async {
+    if (name == 'toggle_like') {
+      await _handleToggleLike();
+    }
+  }
+
+  /// Register callbacks from the active UI container for checking and toggling liked tracks
+  void registerLikeCallbacks({
+    required bool Function(String trackId) checkIsLiked,
+    required Future<void> Function(Track track) toggleLike,
+  }) {
+    isTrackLikedChecker = checkIsLiked;
+    onToggleLike = toggleLike;
+    refreshPlaybackControls();
+  }
+
+  /// Update the internal liked status for a track and refresh notification if it matches
+  void updateLikeState({required String trackId, required bool isLiked}) {
+    if (isLiked) {
+      _likedTrackIds.add(trackId);
+    } else {
+      _likedTrackIds.remove(trackId);
+    }
+    if (_playerService.state.currentTrack?.id == trackId) {
+      _updatePlaybackState(_playerService.state);
+    }
+  }
+
+  /// Manually trigger a refresh of the notification playback controls
+  void refreshPlaybackControls() {
+    _updatePlaybackState(_playerService.state);
+  }
+
+  bool _isCurrentTrackLiked(String trackId) {
+    if (isTrackLikedChecker != null) {
+      try {
+        return isTrackLikedChecker!(trackId);
+      } catch (_) {}
+    }
+    return _likedTrackIds.contains(trackId);
+  }
+
+  Future<void> _loadLikedTrackIds() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonStr = prefs.getString('local_liked_songs_v1');
+      if (jsonStr != null && jsonStr.isNotEmpty) {
+        final List<dynamic> list = jsonDecode(jsonStr);
+        _likedTrackIds.clear();
+        for (final item in list) {
+          if (item is Map<String, dynamic> && item['id'] != null) {
+            _likedTrackIds.add(item['id'] as String);
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _handleToggleLike() async {
+    final track = _playerService.state.currentTrack;
+    if (track == null) return;
+
+    if (onToggleLike != null) {
+      await onToggleLike!(track);
+    } else {
+      final wasLiked = _isCurrentTrackLiked(track.id);
+      if (wasLiked) {
+        _likedTrackIds.remove(track.id);
+      } else {
+        _likedTrackIds.add(track.id);
+      }
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final jsonStr = prefs.getString('local_liked_songs_v1');
+        List<dynamic> list = [];
+        if (jsonStr != null && jsonStr.isNotEmpty) {
+          list = jsonDecode(jsonStr) as List<dynamic>;
+        }
+        if (wasLiked) {
+          list.removeWhere((item) => item is Map && item['id'] == track.id);
+        } else {
+          list.insert(0, track.toJson());
+        }
+        await prefs.setString('local_liked_songs_v1', jsonEncode(list));
+      } catch (_) {}
+    }
+    _updatePlaybackState(_playerService.state);
+  }
 
   /// Play a track
   Future<void> playTrack(Track track) => _playerService.playTrack(track);

@@ -160,6 +160,12 @@ class _InzxAppState extends ConsumerState<InzxApp> {
   void initState() {
     super.initState();
 
+    // Register like callbacks with audioHandler
+    audioHandler?.registerLikeCallbacks(
+      checkIsLiked: (trackId) => ref.read(isTrackLikedProvider(trackId)),
+      toggleLike: (track) => toggleTrackLike(ref: ref, track: track),
+    );
+
     // Warm cache on startup (background task)
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final cacheWarmer = ref.read(cacheWarmingServiceProvider);
@@ -263,6 +269,10 @@ class _InzxAppState extends ConsumerState<InzxApp> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(likedSongsProvider, (previous, next) {
+      audioHandler?.refreshPlaybackControls();
+    });
+
     final themeMode = ref.watch(themeModeProvider);
     final locale = ref.watch(appLocaleProvider);
 

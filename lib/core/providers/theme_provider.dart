@@ -347,6 +347,7 @@ class AnimatedAlbumArtNotifier extends StateNotifier<bool> {
 enum NowPlayingStyle {
   defaultStyle, // Standard YouTube Music style
   ripple, // Wavy 8-petal artwork with circular seek ring & minimalist layout
+  edge, // Full-bleed edge-to-edge artwork spanning the top half
 }
 
 String getNowPlayingStyleName(NowPlayingStyle style) {
@@ -355,6 +356,8 @@ String getNowPlayingStyleName(NowPlayingStyle style) {
       return 'Default';
     case NowPlayingStyle.ripple:
       return 'Ripple';
+    case NowPlayingStyle.edge:
+      return 'Cinematic';
   }
 }
 
@@ -364,6 +367,8 @@ String getNowPlayingStyleDescription(NowPlayingStyle style) {
       return 'Classic YouTube Music style with full artwork, linear progress bar, and slide-up queue';
     case NowPlayingStyle.ripple:
       return 'Fluid 8-petal wavy cover art with circular perimeter scrubber and sleek minimalist layout';
+    case NowPlayingStyle.edge:
+      return 'Full-width cover art with seamless fade into playback controls';
   }
 }
 

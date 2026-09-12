@@ -18,7 +18,6 @@ import '../../services/lyrics/lyrics_service.dart';
 import '../../services/lyrics/lyrics_models.dart';
 import '../../services/lyrics/instrumental_gaps.dart';
 import '../../core/design_system/design_system.dart';
-import '../../core/services/cache/hive_service.dart';
 import '../../core/l10n/app_localizations_x.dart';
 import '../../core/providers/theme_provider.dart';
 import 'artist_screen.dart';
@@ -34,6 +33,7 @@ import '../../services/local_artwork_service.dart';
 import 'track_artwork_view.dart';
 import 'animated_album_art_view.dart';
 import 'ripple_now_playing_view.dart';
+import 'edge_now_playing_view.dart';
 
 /// Progress bar widget that only rebuilds on position changes (isolated)
 class _NowPlayingProgressBar extends ConsumerStatefulWidget {
@@ -43,6 +43,8 @@ class _NowPlayingProgressBar extends ConsumerStatefulWidget {
   final Color accentColor;
   final bool isCompact;
   final bool isLive;
+  final double? horizontalPadding;
+  final double? verticalPadding;
 
   const _NowPlayingProgressBar({
     required this.duration,
@@ -51,6 +53,8 @@ class _NowPlayingProgressBar extends ConsumerStatefulWidget {
     required this.accentColor,
     this.isCompact = false,
     this.isLive = false,
+    this.horizontalPadding,
+    this.verticalPadding,
   });
 
   @override
@@ -315,8 +319,10 @@ class _NowPlayingProgressBarState
       );
     }
 
-    final verticalPadding = widget.isCompact ? 2.0 : 16.0;
-    final horizontalPadding = widget.isCompact ? 16.0 : 24.0;
+    final verticalPadding =
+        widget.verticalPadding ?? (widget.isCompact ? 2.0 : 16.0);
+    final horizontalPadding =
+        widget.horizontalPadding ?? (widget.isCompact ? 16.0 : 24.0);
 
     // Live streams have no seekable length — show a LIVE indicator with a solid
     // track instead of a progress bar that would sit at a bogus 30s.
@@ -1931,55 +1937,104 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                 }
               },
               // Now Playing content (shown when collapsed)
-              nowPlayingContent: SafeArea(
-                top: true,
-                bottom: false,
-                child: RepaintBoundary(
-                  child: nowPlayingStyle == NowPlayingStyle.ripple
-                      ? RippleNowPlayingView(
-                          track: track,
-                          state: state,
-                          playerService: playerService,
-                          textColor: textColor,
-                          secondaryTextColor: secondaryTextColor,
-                          accentColor: accentColor,
-                          isLiked: ref.watch(isTrackLikedProvider(track.id)),
-                          onToggleLike: () => _toggleLikeTrack(track),
-                          onDoubleTapLike: () => _triggerDoubleTapLike(track),
-                          heartOverlay: _buildHeartOverlay(),
-                          onSeekingChanged: (seeking) {
-                            if (_isScrubberSeeking != seeking) {
-                              setState(() => _isScrubberSeeking = seeking);
-                            }
-                          },
-                          onDismiss: () {
-                            Navigator.of(context).pop();
-                            widget.onClose?.call();
-                          },
-                          onOpenOptions: () {
-                            TrackOptionsSheet.show(context, track);
-                          },
-                          tabsWidget: _buildBottomTabs(textColor, accentColor),
-                          albumArt: _buildRippleSwipeableAlbumArt(
-                            track,
-                            accentColor,
-                          ),
-                          lyricPreview: _buildSyncedLyricPreview(
-                            textColor,
-                            accentColor,
-                            isCentered: true,
-                          ),
-                        )
-                      : _buildFullAlbumView(
+              nowPlayingContent: nowPlayingStyle == NowPlayingStyle.edge
+                  ? RepaintBoundary(
+                      child: EdgeNowPlayingView(
+                        track: track,
+                        state: state,
+                        playerService: playerService,
+                        textColor: textColor,
+                        secondaryTextColor: secondaryTextColor,
+                        accentColor: accentColor,
+                        backgroundColor: colors.backgroundPrimary,
+                        isLiked: ref.watch(isTrackLikedProvider(track.id)),
+                        onToggleLike: () => _toggleLikeTrack(track),
+                        onDoubleTapLike: () => _triggerDoubleTapLike(track),
+                        heartOverlay: _buildHeartOverlay(),
+                        onDismiss: () {
+                          Navigator.of(context).pop();
+                          widget.onClose?.call();
+                        },
+                        onOpenOptions: () {
+                          TrackOptionsSheet.show(context, track);
+                        },
+                        tabsWidget: _buildBottomTabs(textColor, accentColor),
+                        albumArt: _buildEdgeSwipeableAlbumArt(
                           track,
+                          accentColor,
+                        ),
+                        lyricPreview: _buildSyncedLyricPreview(
+                          textColor,
+                          accentColor,
+                          isCentered: true,
+                        ),
+                        progressBar: _NowPlayingProgressBar(
+                          duration: state.duration,
+                          textColor: textColor,
+                          secondaryColor: secondaryTextColor,
+                          accentColor: accentColor,
+                          isLive: state.isLive,
+                          horizontalPadding: 24.0,
+                          verticalPadding: 0.0,
+                        ),
+                        controlsWidget: _buildControls(
                           state,
                           playerService,
                           textColor,
-                          secondaryTextColor,
                           accentColor,
+                          horizontalPadding: 24.0,
                         ),
-                ),
-              ),
+                      ),
+                    )
+                  : SafeArea(
+                      top: true,
+                      bottom: false,
+                      child: RepaintBoundary(
+                        child: nowPlayingStyle == NowPlayingStyle.ripple
+                            ? RippleNowPlayingView(
+                                track: track,
+                                state: state,
+                                playerService: playerService,
+                                textColor: textColor,
+                                secondaryTextColor: secondaryTextColor,
+                                accentColor: accentColor,
+                                isLiked: ref.watch(isTrackLikedProvider(track.id)),
+                                onToggleLike: () => _toggleLikeTrack(track),
+                                onDoubleTapLike: () => _triggerDoubleTapLike(track),
+                                heartOverlay: _buildHeartOverlay(),
+                                onSeekingChanged: (seeking) {
+                                  if (_isScrubberSeeking != seeking) {
+                                    setState(() => _isScrubberSeeking = seeking);
+                                  }
+                                },
+                                onDismiss: () {
+                                  Navigator.of(context).pop();
+                                  widget.onClose?.call();
+                                },
+                                onOpenOptions: () {
+                                  TrackOptionsSheet.show(context, track);
+                                },
+                                tabsWidget: _buildBottomTabs(textColor, accentColor),
+                                albumArt: _buildRippleSwipeableAlbumArt(
+                                  track,
+                                  accentColor,
+                                ),
+                                lyricPreview: _buildSyncedLyricPreview(
+                                  textColor,
+                                  accentColor,
+                                  isCentered: true,
+                                ),
+                              )
+                            : _buildFullAlbumView(
+                                track,
+                                state,
+                                playerService,
+                                textColor,
+                                secondaryTextColor,
+                                accentColor,
+                              ),
+                      ),
+                    ),
               // Up Next header (mini player style)
               expandedHeader: _buildMiniPlayerHeader(
                 track,
@@ -4346,7 +4401,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     return const _IsolatedLyricsView();
   }
 
-  Widget _buildAlbumArtContent(Track? displayTrack, Color accentColor) {
+  Widget _buildAlbumArtContent(
+    Track? displayTrack,
+    Color accentColor, {
+    BorderRadius borderRadius = const BorderRadius.all(Radius.circular(16)),
+  }) {
     final staticArt = _buildStaticAlbumArtContent(displayTrack, accentColor);
     if (displayTrack == null) return staticArt;
 
@@ -4354,6 +4413,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       key: ValueKey('animated_art_${displayTrack.id}'),
       track: displayTrack,
       staticArt: staticArt,
+      borderRadius: borderRadius,
     );
   }
 
@@ -4533,39 +4593,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   }
 
   Future<void> _toggleLikeTrack(Track track) async {
-    final isLiked = ref.read(isTrackLikedProvider(track.id));
-    if (isLiked) {
-      ref.read(likedSongsProvider.notifier).unlike(track.id);
-      ref
-          .read(explicitlyUnlikedIdsProvider.notifier)
-          .update((state) => {...state, track.id});
-    } else {
-      ref.read(likedSongsProvider.notifier).like(track);
-      ref
-          .read(explicitlyUnlikedIdsProvider.notifier)
-          .update((state) => state.where((id) => id != track.id).toSet());
-    }
-
-    final authState = ref.read(ytMusicAuthStateProvider);
-    if (authState.isLoggedIn) {
-      final likeAction = ref.read(ytMusicLikeActionProvider);
-      if (isLiked) {
-        await likeAction.unlike(track.id);
-      } else {
-        await likeAction.like(track.id);
-      }
-      ref.invalidate(ytMusicLikedSongsProvider);
-      ref.invalidate(ytMusicPlaylistProvider('LM'));
-      ref.invalidate(ytMusicPlaylistProvider('VLLM'));
-      ref.invalidate(ytMusicPlaylistProvider('liked'));
-      try {
-        HiveService.playlistsBox.delete('LM');
-        HiveService.playlistsBox.delete('VLLM');
-      } catch (_) {}
-    } else {
-      ref.invalidate(ytMusicPlaylistProvider('LM'));
-      ref.invalidate(ytMusicPlaylistProvider('liked'));
-    }
+    await toggleTrackLike(ref: ref, track: track);
   }
 
   /// Swipeable album art widget for landscape Stage View
@@ -4829,7 +4857,85 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       },
     ),
   );
-}
+  }
+
+  /// Swipeable full-width album art widget for Edge-to-Edge style
+  Widget _buildEdgeSwipeableAlbumArt(Track track, Color accentColor) {
+    final playerService = ref.watch(audioPlayerServiceProvider);
+    final queue = playerService.queue;
+    final currentIndex = playerService.currentIndex;
+
+    if (queue.length <= 1) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onDoubleTap: () => _triggerDoubleTapLike(track),
+        onHorizontalDragEnd: (details) {
+          if (details.primaryVelocity != null) {
+            if (details.primaryVelocity! < -200) {
+              playerService.skipToNext();
+            } else if (details.primaryVelocity! > 200) {
+              playerService.skipToPrevious();
+            }
+          }
+        },
+        child: _buildAlbumArtContent(
+          track,
+          accentColor,
+          borderRadius: BorderRadius.zero,
+        ),
+      );
+    }
+
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        if (notification is UserScrollNotification) {
+          _isUserDraggingAlbumArt =
+              notification.direction != ScrollDirection.idle;
+        }
+        if (notification is ScrollStartNotification) {
+          if (notification.dragDetails != null) {
+            _isUserDraggingAlbumArt = true;
+          }
+        } else if (notification is ScrollEndNotification) {
+          _isUserDraggingAlbumArt = false;
+        }
+        return false;
+      },
+      child: PageView.builder(
+        controller: _albumArtPageController,
+        clipBehavior: Clip.none,
+        physics: const BouncingScrollPhysics(
+          parent: AlwaysScrollableScrollPhysics(),
+        ),
+        itemCount: queue.length,
+        onPageChanged: (pageIndex) {
+          _handleAlbumArtPageChanged(
+            pageIndex,
+            playerService,
+            currentIndex: currentIndex,
+            queueLength: queue.length,
+          );
+        },
+        itemBuilder: (context, pageIndex) {
+          final displayTrack = queue[pageIndex];
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onDoubleTap: () => _triggerDoubleTapLike(displayTrack),
+            child: pageIndex == currentIndex
+                ? _buildAlbumArtContent(
+                    displayTrack,
+                    accentColor,
+                    borderRadius: BorderRadius.zero,
+                  )
+                : _buildStaticAlbumArtContent(
+                    displayTrack,
+                    accentColor,
+                  ),
+          );
+        },
+      ),
+    );
+  }
 
   Widget _buildSyncedLyricPreview(
     Color textColor,
@@ -5035,6 +5141,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     Color textColor,
     Color accentColor, {
     bool isCompact = false,
+    double? horizontalPadding,
   }) {
     // Check if in Jam and has control permission
     final isInJam = ref.watch(isInJamSessionProvider);
@@ -5046,13 +5153,14 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     final playPauseIconSize = isCompact ? 32.0 : 42.0;
     final skipIconSize = isCompact ? 28.0 : 36.0;
     final modeIconSize = isCompact ? 20.0 : 24.0;
-    final horizontalPadding = isCompact ? 12.0 : 24.0;
+    final effectiveHorizontalPadding =
+        horizontalPadding ?? (isCompact ? 12.0 : 24.0);
 
     final isLiquidGlass = ref.watch(liquidGlassNavProvider);
 
     return Padding(
       padding: EdgeInsets.symmetric(
-        horizontal: horizontalPadding,
+        horizontal: effectiveHorizontalPadding,
         vertical: isCompact ? 0 : 0,
       ),
       child: Row(

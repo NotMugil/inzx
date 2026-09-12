@@ -1207,7 +1207,9 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
                                   child: Icon(
                                     style == NowPlayingStyle.ripple
                                         ? Icons.filter_vintage_rounded
-                                        : Icons.crop_square_rounded,
+                                        : (style == NowPlayingStyle.edge
+                                            ? Icons.splitscreen_rounded
+                                            : Icons.crop_square_rounded),
                                     color: isSelected
                                         ? _accentColor
                                         : _textPrimary.withValues(alpha: 0.8),

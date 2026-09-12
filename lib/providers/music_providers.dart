@@ -15,7 +15,9 @@ import 'ytmusic_providers.dart'
     show
         innerTubeServiceProvider,
         ytMusicAuthStateProvider,
-        ytMusicLikedSongsProvider;
+        ytMusicLikedSongsProvider,
+        ytMusicLikeActionProvider,
+        ytMusicPlaylistProvider;
 import '../../../core/services/result.dart';
 import '../data/repositories/music_repository.dart'
     show CacheAnalytics, MusicRepository;
@@ -513,6 +515,55 @@ final isTrackLikedProvider = Provider.family<bool, String>((ref, trackId) {
 
   return false;
 });
+
+/// Centralized function to toggle like status of a track across local state,
+/// YouTube Music backend, and the audio notification controls.
+Future<void> toggleTrackLike({
+  required dynamic ref,
+  required Track track,
+}) async {
+  final isLiked = ref.read(isTrackLikedProvider(track.id)) as bool;
+  if (isLiked) {
+    ref.read(likedSongsProvider.notifier).unlike(track.id);
+    ref
+        .read(explicitlyUnlikedIdsProvider.notifier)
+        .update((state) => {...(state as Set<String>), track.id});
+  } else {
+    ref.read(likedSongsProvider.notifier).like(track);
+    ref
+        .read(explicitlyUnlikedIdsProvider.notifier)
+        .update(
+          (state) => (state as Set<String>).where((id) => id != track.id).toSet(),
+        );
+  }
+
+  final authState = ref.read(ytMusicAuthStateProvider);
+  if (authState.isLoggedIn) {
+    final likeAction = ref.read(ytMusicLikeActionProvider);
+    if (isLiked) {
+      await likeAction.unlike(track.id);
+    } else {
+      await likeAction.like(track.id);
+    }
+    ref.invalidate(ytMusicLikedSongsProvider);
+    ref.invalidate(ytMusicPlaylistProvider('LM'));
+    ref.invalidate(ytMusicPlaylistProvider('VLLM'));
+    ref.invalidate(ytMusicPlaylistProvider('liked'));
+    try {
+      HiveService.playlistsBox.delete('LM');
+      HiveService.playlistsBox.delete('VLLM');
+    } catch (_) {}
+  } else {
+    ref.invalidate(ytMusicPlaylistProvider('LM'));
+    ref.invalidate(ytMusicPlaylistProvider('liked'));
+  }
+
+  // Update audioHandler notification if currently playing
+  try {
+    final handler = ref.read(audioHandlerProvider) as InzxAudioHandler?;
+    handler?.updateLikeState(trackId: track.id, isLiked: !isLiked);
+  } catch (_) {}
+}
 
 /// Provider for liked songs from YouTube Music backend
 /// Returns cached liked songs with intelligent cache strategy
