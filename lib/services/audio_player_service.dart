@@ -115,6 +115,7 @@ class PlaybackState {
     Duration? position,
     Duration? bufferedPosition,
     Duration? duration,
+    bool resetDuration = false,
     double? speed,
     LoopMode? loopMode,
     bool? shuffleEnabled,
@@ -145,7 +146,7 @@ class PlaybackState {
       isLoading: isLoading ?? this.isLoading,
       position: position ?? this.position,
       bufferedPosition: bufferedPosition ?? this.bufferedPosition,
-      duration: duration ?? this.duration,
+      duration: resetDuration ? null : (duration ?? this.duration),
       speed: speed ?? this.speed,
       loopMode: loopMode ?? this.loopMode,
       shuffleEnabled: shuffleEnabled ?? this.shuffleEnabled,
@@ -176,8 +177,12 @@ class PlaybackState {
   /// Check if there's a previous track
   bool get hasPrevious => currentIndex > 0 || loopMode == LoopMode.all;
 
+  /// Whether the current track is a live stream (radio/live broadcast).
+  bool get isLive => currentPlaybackData?.isLive == true;
+
   /// Progress as a fraction (0.0 to 1.0)
   double get progress {
+    if (isLive) return 1.0;
     if (duration == null || duration!.inMilliseconds == 0) return 0.0;
     return position.inMilliseconds / duration!.inMilliseconds;
   }
@@ -1015,6 +1020,8 @@ class AudioPlayerService {
     if (_crossfadeTriggeredForTrack) return;
     if (_loopMode == LoopMode.one) return;
     if (!_player.playing) return;
+    // Live streams have no real end — never crossfade/advance off them.
+    if (_currentPlaybackData?.isLive == true) return;
 
     final duration = _player.duration;
     if (duration == null || duration <= Duration.zero) return;
@@ -1514,6 +1521,18 @@ class AudioPlayerService {
       return AudioSource.uri(streamUri, tag: track);
     }
 
+    // Live streams are an endless HLS/DASH manifest — hand the manifest URL
+    // straight to the player (ExoPlayer plays live HLS/DASH natively) and never
+    // attempt to file-cache it. The .m3u8 URL lets ExoPlayer infer HLS.
+    if (playbackData.isLive || playbackData.isManifestStream) {
+      if (kDebugMode) {
+        print(
+          'AudioPlayerService: Live/manifest stream for ${track.id} → direct manifest source (no cache)',
+        );
+      }
+      return AudioSource.uri(streamUri, tag: track);
+    }
+
     final cacheFile = await _cacheFileForTrack(track, playbackData);
     if (await cacheFile.exists()) {
       final size = await cacheFile.length();
@@ -1783,6 +1802,8 @@ class AudioPlayerService {
     bool allowDnsRetry = true,
   }) async {
     if (kIsWeb) return;
+    // Never try to download a live/manifest stream to a file — it's endless.
+    if (playbackData.isLive || playbackData.isManifestStream) return;
     if (_precacheInProgress.contains(track.id)) return;
 
     final cacheFile = await _cacheFileForTrack(track, playbackData);
@@ -2151,7 +2172,19 @@ class AudioPlayerService {
 
       // Auto-play next track when current one completes.
       if (playerState.processingState == ProcessingState.completed) {
-        _onTrackComplete();
+        // Live streams have no real end — ExoPlayer only reports "completed"
+        // because it reached the end of the short DVR window. Never advance the
+        // queue; jump back to the live edge and keep playing.
+        if (_currentPlaybackData?.isLive == true) {
+          if (kDebugMode) {
+            print(
+              'AudioPlayerService: Live stream hit DVR-window end, resuming at live edge (not skipping)',
+            );
+          }
+          unawaited(_resumeLiveEdge());
+        } else {
+          _onTrackComplete();
+        }
       }
     });
 
@@ -2228,11 +2261,15 @@ class AudioPlayerService {
 
     player.durationStream.listen((duration) {
       if (!identical(player, _player)) return;
+      final isLive = _currentPlaybackData?.isLive == true;
       final didUpdateDuration =
           duration != null && _applyDurationToCurrentTrack(duration);
       _crossfadeTriggeredForTrack = false;
       _updateState(
-        duration: duration,
+        // For live streams report no duration so the UI shows a LIVE state
+        // instead of a bogus ~30s progress bar that would "complete".
+        duration: isLive ? null : duration,
+        resetDuration: isLive,
         currentTrack: _currentTrack,
         queue: _queue,
         queueRevision: didUpdateDuration ? _queueRevision : null,
@@ -2538,6 +2575,9 @@ class AudioPlayerService {
 
   bool _applyDurationToCurrentTrack(Duration duration) {
     if (_currentTrack == null) return false;
+    // Live streams report only their DVR-window length (e.g. 30s), not a real
+    // track length — never pin a live track to a finite duration.
+    if (_currentPlaybackData?.isLive == true) return false;
     if (duration <= Duration.zero) return false;
     if (_currentTrack!.duration == duration) return false;
 
@@ -2611,6 +2651,7 @@ class AudioPlayerService {
     Duration? position,
     Duration? bufferedPosition,
     Duration? duration,
+    bool resetDuration = false,
     double? speed,
     LoopMode? loopMode,
     bool? shuffleEnabled,
@@ -2650,6 +2691,7 @@ class AudioPlayerService {
       position: position,
       bufferedPosition: bufferedPosition,
       duration: duration,
+      resetDuration: resetDuration,
       speed: speed,
       loopMode: loopMode ?? _loopMode,
       shuffleEnabled: shuffleEnabled ?? _shuffleEnabled,
@@ -3162,8 +3204,14 @@ class AudioPlayerService {
         }
       }
 
-      // 1. Check if JioSaavn stream is requested
+      // 1. Check if JioSaavn stream is requested.
+      // Never use JioSaavn for live/radio streams: JioSaavn has no live content,
+      // so it would only fuzzy-match the title to some random song and overwrite
+      // the live HLS. Live streams report an unknown (zero) length, so a
+      // zero-duration track is treated as live-ish here and kept on YouTube.
+      final trackDurationUnknown = _currentTrack!.duration <= Duration.zero;
       final wantsJioSaavn = _jioSaavnEnabled &&
+          !trackDurationUnknown &&
           (_audioQuality == AudioQuality.high ||
               _audioQuality == AudioQuality.max ||
               _audioQuality == AudioQuality.auto);
@@ -3424,8 +3472,9 @@ class AudioPlayerService {
       _prefetchNextTrack();
       unawaited(_enforceAudioCacheLimit());
 
-      // Attempt seamless upgrade to JioSaavn 320kbps in background
-      if (_currentTrack != null && wantsJioSaavn) {
+      // Attempt seamless upgrade to JioSaavn 320kbps in background.
+      // Never for live streams — JioSaavn would overwrite the live HLS.
+      if (_currentTrack != null && wantsJioSaavn && !playbackData.isLive) {
         unawaited(
           _upgradeTrackQualityIfPossible(
             _currentTrack!,
@@ -3649,6 +3698,24 @@ class AudioPlayerService {
         print('AudioPlayerService: Quality upgrade failed gracefully: $e');
       }
     }
+  }
+
+  DateTime? _lastLiveResume;
+
+  /// Resume a live stream that hit the end of its DVR window by reloading the
+  /// manifest (which re-resolves to the current live edge). Debounced so a
+  /// stream that keeps signalling completion can't spin in a tight loop.
+  Future<void> _resumeLiveEdge() async {
+    final now = DateTime.now();
+    if (_lastLiveResume != null &&
+        now.difference(_lastLiveResume!) < const Duration(seconds: 3)) {
+      // Completing again within 3s means we can't sustain the live edge —
+      // stop rather than loop-reload forever.
+      _updateState(isPlaying: false, isLoading: false);
+      return;
+    }
+    _lastLiveResume = now;
+    await _loadAndPlayCurrent();
   }
 
   /// Handle track completion

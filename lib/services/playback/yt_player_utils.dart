@@ -175,7 +175,16 @@ class YTPlayerUtils {
     final cached = _cache[videoId];
     if (cached != null && cached.isValid) {
       final normalized = _normalizePlaybackData(cached);
-      if (!_hasPlaybackTracking(normalized)) {
+      if (normalized.isLive && !normalized.isManifestStream) {
+        // Stale progressive cache for a live stream (cached before the live
+        // fix). It can't stream and would hang at 0 — drop it and re-resolve.
+        if (kDebugMode) {
+          print(
+            'YTPlayerUtils: Discarding stale progressive cache for live $videoId',
+          );
+        }
+        _discardUntrackedCache(videoId);
+      } else if (!_hasPlaybackTracking(normalized)) {
         if (kDebugMode) {
           print(
             'YTPlayerUtils: Ignoring cached playback without tracking URLs',
@@ -199,7 +208,14 @@ class YTPlayerUtils {
     final persistedData = _loadFromPersistentCache(videoId);
     if (persistedData != null) {
       final normalized = _normalizePlaybackData(persistedData);
-      if (!_hasPlaybackTracking(normalized)) {
+      if (normalized.isLive && !normalized.isManifestStream) {
+        if (kDebugMode) {
+          print(
+            'YTPlayerUtils: Discarding stale progressive disk cache for live $videoId',
+          );
+        }
+        _discardUntrackedCache(videoId);
+      } else if (!_hasPlaybackTracking(normalized)) {
         if (kDebugMode) {
           print(
             'YTPlayerUtils: Ignoring disk playback cache without tracking URLs',
@@ -747,6 +763,55 @@ class YTPlayerUtils {
         }
 
         return PlaybackResult.failure(reason);
+      }
+
+      // LIVE STREAMS: These (isLive, e.g. YT Music "live setlist"/radio-style
+      // broadcasts) are delivered as segmented HLS/DASH. Even when the response
+      // also carries adaptiveFormats, each audio itag is a *live segment* track
+      // — playing its URL as a plain progressive file never fills the buffer
+      // (no contentLength, moving live edge) so the track stays stuck at 0.
+      // The correct source is the HLS manifest, which ExoPlayer plays natively
+      // as a live stream. So for live content, prefer the manifest URL over the
+      // adaptive-format path (checked BEFORE hasAdaptiveFormats).
+      final isLive = (response.videoDetails?['isLive'] as bool?) ?? false;
+      final hlsManifestUrl = response.streamingData?['hlsManifestUrl'] as String?;
+      final dashManifestUrl = response.streamingData?['dashManifestUrl'] as String?;
+      final hasHls = hlsManifestUrl != null && hlsManifestUrl.isNotEmpty;
+      final hasDash = dashManifestUrl != null && dashManifestUrl.isNotEmpty;
+      if ((isLive || !response.hasAdaptiveFormats) && (hasHls || hasDash)) {
+        final manifestUrl = hasHls ? hlsManifestUrl : dashManifestUrl!;
+        final liveFormat = AudioFormat(
+          // application/x-mpegURL / dash+xml so isManifestStream detects it and
+          // the player routes to its HLS/DASH source (URL also ends .m3u8).
+          mimeType: hasHls ? 'application/x-mpegURL' : 'application/dash+xml',
+          bitrate: 128000,
+          contentLength: null,
+          // A live manifest carries A/V; let the player pick the audio track.
+          isAudioOnly: false,
+        );
+        final expiresIn = int.tryParse(
+              response.streamingData?['expiresInSeconds']?.toString() ?? '',
+            ) ??
+            21600;
+        final playbackData = PlaybackData(
+          audioConfig: AudioConfig.fromJson(
+            response.playerConfig?['audioConfig'] as Map<String, dynamic>?,
+          ),
+          videoDetails: VideoDetails.fromJson(response.videoDetails),
+          playbackTracking:
+              PlaybackTracking.fromJson(response.playbackTracking),
+          format: liveFormat,
+          streamUrl: manifestUrl,
+          streamExpiresInSeconds: expiresIn,
+          fetchedAt: DateTime.now(),
+          audioSource: hasHls ? 'YouTube (Live HLS)' : 'YouTube (Live DASH)',
+        );
+        if (kDebugMode) {
+          print(
+            'YTPlayerUtils: ${client.name} live stream (isLive=$isLive) → using ${hasHls ? 'HLS' : 'DASH'} manifest',
+          );
+        }
+        return PlaybackResult.success(playbackData);
       }
 
       // Check for streaming data

@@ -221,6 +221,20 @@ class PlaybackData {
     this.audioSource = 'YouTube',
   });
 
+  /// Whether this is a live stream (delivered as an HLS/DASH manifest, not a
+  /// finite progressive file). Live streams must be handed to the player as a
+  /// manifest URL and must never be file-cached (they're endless).
+  bool get isLive => videoDetails?.isLive == true;
+
+  /// Whether the stream URL points at an HLS/DASH manifest rather than a plain
+  /// progressive media file.
+  bool get isManifestStream {
+    final mime = format.mimeType.toLowerCase();
+    return mime.contains('mpegurl') ||
+        mime.contains('x-mpeg') ||
+        mime.contains('dash+xml');
+  }
+
   /// Codec display name (e.g. "Opus", "AAC")
   String get codecName => format.codecName;
 

@@ -121,6 +121,12 @@ final isFetchingRadioProvider = Provider<bool>((ref) {
   return state.whenOrNull(data: (s) => s.isFetchingRadio) ?? false;
 });
 
+/// Provider for whether the current track is a live stream (radio/live).
+final isLiveProvider = Provider<bool>((ref) {
+  final state = ref.watch(playbackStateProvider);
+  return state.whenOrNull(data: (s) => s.isLive) ?? false;
+});
+
 /// Provider for Stats for nerds setting
 final showNerdStatsProvider = Provider<bool>((ref) {
   final state = ref.watch(playbackStateProvider);

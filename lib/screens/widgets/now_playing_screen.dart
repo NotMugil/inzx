@@ -42,6 +42,7 @@ class _NowPlayingProgressBar extends ConsumerStatefulWidget {
   final Color secondaryColor;
   final Color accentColor;
   final bool isCompact;
+  final bool isLive;
 
   const _NowPlayingProgressBar({
     required this.duration,
@@ -49,6 +50,7 @@ class _NowPlayingProgressBar extends ConsumerStatefulWidget {
     required this.secondaryColor,
     required this.accentColor,
     this.isCompact = false,
+    this.isLive = false,
   });
 
   @override
@@ -315,6 +317,57 @@ class _NowPlayingProgressBarState
 
     final verticalPadding = widget.isCompact ? 2.0 : 16.0;
     final horizontalPadding = widget.isCompact ? 16.0 : 24.0;
+
+    // Live streams have no seekable length — show a LIVE indicator with a solid
+    // track instead of a progress bar that would sit at a bogus 30s.
+    if (widget.isLive) {
+      return RepaintBoundary(
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: horizontalPadding,
+            vertical: verticalPadding,
+          ),
+          child: Column(
+            children: [
+              Container(
+                height: widget.isCompact ? 3 : 4,
+                decoration: BoxDecoration(
+                  color: widget.accentColor,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              SizedBox(height: widget.isCompact ? 4 : 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFF3B30),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'LIVE',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.2,
+                        color: widget.secondaryColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     final maxMs = (widget.duration?.inMilliseconds ?? 0) > 0
         ? widget.duration!.inMilliseconds.toDouble()
@@ -760,6 +813,19 @@ class _IsolatedLyricsView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Live/radio streams: don't show (stale/mismatched) lyrics.
+    if (ref.watch(isLiveProvider)) {
+      return Center(
+        child: Text(
+          'Lyrics aren’t available for live streams',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 14,
+            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
+        ),
+      );
+    }
     final position =
         ref.watch(positionStreamProvider).valueOrNull ?? Duration.zero;
     return RepaintBoundary(
@@ -1661,7 +1727,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     final trackId = currentTrack?.id;
     final currentDurationSec = currentTrack?.duration.inSeconds ?? 0;
     final currentArtist = currentTrack?.artist ?? '';
-    final isNewTrack = trackId != _lastLyricsTrackId && currentTrack != null;
+    // Live/radio streams have no fixed track, so time-synced lyrics fetched by
+    // title match are meaningless — never fetch lyrics for them.
+    final isLiveStream = ref.watch(isLiveProvider);
+    final isNewTrack =
+        trackId != _lastLyricsTrackId && currentTrack != null && !isLiveStream;
 
     final lyricsState = ref.watch(lyricsProvider);
     final hasSyncedLyrics =
@@ -1670,6 +1740,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     // Trigger re-fetch if duration or artist were missing/placeholder and are now enriched with no synced lyrics yet
     final isEnriched = !isNewTrack &&
         currentTrack != null &&
+        !isLiveStream &&
         !hasSyncedLyrics &&
         (((_lastLyricsDurationSeconds ?? 0) == 0 && currentDurationSec > 0) ||
             ((_lastLyricsArtist == null ||
@@ -2025,6 +2096,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                           textColor: textColor,
                           secondaryColor: secondaryTextColor,
                           accentColor: accentColor,
+                          isLive: state.isLive,
                         ),
 
                         // Controls
@@ -2094,6 +2166,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                       secondaryColor: secondaryTextColor,
                       accentColor: accentColor,
                       isCompact: true,
+                      isLive: state.isLive,
                     ),
 
                     // Minimal Controls (Previous, Play/Pause, Next)
@@ -4765,6 +4838,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   }) {
     final showLyricsBelowArt = ref.watch(showLyricsBelowAlbumArtProvider);
     if (!showLyricsBelowArt) return const SizedBox.shrink();
+    // No lyrics for live/radio streams — they'd be stale/wrong.
+    if (ref.watch(isLiveProvider)) return const SizedBox.shrink();
 
     return SyncedLyricPreview(
       textColor: textColor,
