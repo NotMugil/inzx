@@ -386,6 +386,56 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
 
   // ── Section lists ──────────────────────────────────────────────────
 
+  /// Shared search tags for the Appearance section so logged-in and logged-out
+  /// stay in sync and every appearance option is discoverable via search.
+  List<String> get _appearanceTags => [
+    context.l10n.appearance,
+    context.l10n.theme,
+    context.l10n.language,
+    context.l10n.contentLocation,
+    context.l10n.dynamicColorsNote,
+    context.l10n.accentColor,
+    context.l10n.nowPlayingStyle,
+    context.l10n.progressBarStyle,
+    context.l10n.liquidGlass,
+    context.l10n.animatedAlbumArt,
+    context.l10n.lyricsBelowAlbumArt,
+    context.l10n.statsForNerds,
+    context.l10n.shareYoutubeMusicLinks,
+    'appearance',
+    'theme',
+    'dark',
+    'light',
+    'mode',
+    'accent color',
+    'color',
+    'now playing style',
+    'progress bar',
+    'waveform',
+    'audio waveform',
+    'scrubber',
+    'liquid glass',
+    'glass',
+    'navbar',
+    'nav',
+    'rotate',
+    'rotating album art',
+    'miniplayer',
+    'animated album art',
+    'canvas',
+    'motion',
+    'lyrics',
+    'lyrics below album art',
+    'stats for nerds',
+    'nerd stats',
+    'share',
+    'youtube music links',
+    'native links',
+    'content location',
+    'region',
+    'country',
+  ];
+
   List<_TaggedSection> _loggedOutSections() => [
     _TaggedSection([
       context.l10n.yourProfile,
@@ -405,31 +455,7 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
       'connect',
       'login',
     ], _buildYTMusicConnectCard()),
-    _TaggedSection([
-      context.l10n.appearance,
-      context.l10n.theme,
-      context.l10n.language,
-      context.l10n.dynamicColorsNote,
-      'appearance',
-      'theme',
-      'dark',
-      'light',
-      'mode',
-      'now playing style',
-      'progress bar',
-      'waveform',
-      'audio waveform',
-      'scrubber',
-      'liquid glass',
-      'glass',
-      'navbar',
-      'nav',
-      'rotate',
-      'rotating album art',
-      'miniplayer',
-      'stats for nerds',
-      'nerd stats',
-    ], _buildAppearanceSection()),
+    _TaggedSection(_appearanceTags, _buildAppearanceSection()),
     _TaggedSection([
       context.l10n.quickActions,
       context.l10n.audio,
@@ -471,26 +497,7 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
       'yt music',
       'connected',
     ], _buildGoogleAccountSection(ytMusicAuth: authState)),
-    _TaggedSection([
-      context.l10n.appearance,
-      context.l10n.theme,
-      context.l10n.language,
-      context.l10n.dynamicColorsNote,
-      'appearance',
-      'theme',
-      'dark',
-      'light',
-      'mode',
-      'liquid glass',
-      'glass',
-      'navbar',
-      'nav',
-      'rotate',
-      'rotating album art',
-      'miniplayer',
-      'stats for nerds',
-      'nerd stats',
-    ], _buildAppearanceSection()),
+    _TaggedSection(_appearanceTags, _buildAppearanceSection()),
     _TaggedSection([
       context.l10n.quickActions,
       context.l10n.audio,
@@ -780,7 +787,7 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Accent Color',
+              l10n.accentColor,
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -877,7 +884,7 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
                     child: GestureDetector(
                       onTap: () => _openCustomColorPicker(currentCustom),
                       child: Tooltip(
-                        message: 'Custom Color & Wheel',
+                        message: l10n.customColorWheel,
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 200),
                           width: 44,
@@ -987,9 +994,9 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
         _settingsTile(
           icon: Icons.art_track_rounded,
           iconBg: _accentColor,
-          title: 'Now Playing Style',
+          title: l10n.nowPlayingStyle,
           subtitle:
-              '${getNowPlayingStyleName(ref.watch(nowPlayingStyleProvider))} • ${ref.watch(nowPlayingStyleProvider) == NowPlayingStyle.ripple ? "Wavy cover & circular seek ring" : "Classic layout & sliding queue"}',
+              '${getNowPlayingStyleName(ref.watch(nowPlayingStyleProvider))} • ${getNowPlayingStyleDescription(ref.watch(nowPlayingStyleProvider))}',
           onTap: _showNowPlayingStyleSelector,
         ),
         Divider(
@@ -999,7 +1006,7 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
         _settingsTile(
           icon: Icons.graphic_eq_rounded,
           iconBg: _accentColor,
-          title: 'Progress Bar Style',
+          title: l10n.progressBarStyle,
           subtitle:
               '${getProgressBarStyleName(ref.watch(progressBarStyleProvider))} • ${getProgressBarStyleDescription(ref.watch(progressBarStyleProvider))}',
           onTap: _showProgressBarStyleSelector,
@@ -1011,8 +1018,8 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
         _switchTile(
           icon: Icons.water_drop_rounded,
           iconBg: _accentColor,
-          title: 'Liquid Glass',
-          subtitle: 'Translucent frosted glass styling with fluid light refraction',
+          title: l10n.liquidGlass,
+          subtitle: l10n.liquidGlassSubtitle,
           value: ref.watch(liquidGlassNavProvider),
           onChanged: (val) =>
               ref.read(liquidGlassNavProvider.notifier).setEnabled(val),
@@ -1024,8 +1031,8 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
         _switchTile(
           icon: Icons.rotate_right_rounded,
           iconBg: _accentColor,
-          title: 'Rotating Miniplayer Album Art',
-          subtitle: 'Rotate album artwork in miniplayer during playback',
+          title: l10n.rotatingMiniplayerArt,
+          subtitle: l10n.rotatingMiniplayerArtSubtitle,
           value: ref.watch(rotatingMiniPlayerArtProvider),
           onChanged: (val) =>
               ref.read(rotatingMiniPlayerArtProvider.notifier).setEnabled(val),
@@ -1037,8 +1044,8 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
         _switchTile(
           icon: Icons.play_circle_outline_rounded,
           iconBg: _accentColor,
-          title: 'Animated Album Art',
-          subtitle: 'Display motion canvas video for supported songs',
+          title: l10n.animatedAlbumArt,
+          subtitle: l10n.animatedAlbumArtSubtitle,
           value: ref.watch(animatedAlbumArtProvider),
           onChanged: (val) =>
               ref.read(animatedAlbumArtProvider.notifier).setEnabled(val),
@@ -1050,8 +1057,8 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
         _switchTile(
           icon: Iconsax.text,
           iconBg: _accentColor,
-          title: 'Lyrics Below Album Art',
-          subtitle: 'Display real-time synced lyrics line in Now Playing',
+          title: l10n.lyricsBelowAlbumArt,
+          subtitle: l10n.lyricsBelowAlbumArtSubtitle,
           value: ref.watch(showLyricsBelowAlbumArtProvider),
           onChanged: (val) =>
               ref.read(showLyricsBelowAlbumArtProvider.notifier).setEnabled(val),
@@ -1063,9 +1070,8 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
         _switchTile(
           icon: Iconsax.status,
           iconBg: _accentColor,
-          title: 'Stats for Nerds',
-          subtitle:
-              'Show technical audio bitrate and source details in the player',
+          title: l10n.statsForNerds,
+          subtitle: l10n.statsForNerdsSubtitle,
           value: ref.watch(showNerdStatsProvider),
           onChanged: (val) =>
               ref.read(audioPlayerServiceProvider).setShowNerdStats(val),
@@ -1077,9 +1083,8 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
         _switchTile(
           icon: Iconsax.share,
           iconBg: _accentColor,
-          title: 'Share YouTube Music links',
-          subtitle:
-              'Share plain music.youtube.com links instead of Inzx links',
+          title: l10n.shareYoutubeMusicLinks,
+          subtitle: l10n.shareYoutubeMusicLinksSubtitle,
           value: ref.watch(shareNativeLinksProvider),
           onChanged: (val) =>
               ref.read(shareNativeLinksProvider.notifier).setEnabled(val),
@@ -1141,7 +1146,7 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
                       ),
                       const SizedBox(width: 12),
                       Text(
-                        'Now Playing Style',
+                        context.l10n.nowPlayingStyle,
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -2487,7 +2492,10 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text(l10n.cacheCleanupComplete),
+                        content: Text(
+                          l10n.cacheCleanupComplete,
+                          style: TextStyle(color: _colors.onInverseSurface),
+                        ),
                         backgroundColor: _colors.inverseSurface,
                       ),
                     );
@@ -2537,7 +2545,10 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text(l10n.cacheCleared),
+                          content: Text(
+                            l10n.cacheCleared,
+                            style: TextStyle(color: _colors.onInverseSurface),
+                          ),
                           backgroundColor: _colors.inverseSurface,
                         ),
                       );
@@ -2618,7 +2629,10 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
               setState(() {});
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text(l10n.analyticsReset),
+                  content: Text(
+                    l10n.analyticsReset,
+                    style: TextStyle(color: _colors.onInverseSurface),
+                  ),
                   backgroundColor: _colors.inverseSurface,
                 ),
               );

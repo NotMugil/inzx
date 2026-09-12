@@ -4,6 +4,70 @@
   "updateDownloadedBanner": "Update downloaded. Restart the app to apply.",
   "restart": "Restart",
   "dismiss": "Dismiss",
+  "accentColor": "Accent Color",
+  "@accentColor": {
+    "description": "Label for the accent color picker in Appearance settings"
+  },
+  "customColorWheel": "Custom Color & Wheel",
+  "@customColorWheel": {
+    "description": "Tooltip for the custom accent color wheel button"
+  },
+  "nowPlayingStyle": "Now Playing Style",
+  "@nowPlayingStyle": {
+    "description": "Title for the Now Playing screen style selector"
+  },
+  "progressBarStyle": "Progress Bar Style",
+  "@progressBarStyle": {
+    "description": "Title for the progress bar style selector"
+  },
+  "liquidGlass": "Liquid Glass",
+  "@liquidGlass": {
+    "description": "Title for the liquid glass appearance toggle"
+  },
+  "liquidGlassSubtitle": "Translucent frosted glass styling with fluid light refraction",
+  "@liquidGlassSubtitle": {
+    "description": "Subtitle for the liquid glass appearance toggle"
+  },
+  "rotatingMiniplayerArt": "Rotating Miniplayer Album Art",
+  "@rotatingMiniplayerArt": {
+    "description": "Title for the rotating miniplayer album art toggle"
+  },
+  "rotatingMiniplayerArtSubtitle": "Rotate album artwork in miniplayer during playback",
+  "@rotatingMiniplayerArtSubtitle": {
+    "description": "Subtitle for the rotating miniplayer album art toggle"
+  },
+  "animatedAlbumArt": "Animated Album Art",
+  "@animatedAlbumArt": {
+    "description": "Title for the animated album art toggle"
+  },
+  "animatedAlbumArtSubtitle": "Display motion canvas video for supported songs",
+  "@animatedAlbumArtSubtitle": {
+    "description": "Subtitle for the animated album art toggle"
+  },
+  "lyricsBelowAlbumArt": "Lyrics Below Album Art",
+  "@lyricsBelowAlbumArt": {
+    "description": "Title for the lyrics-below-album-art toggle"
+  },
+  "lyricsBelowAlbumArtSubtitle": "Display real-time synced lyrics line in Now Playing",
+  "@lyricsBelowAlbumArtSubtitle": {
+    "description": "Subtitle for the lyrics-below-album-art toggle"
+  },
+  "statsForNerds": "Stats for Nerds",
+  "@statsForNerds": {
+    "description": "Title for the stats for nerds toggle"
+  },
+  "statsForNerdsSubtitle": "Show technical audio bitrate and source details in the player",
+  "@statsForNerdsSubtitle": {
+    "description": "Subtitle for the stats for nerds toggle"
+  },
+  "shareYoutubeMusicLinks": "Share YouTube Music links",
+  "@shareYoutubeMusicLinks": {
+    "description": "Title for the share-native-links toggle"
+  },
+  "shareYoutubeMusicLinksSubtitle": "Share plain music.youtube.com links instead of Inzx links",
+  "@shareYoutubeMusicLinksSubtitle": {
+    "description": "Subtitle for the share-native-links toggle"
+  },
   "newVersionAvailableBanner": "New version {version} is available on GitHub.",
   "@newVersionAvailableBanner": {
     "placeholders": {
