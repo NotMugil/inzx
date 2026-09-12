@@ -78,8 +78,13 @@ def strip_apk(in_apk, out_apk, abi_to_keep):
         with zipfile.ZipFile(out_apk, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
             for item in zin.infolist():
                 if should_keep(item.filename, abi_to_keep):
-                    # Copy file exactly
-                    zout.writestr(item, zin.read(item.filename))
+                    # Native libs and resources.arsc MUST use ZIP_STORED (method 0)
+                    # because extractNativeLibs=false requires the loader to mmap
+                    # them directly from the APK. zipalign then page-aligns them.
+                    if item.filename.startswith('lib/') or item.filename == 'resources.arsc':
+                        item.compress_type = zipfile.ZIP_STORED
+                    data = zin.read(item.filename)
+                    zout.writestr(item, data)
                     kept_count += 1
                 else:
                     removed_count += 1
