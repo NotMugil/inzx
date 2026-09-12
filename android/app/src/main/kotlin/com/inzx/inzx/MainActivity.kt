@@ -14,6 +14,16 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : AudioServiceFragmentActivity() {
+    companion object {
+        // Prevent R8 resource shrinker from stripping dynamic notification drawables in release builds
+        @JvmStatic
+        val KEEP_RESOURCES = intArrayOf(
+            R.drawable.ic_heart_filled,
+            R.drawable.ic_heart_outline,
+            R.drawable.ic_notification,
+        )
+    }
+
     private val COOKIE_CHANNEL = "inzx/cookies"
     private val JAMS_CHANNEL = "inzx/jams_native"
     private val WIDGET_CHANNEL = "inzx/widget"
