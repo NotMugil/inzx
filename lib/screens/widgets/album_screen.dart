@@ -41,12 +41,14 @@ final albumColorsProvider = FutureProvider.family<AlbumColors, String>((
 class AlbumScreen extends ConsumerStatefulWidget {
   final String albumId;
   final String? albumTitle;
+  final String? albumArtist;
   final String? thumbnailUrl;
 
   const AlbumScreen({
     super.key,
     required this.albumId,
     this.albumTitle,
+    this.albumArtist,
     this.thumbnailUrl,
   });
 
@@ -54,6 +56,7 @@ class AlbumScreen extends ConsumerStatefulWidget {
     BuildContext context, {
     required String albumId,
     String? title,
+    String? artist,
     String? thumbnailUrl,
   }) {
     if (albumId.startsWith('MPSP') ||
@@ -76,6 +79,7 @@ class AlbumScreen extends ConsumerStatefulWidget {
         builder: (context) => AlbumScreen(
           albumId: albumId,
           albumTitle: title,
+          albumArtist: artist,
           thumbnailUrl: thumbnailUrl,
         ),
       ),
@@ -534,7 +538,7 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen> {
         id: widget.albumId,
         title: title ?? l10n.loading,
         thumbnailUrl: thumbnail,
-        artist: l10n.loading,
+        artist: widget.albumArtist ?? l10n.loading,
         tracks: [],
       ),
       isDark,
@@ -574,12 +578,25 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen> {
     dynamic playerService, {
     bool isLoading = false,
   }) {
+    final resolvedAlbumArtist = (album.artist.isNotEmpty &&
+            album.artist != 'Unknown Artist' &&
+            album.artist.toLowerCase().trim() != 'album')
+        ? album.artist
+        : (widget.albumArtist ?? '');
+
     final rawTracks = album.tracks ?? [];
     final allTracks = rawTracks.map((t) {
+      final isBadTrackArtist = t.artist.isEmpty ||
+          t.artist == 'Unknown Artist' ||
+          t.artist.toLowerCase().trim() == 'album';
+      final trackArtist = isBadTrackArtist
+          ? (resolvedAlbumArtist.isNotEmpty ? resolvedAlbumArtist : t.artist)
+          : t.artist;
       return t.copyWith(
-        artist: (t.artist.isEmpty || t.artist == 'Unknown Artist')
-            ? album.artist
-            : t.artist,
+        artist: trackArtist,
+        artistId: (t.artistId.isEmpty && album.artistId.isNotEmpty)
+            ? album.artistId
+            : t.artistId,
         album: (t.album == null ||
                 t.album!.isEmpty ||
                 t.album == 'Unknown Album')
@@ -878,19 +895,21 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen> {
                             const SizedBox(height: 8),
 
                             // Artist Subtitle
-                            Center(
-                              child: Text(
-                                album.artist,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: isDark
-                                      ? Colors.white.withValues(alpha: 0.9)
-                                      : colorScheme.onSurface,
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w500,
+                            if (resolvedAlbumArtist.isNotEmpty &&
+                                resolvedAlbumArtist.toLowerCase().trim() != 'album')
+                              Center(
+                                child: Text(
+                                  resolvedAlbumArtist,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: isDark
+                                        ? Colors.white.withValues(alpha: 0.9)
+                                        : colorScheme.onSurface,
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
                               ),
-                            ),
                             const SizedBox(height: 12),
 
                             // Glassy outlined metadata pills: Year, Tracks, Total Time
@@ -1382,10 +1401,15 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen> {
 
   /// Share album link
   void _shareAlbum(BuildContext context, Album album) {
+    final cleanArtist = (album.artist.isNotEmpty &&
+            album.artist != 'Unknown Artist' &&
+            album.artist.toLowerCase().trim() != 'album')
+        ? album.artist
+        : (widget.albumArtist ?? '');
     final url = DeepLinkHandler.createShareUrl('album', album.id);
     SharePlus.instance.share(
       ShareParams(
-        text: context.l10n.shareAlbumText(album.title, album.artist, url),
+        text: context.l10n.shareAlbumText(album.title, cleanArtist, url),
       ),
     );
   }
@@ -1587,7 +1611,11 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen> {
                                           ),
                                           const SizedBox(height: 3),
                                           Text(
-                                            album.artist,
+                                            (album.artist.isNotEmpty &&
+                                                    album.artist != 'Unknown Artist' &&
+                                                    album.artist.toLowerCase().trim() != 'album')
+                                                ? album.artist
+                                                : (widget.albumArtist ?? ''),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(

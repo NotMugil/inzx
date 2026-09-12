@@ -998,7 +998,10 @@ final ytMusicAlbumProvider = FutureProvider.family<Album?, String>((
           cachedAlbum.tracks != null && cachedAlbum.tracks!.isNotEmpty;
       final isKnownEmptyAlbum = cachedAlbum.trackCount == 0;
 
-      if (hasTrackList || isKnownEmptyAlbum) {
+      final isPlaceholderArtist =
+          cachedAlbum.artist.toLowerCase().trim() == 'album';
+
+      if ((hasTrackList || isKnownEmptyAlbum) && !isPlaceholderArtist) {
         if (kDebugMode) {
           print('ytMusicAlbumProvider: Loaded $albumId from cache');
         }
@@ -1007,7 +1010,7 @@ final ytMusicAlbumProvider = FutureProvider.family<Album?, String>((
 
       if (kDebugMode) {
         print(
-          'ytMusicAlbumProvider: Cache missing track list for $albumId, refetching from network',
+          'ytMusicAlbumProvider: Cache invalid or missing track list for $albumId, refetching from network',
         );
       }
     }

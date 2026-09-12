@@ -920,13 +920,20 @@ class AudioPlayerService {
       var enrichedTrack = targetTrack;
       final crossfadeDetails = built.playbackData?.videoDetails;
       if (crossfadeDetails != null) {
+        const badPlaceholders = {
+          'unknown artist',
+          'song',
+          'video',
+          'album',
+          'single',
+          'ep',
+          'playlist',
+          '',
+        };
         final artistLower = enrichedTrack.artist.toLowerCase().trim();
-        if ((artistLower == 'unknown artist' ||
-                artistLower == 'song' ||
-                artistLower == 'video' ||
-                artistLower.isEmpty) &&
+        if (badPlaceholders.contains(artistLower) &&
             crossfadeDetails.author.isNotEmpty &&
-            crossfadeDetails.author.toLowerCase().trim() != 'song') {
+            !badPlaceholders.contains(crossfadeDetails.author.toLowerCase().trim())) {
           enrichedTrack =
               enrichedTrack.copyWith(artist: crossfadeDetails.author);
         }
@@ -3345,13 +3352,20 @@ class AudioPlayerService {
       if (details != null && _currentTrack != null) {
         bool trackChanged = false;
         var updated = _currentTrack!;
+        const badPlaceholders = {
+          'unknown artist',
+          'song',
+          'video',
+          'album',
+          'single',
+          'ep',
+          'playlist',
+          '',
+        };
         final artistLower = updated.artist.toLowerCase().trim();
-        if ((artistLower == 'unknown artist' ||
-                artistLower == 'song' ||
-                artistLower == 'video' ||
-                artistLower.isEmpty) &&
+        if (badPlaceholders.contains(artistLower) &&
             details.author.isNotEmpty &&
-            details.author.toLowerCase().trim() != 'song') {
+            !badPlaceholders.contains(details.author.toLowerCase().trim())) {
           updated = updated.copyWith(artist: details.author);
           trackChanged = true;
         }

@@ -6644,30 +6644,84 @@ class InnerTubeService {
             'Unknown Album';
       }
 
-      // Parse subtitle (Artist, Year)
-      final subtitleRuns =
-          activeHeader['subtitle']?['runs'] as List? ??
-          activeHeader['straplineTextOne']?['runs'] as List?;
+      // Parse Artist, Year, and ArtistId
+      // For musicResponsiveHeaderRenderer:
+      //   straplineTextOne = artist name(s) + browseEndpoint (artistId)
+      //   subtitle = type label (e.g. "Album", "EP", "Single") • release year
+      // For musicDetailHeaderRenderer:
+      //   subtitle = artist name • year
+      final straplineRuns = activeHeader['straplineTextOne']?['runs'] as List?;
+      final subtitleRuns = activeHeader['subtitle']?['runs'] as List?;
 
       String artist = 'Unknown Artist';
+      String artistId = '';
       String? year;
+      const typeLabels = {
+        'playlist',
+        'album',
+        'single',
+        'ep',
+        'video',
+        'song',
+        'station',
+        'podcast',
+      };
 
-      if (subtitleRuns != null) {
+      // 1. Check straplineTextOne first (contains the actual artist and artist channel navigation)
+      if (straplineRuns != null && straplineRuns.isNotEmpty) {
+        final artistNames = <String>[];
+        for (final run in straplineRuns) {
+          final text = (run['text'] as String?)?.trim() ?? '';
+          if (text.isEmpty || text == '•') continue;
+
+          if (run['navigationEndpoint'] != null) {
+            final bId =
+                run['navigationEndpoint']?['browseEndpoint']?['browseId']
+                    as String?;
+            if (bId != null && bId.isNotEmpty && artistId.isEmpty) {
+              artistId = bId;
+            }
+          }
+          if (!typeLabels.contains(text.toLowerCase()) &&
+              !text.toLowerCase().contains('song')) {
+            artistNames.add(text);
+          }
+        }
+        if (artistNames.isNotEmpty) {
+          artist = artistNames.join();
+        }
+      }
+
+      // 2. Parse subtitleRuns for year, and fallback for artist if not found from strapline
+      if (subtitleRuns != null && subtitleRuns.isNotEmpty) {
         for (final run in subtitleRuns) {
-          final text = run['text'] as String?;
-          if (text != null) {
-            // Heuristic: If it has navigation, likely artist. If 4 digits, likely year.
-            if (run['navigationEndpoint'] != null ||
-                (text != '•' &&
-                    !RegExp(r'^\d{4}$').hasMatch(text) &&
-                    !text.contains('song'))) {
-              // Assuming first non-year text is artist if not previously set or if has endpoint
-              if (artist == 'Unknown Artist') artist = text;
-            } else if (RegExp(r'^\d{4}$').hasMatch(text)) {
-              year = text;
+          final text = (run['text'] as String?)?.trim() ?? '';
+          if (text.isEmpty || text == '•') continue;
+
+          if (RegExp(r'^\d{4}$').hasMatch(text)) {
+            year = text;
+            continue;
+          }
+
+          if (typeLabels.contains(text.toLowerCase()) ||
+              text.toLowerCase().contains('song')) {
+            continue;
+          }
+
+          if (artist == 'Unknown Artist') {
+            artist = text;
+            final bId =
+                run['navigationEndpoint']?['browseEndpoint']?['browseId']
+                    as String?;
+            if (bId != null && bId.isNotEmpty && artistId.isEmpty) {
+              artistId = bId;
             }
           }
         }
+      }
+
+      if (typeLabels.contains(artist.toLowerCase().trim())) {
+        artist = 'Unknown Artist';
       }
 
       // Get thumbnail
@@ -6744,11 +6798,18 @@ class InnerTubeService {
           var track = _parseTrackItem(item);
           if (track != null) {
             final trackArtist =
-                (track.artist.isEmpty || track.artist == 'Unknown Artist')
+                (track.artist.isEmpty ||
+                 track.artist == 'Unknown Artist' ||
+                 typeLabels.contains(track.artist.toLowerCase().trim()))
                     ? artist
                     : track.artist;
+            final trackArtistId =
+                (track.artistId.isEmpty && artistId.isNotEmpty)
+                    ? artistId
+                    : track.artistId;
             track = track.copyWith(
               artist: trackArtist,
+              artistId: trackArtistId,
               album: (track.album == null ||
                       track.album!.isEmpty ||
                       track.album == 'Unknown Album')
@@ -6771,6 +6832,7 @@ class InnerTubeService {
         id: albumId,
         title: title,
         artist: artist,
+        artistId: artistId,
         year: year,
         thumbnailUrl: thumbnailUrl,
         description: description,
