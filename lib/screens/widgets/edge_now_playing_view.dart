@@ -12,6 +12,7 @@ import '../../services/lyrics/lyrics_models.dart';
 import '../../core/design_system/design_system.dart';
 import 'artist_screen.dart';
 import 'podcast_screen.dart' show PodcastScreen;
+import 'jam_indicator_badge.dart';
 
 /// The 'Cinematic' Now Playing screen layout.
 /// Features a full-width uncropped album artwork spanning the top half of the screen
@@ -83,6 +84,7 @@ class _EdgeNowPlayingViewState extends ConsumerState<EdgeNowPlayingView> {
     final showNerdStats = playbackState.showNerdStats;
     final statsSummary = playbackState.qualityInfo;
     final hasStats = showNerdStats && statsSummary.isNotEmpty;
+    final isInJam = ref.watch(isInJamSessionProvider);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -190,6 +192,18 @@ class _EdgeNowPlayingViewState extends ConsumerState<EdgeNowPlayingView> {
                       if (widget.heartOverlay != null)
                         IgnorePointer(
                           child: Center(child: widget.heartOverlay!),
+                        ),
+
+                      // Floating Jam Indicator Badge when in active Jam
+                      if (isInJam)
+                        Positioned(
+                          top: MediaQuery.paddingOf(context).top + 12,
+                          right: 16,
+                          child: JamIndicatorBadge(
+                            textColor: Colors.white,
+                            accentColor: widget.accentColor,
+                            backgroundColor: Colors.black.withValues(alpha: 0.6),
+                          ),
                         ),
                     ],
                   ),

@@ -34,6 +34,11 @@ import 'track_artwork_view.dart';
 import 'animated_album_art_view.dart';
 import 'ripple_now_playing_view.dart';
 import 'edge_now_playing_view.dart';
+import 'jam_indicator_badge.dart';
+import 'jams_panel.dart';
+import 'package:share_plus/share_plus.dart';
+import '../../services/deep_link_handler.dart';
+import '../../services/download_service.dart';
 
 /// Progress bar widget that only rebuilds on position changes (isolated)
 class _NowPlayingProgressBar extends ConsumerStatefulWidget {
@@ -2033,6 +2038,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                                 textColor,
                                 secondaryTextColor,
                                 accentColor,
+                                isOg: nowPlayingStyle == NowPlayingStyle.og,
                               ),
                       ),
                     ),
@@ -2111,12 +2117,17 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     player.AudioPlayerService playerService,
     Color textColor,
     Color secondaryTextColor,
-    Color accentColor,
-  ) {
+    Color accentColor, {
+    bool isOg = false,
+  }) {
     return Column(
       children: [
         // Top bar
-        _buildTopBar(textColor, secondaryTextColor),
+        _buildTopBar(
+          textColor,
+          secondaryTextColor,
+          showJamIndicator: !isOg,
+        ),
 
         // Album art
         _buildAlbumArt(track, accentColor),
@@ -2135,7 +2146,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                         _buildSyncedLyricPreview(
                           textColor,
                           accentColor,
-                          isCentered: true,
+                          isCentered: !isOg,
                         ),
 
                         // Track info
@@ -2144,6 +2155,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                           textColor,
                           secondaryTextColor,
                           accentColor,
+                          isOg: isOg,
                         ),
 
                         // Progress bar
@@ -4077,7 +4089,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     );
   }
 
-  Widget _buildTopBar(Color textColor, Color secondaryColor) {
+  Widget _buildTopBar(
+    Color textColor,
+    Color secondaryColor, {
+    bool showJamIndicator = true,
+  }) {
     final playbackState = ref.watch(playbackStateProvider).valueOrNull;
     final queueTitle = playbackState?.queueTitle;
     final hasQueueTitle = queueTitle != null && queueTitle.trim().isNotEmpty;
@@ -4219,6 +4235,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       },
     );
 
+    final isInJam = ref.watch(isInJamSessionProvider);
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       child: Row(
@@ -4242,7 +4260,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                   const SizedBox(height: 2),
                   SizedBox(
                     height: 18,
-                    width: 220,
+                    width: (isInJam && showJamIndicator) ? 150 : 220,
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 350),
                       transitionBuilder: (child, animation) =>
@@ -4262,21 +4280,19 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                             );
 
                             final textPainter = TextPainter(
-                              text: TextSpan(
-                                text: text,
-                                style: textStyle,
-                              ),
+                              text: TextSpan(text: text, style: textStyle),
                               maxLines: 1,
                               textDirection: TextDirection.ltr,
                             )..layout();
 
+                            // Subtext marquee animation
                             if (textPainter.width > constraints.maxWidth) {
                               return Marquee(
                                 text: text,
                                 style: textStyle,
                                 scrollAxis: Axis.horizontal,
                                 crossAxisAlignment: CrossAxisAlignment.center,
-                                blankSpace: 36.0,
+                                blankSpace: 40.0,
                                 velocity: 25.0,
                                 pauseAfterRound: const Duration(seconds: 2),
                                 startPadding: 0.0,
@@ -4307,6 +4323,13 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
               ],
             ),
           ),
+          if (isInJam && showJamIndicator) ...[
+            JamIndicatorBadge(
+              textColor: textColor,
+              accentColor: accentColor,
+            ),
+            const SizedBox(width: 8),
+          ],
           moreButton,
         ],
       ),
@@ -4450,7 +4473,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
 
       // 3. Asynchronously load embedded artwork with fallback to network
       return FutureBuilder<Uint8List?>(
-        future: LocalArtworkService.getArtworkBytes(localAudioPath),
+        future: LocalArtworkService.getArtworkBytes(
+          localAudioPath,
+          track: displayTrack,
+        ),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.done &&
               snapshot.hasData &&
@@ -4968,10 +4994,17 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     Color secondaryColor,
     Color accentColor, {
     bool isCompact = false,
+    bool isOg = false,
   }) {
-    final titleFontSize = isCompact ? 15.0 : 17.0;
-    final titleHeight = isCompact ? 22.0 : 26.0;
-    final artistFontSize = isCompact ? 12.0 : 14.0;
+    final titleFontSize = isOg
+        ? (isCompact ? 16.0 : 20.0)
+        : (isCompact ? 15.0 : 17.0);
+    final titleHeight = isOg
+        ? (isCompact ? 24.0 : 28.0)
+        : (isCompact ? 22.0 : 26.0);
+    final artistFontSize = isOg
+        ? (isCompact ? 13.0 : 15.0)
+        : (isCompact ? 12.0 : 14.0);
     final artistHeight = isCompact ? 18.0 : 22.0;
     final horizontalPadding = isCompact ? 16.0 : 24.0;
 
@@ -4981,7 +5014,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
         children: [
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
+              crossAxisAlignment: isOg
+                  ? CrossAxisAlignment.start
+                  : CrossAxisAlignment.center,
               children: [
                 // Marquee for long titles
                 SizedBox(
@@ -5011,7 +5046,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                             color: textColor,
                           ),
                           scrollAxis: Axis.horizontal,
-                          crossAxisAlignment: CrossAxisAlignment.center,
+                          crossAxisAlignment: isOg
+                              ? CrossAxisAlignment.start
+                              : CrossAxisAlignment.center,
                           blankSpace: 60.0,
                           velocity: 30.0,
                           pauseAfterRound: const Duration(seconds: 2),
@@ -5027,7 +5064,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                       return Text(
                         track.title,
                         maxLines: 1,
-                        textAlign: TextAlign.center,
+                        textAlign: isOg ? TextAlign.start : TextAlign.center,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: titleFontSize,
@@ -5050,14 +5087,200 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                     ),
                     maxLines: 1,
                     enableMarquee: true,
-                    textAlign: TextAlign.center,
+                    textAlign: isOg ? TextAlign.start : TextAlign.center,
                   ),
                 ),
               ],
             ),
           ),
+          if (isOg) ...[
+            const SizedBox(width: 8),
+            // Download indicator
+            Builder(
+              builder: (context) {
+                final isDownloaded = ref.watch(
+                  isTrackDownloadedProvider(track.id),
+                );
+                final progress = ref.watch(
+                  trackDownloadProgressProvider(track.id),
+                );
+
+                if (isDownloaded) {
+                  return const Padding(
+                    padding: EdgeInsets.only(right: 6),
+                    child: Icon(
+                      Iconsax.tick_circle5,
+                      size: 20,
+                      color: Colors.green,
+                    ),
+                  );
+                }
+
+                if (progress != null) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        value: progress,
+                        strokeWidth: 2,
+                        color: secondaryColor,
+                      ),
+                    ),
+                  );
+                }
+
+                return const SizedBox.shrink();
+              },
+            ),
+            // Action Buttons Capsule (Like, Share, Jam)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              decoration: BoxDecoration(
+                color: textColor.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(
+                  color: accentColor.withValues(alpha: 0.38),
+                  width: 1.2,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Like button
+                  Builder(
+                    builder: (context) {
+                      final isLiked = ref.watch(isTrackLikedProvider(track.id));
+                      return BouncyTouch(
+                        style: BouncyStyle.heartPop,
+                        customScale: 0.85,
+                        onTap: () => _toggleLikeTrack(track),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 9.0,
+                            vertical: 7.0,
+                          ),
+                          child: Icon(
+                            isLiked ? Iconsax.heart5 : Iconsax.heart,
+                            color: isLiked
+                                ? Colors.red
+                                : textColor.withValues(alpha: 0.9),
+                            size: 21,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+
+                  const SizedBox(width: 5),
+                  Container(
+                    width: 1,
+                    height: 22,
+                    color: textColor.withValues(alpha: 0.15),
+                  ),
+                  const SizedBox(width: 5),
+
+                  // Share button
+                  BouncyTouch(
+                    style: BouncyStyle.button,
+                    customScale: 0.92,
+                    onTap: () {
+                      final url = DeepLinkHandler.createShareUrl('song', track.id);
+                      SharePlus.instance.share(
+                        ShareParams(
+                          text: context.l10n.shareTrackText(
+                            track.title,
+                            track.artist,
+                            url,
+                          ),
+                        ),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9.0,
+                        vertical: 7.0,
+                      ),
+                      child: Icon(
+                        Icons.share_rounded,
+                        color: textColor.withValues(alpha: 0.9),
+                        size: 20,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 5),
+                  Container(
+                    width: 1,
+                    height: 22,
+                    color: textColor.withValues(alpha: 0.15),
+                  ),
+                  const SizedBox(width: 5),
+
+                  // Jams button - listen together
+                  _buildJamsCompactButton(textColor, accentColor),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
+    );
+  }
+
+  Widget _buildJamsCompactButton(Color textColor, Color accentColor) {
+    final isInSession = ref.watch(isInJamSessionProvider);
+    final session = ref.watch(currentJamSessionProvider).valueOrNull;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        BouncyTouch(
+          style: BouncyStyle.button,
+          customScale: 0.92,
+          onTap: () {
+            final albumColors = ref.read(albumColorsProvider);
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            final bgColor = (!albumColors.isDefault
+                ? albumColors.backgroundPrimary
+                : (isDark ? const Color(0xFF141414) : Colors.white)).withValues(alpha: 1.0);
+            final txtColor = !albumColors.isDefault
+                ? albumColors.onBackground
+                : (isDark ? Colors.white : InzxColors.textPrimary);
+            JamsPanel.show(
+              context,
+              backgroundColor: bgColor,
+              textColor: txtColor,
+              accentColor: accentColor,
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 9.0,
+              vertical: 7.0,
+            ),
+            child: Icon(
+              Iconsax.profile_2user,
+              color: isInSession ? accentColor : textColor.withValues(alpha: 0.9),
+              size: 20,
+            ),
+          ),
+        ),
+        if (isInSession && session != null)
+          Positioned(
+            right: 2,
+            top: 2,
+            child: Container(
+              width: 6,
+              height: 6,
+              decoration: const BoxDecoration(
+                color: Colors.green,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -5086,7 +5309,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                   text: track.artist,
                   style: style,
                   scrollAxis: Axis.horizontal,
-                  crossAxisAlignment: CrossAxisAlignment.center,
+                  crossAxisAlignment: textAlign == TextAlign.center
+                      ? CrossAxisAlignment.center
+                      : CrossAxisAlignment.start,
                   blankSpace: 60.0,
                   velocity: 30.0,
                   pauseAfterRound: const Duration(seconds: 2),

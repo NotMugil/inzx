@@ -13,6 +13,7 @@ import 'ytmusic_api_service.dart';
 import 'ytmusic_auth_service.dart';
 import '../data/entities/track_entity.dart';
 import 'widget_sync_service.dart';
+import 'local_artwork_service.dart';
 /// Audio handler for background playback and media controls
 ///
 /// This is the Android MediaLibraryService equivalent.
@@ -36,6 +37,8 @@ class InzxAudioHandler extends BaseAudioHandler with SeekHandler {
   StreamSubscription<Duration>? _bufferedPositionSubscription;
   static const Duration _positionSyncInterval = Duration(seconds: 1);
   String? _lastTrackId;
+  String? _lastTrackArtist;
+  String? _lastTrackTitle;
   int? _lastQueueLength;
   DateTime? _lastPositionSyncAt;
 
@@ -61,10 +64,15 @@ class InzxAudioHandler extends BaseAudioHandler with SeekHandler {
       // Update playback state with current position values
       _updatePlaybackState(state);
 
-      // Only update media item when track changes
-      if (state.currentTrack?.id != _lastTrackId) {
-        _lastTrackId = state.currentTrack?.id;
-        _updateMediaItem(state.currentTrack);
+      // Update media item when track changes or metadata (artist/title) is enriched
+      final cur = state.currentTrack;
+      if (cur?.id != _lastTrackId ||
+          cur?.artist != _lastTrackArtist ||
+          cur?.title != _lastTrackTitle) {
+        _lastTrackId = cur?.id;
+        _lastTrackArtist = cur?.artist;
+        _lastTrackTitle = cur?.title;
+        _updateMediaItem(cur);
       }
 
       // Only update queue when it changes
@@ -164,6 +172,16 @@ class InzxAudioHandler extends BaseAudioHandler with SeekHandler {
       return;
     }
 
+    Uri? artUri;
+    if (track.bestThumbnail != null && track.bestThumbnail!.trim().isNotEmpty) {
+      artUri = Uri.tryParse(track.bestThumbnail!);
+    } else if (track.localFilePath != null && track.localFilePath!.trim().isNotEmpty) {
+      final cachedFile = LocalArtworkService.getCachedFile(track.localFilePath!);
+      if (cachedFile != null) {
+        artUri = Uri.file(cachedFile.path);
+      }
+    }
+
     mediaItem.add(
       MediaItem(
         id: track.id,
@@ -171,27 +189,53 @@ class InzxAudioHandler extends BaseAudioHandler with SeekHandler {
         artist: track.artist,
         album: track.album ?? '',
         duration: track.duration,
-        artUri: track.bestThumbnail != null
-            ? Uri.parse(track.bestThumbnail!)
-            : null,
+        artUri: artUri,
       ),
     );
+
+    // If local track and artUri is not yet resolved, fetch asynchronously
+    final localPath = track.localFilePath?.trim();
+    if (artUri == null && localPath != null && localPath.isNotEmpty) {
+      LocalArtworkService.getArtworkFile(localPath, track: track).then((file) {
+        if (file != null && mediaItem.value?.id == track.id) {
+          mediaItem.add(
+            MediaItem(
+              id: track.id,
+              title: track.title,
+              artist: track.artist,
+              album: track.album ?? '',
+              duration: track.duration,
+              artUri: Uri.file(file.path),
+            ),
+          );
+        }
+      });
+    }
   }
 
   void _updateQueue(List<Track> tracks) {
     queue.add(
       tracks
           .map(
-            (track) => MediaItem(
-              id: track.id,
-              title: track.title,
-              artist: track.artist,
-              album: track.album ?? '',
-              duration: track.duration,
-              artUri: track.bestThumbnail != null
-                  ? Uri.parse(track.bestThumbnail!)
-                  : null,
-            ),
+            (track) {
+              Uri? artUri;
+              if (track.bestThumbnail != null && track.bestThumbnail!.trim().isNotEmpty) {
+                artUri = Uri.tryParse(track.bestThumbnail!);
+              } else if (track.localFilePath != null && track.localFilePath!.trim().isNotEmpty) {
+                final cachedFile = LocalArtworkService.getCachedFile(track.localFilePath!);
+                if (cachedFile != null) {
+                  artUri = Uri.file(cachedFile.path);
+                }
+              }
+              return MediaItem(
+                id: track.id,
+                title: track.title,
+                artist: track.artist,
+                album: track.album ?? '',
+                duration: track.duration,
+                artUri: artUri,
+              );
+            },
           )
           .toList(),
     );
@@ -812,15 +856,23 @@ class InzxAudioHandler extends BaseAudioHandler with SeekHandler {
   // ── Converters ───────────────────────────────────────────
 
   MediaItem _trackToMediaItem(Track track) {
+    Uri? artUri;
+    if (track.bestThumbnail != null && track.bestThumbnail!.trim().isNotEmpty) {
+      artUri = Uri.tryParse(track.bestThumbnail!);
+    } else if (track.localFilePath != null && track.localFilePath!.trim().isNotEmpty) {
+      final cachedFile = LocalArtworkService.getCachedFile(track.localFilePath!);
+      if (cachedFile != null) {
+        artUri = Uri.file(cachedFile.path);
+      }
+    }
+
     return MediaItem(
       id: track.id,
       title: track.title,
       artist: track.artist,
       album: track.album ?? '',
       duration: track.duration,
-      artUri: track.bestThumbnail != null
-          ? Uri.parse(track.bestThumbnail!)
-          : null,
+      artUri: artUri,
       playable: true,
     );
   }

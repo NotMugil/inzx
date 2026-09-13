@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -700,28 +701,73 @@ class _MusicFoldersTabState extends ConsumerState<MusicFoldersTab> {
       final downloadManagerNotifier = ref.read(downloadManagerProvider.notifier);
       final scaffoldMessenger = ScaffoldMessenger.of(context);
 
-      final queueIndex = playerService.queue.indexWhere((t) =>
-          t.id == track.id ||
-          (track.localFilePath != null &&
-              t.localFilePath == track.localFilePath));
-      if (queueIndex != -1) {
-        playerService.removeFromQueue(queueIndex);
-      } else if (playerService.currentTrack?.id == track.id ||
-          (track.localFilePath != null &&
-              playerService.currentTrack?.localFilePath == track.localFilePath)) {
-        playerService.stop();
+      // Check storage deletion permission on Android
+      if (Platform.isAndroid &&
+          !await LocalMusicScanner.hasDeleteStoragePermission()) {
+        final granted =
+            await LocalMusicScanner.requestDeleteStoragePermission();
+        if (!granted) {
+          if (mounted) {
+            scaffoldMessenger.showSnackBar(
+              SnackBar(
+                content: Text(l10n.storagePermissionRequiredMessage),
+                action: SnackBarAction(
+                  label: l10n.openSettings,
+                  onPressed: () => LocalMusicScanner.openSettings(),
+                ),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+          return false;
+        }
       }
 
-      await localTracksNotifier.deleteTrack(track, deleteFileFromDisk: true);
-      await downloadManagerNotifier.removeDownload(track.id);
-
-      scaffoldMessenger.showSnackBar(
-        SnackBar(
-          content: Text(l10n.deletedTrack(track.title)),
-          behavior: SnackBarBehavior.floating,
-        ),
+      final success = await localTracksNotifier.deleteTrack(
+        track,
+        deleteFileFromDisk: true,
       );
-      return true;
+
+      if (success) {
+        final queueIndex = playerService.queue.indexWhere((t) =>
+            t.id == track.id ||
+            (track.localFilePath != null &&
+                t.localFilePath == track.localFilePath));
+        if (queueIndex != -1) {
+          playerService.removeFromQueue(queueIndex);
+        } else if (playerService.currentTrack?.id == track.id ||
+            (track.localFilePath != null &&
+                playerService.currentTrack?.localFilePath ==
+                    track.localFilePath)) {
+          playerService.stop();
+        }
+
+        await downloadManagerNotifier.removeDownload(track.id);
+
+        if (mounted) {
+          scaffoldMessenger.showSnackBar(
+            SnackBar(
+              content: Text(l10n.deletedTrack(track.title)),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return true;
+      } else {
+        if (mounted) {
+          scaffoldMessenger.showSnackBar(
+            SnackBar(
+              content: Text(l10n.storagePermissionRequiredMessage),
+              action: SnackBarAction(
+                label: l10n.openSettings,
+                onPressed: () => LocalMusicScanner.openSettings(),
+              ),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return false;
+      }
     }
     return false;
   }

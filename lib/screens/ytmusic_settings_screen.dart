@@ -17,6 +17,7 @@ import 'ytmusic_login_screen.dart';
 import 'audio_settings_screen.dart';
 import 'download_settings_screen.dart';
 import 'backup_restore_screen.dart';
+import 'logs_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:ui';
 import 'package:flutter/services.dart';
@@ -1209,7 +1210,9 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
                                         ? Icons.filter_vintage_rounded
                                         : (style == NowPlayingStyle.edge
                                             ? Icons.splitscreen_rounded
-                                            : Icons.crop_square_rounded),
+                                            : (style == NowPlayingStyle.og
+                                                ? Icons.view_headline_rounded
+                                                : Icons.crop_square_rounded)),
                                     color: isSelected
                                         ? _accentColor
                                         : _textPrimary.withValues(alpha: 0.8),
@@ -2894,6 +2897,43 @@ class _YTMusicSettingsScreenState extends ConsumerState<YTMusicSettingsScreen> {
             color: _textSecondary,
           ),
           onTap: _showAppInfoPopup,
+        ),
+        Divider(color: _isDark ? Colors.white10 : Colors.black12, height: 16),
+        // App Logs & Crash Diagnostics
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: _accentColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Iconsax.document_code, color: _accentColor, size: 18),
+          ),
+          title: Text(
+            'App Logs & Diagnostics',
+            style: TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w600,
+              color: _textPrimary,
+            ),
+          ),
+          subtitle: Text(
+            'View, copy & export crash traces',
+            style: TextStyle(fontSize: 12, color: _textSecondary),
+          ),
+          trailing: Icon(
+            Icons.arrow_forward_ios_rounded,
+            size: 14,
+            color: _textSecondary,
+          ),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const AppLogsScreen()),
+            );
+          },
         ),
         Divider(color: _isDark ? Colors.white10 : Colors.black12, height: 16),
         // Sponsor Inzx

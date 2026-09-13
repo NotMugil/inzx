@@ -65,7 +65,7 @@ class TrackArtworkView extends StatelessWidget {
         } else {
           // 3. Asynchronously load embedded artwork with fallback to network
           content = FutureBuilder<Uint8List?>(
-            future: LocalArtworkService.getArtworkBytes(localPath),
+            future: LocalArtworkService.getArtworkBytes(localPath, track: track),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.done &&
                   snapshot.hasData &&

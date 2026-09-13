@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -902,32 +903,67 @@ class _TrackOptionsSheetState extends ConsumerState<TrackOptionsSheet> {
                     Navigator.pop(context);
                   }
 
-                  final queueIndex = playerService.queue.indexWhere((t) =>
-                      t.id == track.id ||
-                      (track.localFilePath != null &&
-                          t.localFilePath == track.localFilePath));
-                  if (queueIndex != -1) {
-                    playerService.removeFromQueue(queueIndex);
-                  } else if (playerService.currentTrack?.id == track.id ||
-                      (track.localFilePath != null &&
-                          playerService.currentTrack?.localFilePath ==
-                              track.localFilePath)) {
-                    playerService.stop();
+                  // Check storage deletion permission on Android if deleting a local file
+                  if (Platform.isAndroid &&
+                      track.localFilePath != null &&
+                      track.localFilePath!.isNotEmpty &&
+                      !await LocalMusicScanner.hasDeleteStoragePermission()) {
+                    final granted =
+                        await LocalMusicScanner.requestDeleteStoragePermission();
+                    if (!granted) {
+                      scaffoldMessenger.showSnackBar(
+                        SnackBar(
+                          content: Text(l10n.storagePermissionRequiredMessage),
+                          action: SnackBarAction(
+                            label: l10n.openSettings,
+                            onPressed: () => LocalMusicScanner.openSettings(),
+                          ),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                      return;
+                    }
                   }
 
-                  await localTracksNotifier.deleteTrack(
+                  final success = await localTracksNotifier.deleteTrack(
                     track,
                     deleteFileFromDisk: true,
                   );
 
-                  await downloadManagerNotifier.removeDownload(track.id);
+                  if (success) {
+                    final queueIndex = playerService.queue.indexWhere((t) =>
+                        t.id == track.id ||
+                        (track.localFilePath != null &&
+                            t.localFilePath == track.localFilePath));
+                    if (queueIndex != -1) {
+                      playerService.removeFromQueue(queueIndex);
+                    } else if (playerService.currentTrack?.id == track.id ||
+                        (track.localFilePath != null &&
+                            playerService.currentTrack?.localFilePath ==
+                                track.localFilePath)) {
+                      playerService.stop();
+                    }
 
-                  scaffoldMessenger.showSnackBar(
-                    SnackBar(
-                      content: Text(l10n.deletedTrack(track.title)),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
+                    await downloadManagerNotifier.removeDownload(track.id);
+
+                    scaffoldMessenger.showSnackBar(
+                      SnackBar(
+                        content: Text(l10n.deletedTrack(track.title)),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  } else {
+                    scaffoldMessenger.showSnackBar(
+                      SnackBar(
+                        content: Text(l10n.storagePermissionRequiredMessage),
+                        action: SnackBarAction(
+                          label: l10n.openSettings,
+                          onPressed: () => LocalMusicScanner.openSettings(),
+                        ),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
                 },
                 style: FilledButton.styleFrom(
                   backgroundColor: Colors.red,

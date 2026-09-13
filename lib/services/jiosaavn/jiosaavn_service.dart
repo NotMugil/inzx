@@ -401,9 +401,7 @@ class JioSaavnService {
           continue;
         }
 
-        if (target.durationSec != null) {
-          _streamCache[track.id] = stream;
-        }
+        _streamCache[track.id] = stream;
         if (kDebugMode) {
           print(
             'JioSaavnService: Matched "${track.title}" -> "${bestMatch.title}" (${stream.kbps}kbps)',

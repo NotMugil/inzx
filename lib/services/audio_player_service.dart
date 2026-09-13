@@ -16,6 +16,7 @@ import 'queue_persistence_service.dart';
 import 'lyrics/lyrics_service.dart';
 import 'album_color_extractor.dart';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
+import 'local_artwork_service.dart';
 import 'package:hive/hive.dart';
 import '../data/entities/download_entity.dart';
 
@@ -840,6 +841,9 @@ class AudioPlayerService {
       if (await localFile.exists()) {
         final fileSize = await localFile.length();
         if (fileSize >= 10000) {
+          if (LocalArtworkService.isArtistMissing(track.artist)) {
+            unawaited(LocalArtworkService.fetchOnlineMetadata(track));
+          }
           final playbackData = await _resolvePlaybackDataForLocalTrack(
             track,
             localFile,
@@ -2308,6 +2312,89 @@ class AudioPlayerService {
     _cacheMaintenanceTimer = Timer.periodic(_cacheMaintenanceInterval, (_) {
       unawaited(_enforceAudioCacheLimit());
     });
+
+    // Listen for local tracks enriched with online metadata (artist, album, artwork)
+    LocalArtworkService.onTrackEnriched.listen((updatedTrack) {
+      enrichTrackMetadata(updatedTrack);
+    });
+  }
+
+  /// Enrich currentTrack and queue when online metadata (artist, album, artwork) is resolved
+  void enrichTrackMetadata(Track updatedTrack) {
+    bool trackChanged = false;
+    if (_currentTrack != null && _currentTrack!.id == updatedTrack.id) {
+      var updated = _currentTrack!;
+      if (LocalArtworkService.isArtistMissing(updated.artist) &&
+          !LocalArtworkService.isArtistMissing(updatedTrack.artist)) {
+        updated = updated.copyWith(artist: updatedTrack.artist);
+        trackChanged = true;
+      }
+      if ((updated.album == null || updated.album!.trim().isEmpty) &&
+          updatedTrack.album != null &&
+          updatedTrack.album!.trim().isNotEmpty) {
+        updated = updated.copyWith(album: updatedTrack.album);
+        trackChanged = true;
+      }
+      if ((updated.thumbnailUrl == null || updated.thumbnailUrl!.trim().isEmpty) &&
+          updatedTrack.thumbnailUrl != null &&
+          updatedTrack.thumbnailUrl!.trim().isNotEmpty) {
+        updated = updated.copyWith(
+          thumbnailUrl: updatedTrack.thumbnailUrl,
+          highResThumbnailUrl: updatedTrack.highResThumbnailUrl,
+        );
+        trackChanged = true;
+      }
+      if (trackChanged) {
+        _currentTrack = updated;
+      }
+    }
+
+    for (int i = 0; i < _queue.length; i++) {
+      if (_queue[i].id == updatedTrack.id) {
+        var item = _queue[i];
+        bool itemChanged = false;
+        if (LocalArtworkService.isArtistMissing(item.artist) &&
+            !LocalArtworkService.isArtistMissing(updatedTrack.artist)) {
+          item = item.copyWith(artist: updatedTrack.artist);
+          itemChanged = true;
+        }
+        if ((item.album == null || item.album!.trim().isEmpty) &&
+            updatedTrack.album != null &&
+            updatedTrack.album!.trim().isNotEmpty) {
+          item = item.copyWith(album: updatedTrack.album);
+          itemChanged = true;
+        }
+        if (itemChanged) {
+          _queue[i] = item;
+          trackChanged = true;
+        }
+      }
+    }
+
+    for (int i = 0; i < _originalQueue.length; i++) {
+      if (_originalQueue[i].id == updatedTrack.id) {
+        var item = _originalQueue[i];
+        bool itemChanged = false;
+        if (LocalArtworkService.isArtistMissing(item.artist) &&
+            !LocalArtworkService.isArtistMissing(updatedTrack.artist)) {
+          item = item.copyWith(artist: updatedTrack.artist);
+          itemChanged = true;
+        }
+        if (itemChanged) {
+          _originalQueue[i] = item;
+          trackChanged = true;
+        }
+      }
+    }
+
+    if (trackChanged) {
+      _queueRevision++;
+      _updateState(
+        currentTrack: _currentTrack,
+        queue: _queue,
+        queueRevision: _queueRevision,
+      );
+    }
   }
 
   void _handleYoutubeTrackingPlaybackState(PlayerState playerState) {
@@ -2958,8 +3045,21 @@ class AudioPlayerService {
         tracks.map((t) => t.id).toList(),
         quality: _audioQuality,
       );
+      if (_jioSaavnEnabled &&
+          (_audioQuality == AudioQuality.high ||
+              _audioQuality == AudioQuality.max ||
+              _audioQuality == AudioQuality.auto)) {
+        for (final track in tracks.take(3)) {
+          unawaited(JioSaavnService.instance.getBestStreamForTrack(track));
+        }
+      }
       _schedulePrecacheAhead();
       _scheduleLyricsPrefetchAroundCurrent();
+
+      // If we were at the end of the queue, the immediate next track is now available
+      if (_currentIndex >= _queue.length - tracks.length - 1) {
+        _prefetchNextTrack();
+      }
     }
   }
 
@@ -2978,6 +3078,12 @@ class AudioPlayerService {
 
     // Prefetch the track that will play next
     _ytPlayerUtils.prefetchNext(track.id, quality: _audioQuality);
+    if (_jioSaavnEnabled &&
+        (_audioQuality == AudioQuality.high ||
+            _audioQuality == AudioQuality.max ||
+            _audioQuality == AudioQuality.auto)) {
+      unawaited(JioSaavnService.instance.getBestStreamForTrack(track));
+    }
     _schedulePrecacheAhead();
     _scheduleLyricsPrefetchAroundCurrent();
   }
@@ -3151,6 +3257,10 @@ class AudioPlayerService {
               );
             }
           } else {
+            // Enrich track metadata (artist, album, artwork) in background if missing
+            if (LocalArtworkService.isArtistMissing(_currentTrack!.artist)) {
+              unawaited(LocalArtworkService.fetchOnlineMetadata(_currentTrack!));
+            }
             try {
               // Use Uri.file for proper file:// URI on Android
               final fileUri = Uri.file(_currentTrack!.localFilePath!);
@@ -3212,19 +3322,13 @@ class AudioPlayerService {
       }
 
       // 1. Check if JioSaavn stream is requested.
-      // Never use JioSaavn for live/radio streams: JioSaavn has no live content,
-      // so it would only fuzzy-match the title to some random song and overwrite
-      // the live HLS. Live streams report an unknown (zero) length, so a
-      // zero-duration track is treated as live-ish here and kept on YouTube.
-      final trackDurationUnknown = _currentTrack!.duration <= Duration.zero;
-      final wantsJioSaavn = _jioSaavnEnabled &&
-          !trackDurationUnknown &&
+      final qualityAllowsSaavn = _jioSaavnEnabled &&
           (_audioQuality == AudioQuality.high ||
               _audioQuality == AudioQuality.max ||
               _audioQuality == AudioQuality.auto);
 
       // Check if JioSaavn stream is already cached (e.g. from prefetch)
-      if (wantsJioSaavn) {
+      if (qualityAllowsSaavn) {
         final cachedSaavnStream =
             JioSaavnService.instance.getCachedStream(trackId);
         if (cachedSaavnStream != null && cachedSaavnStream.bitrateKbps >= 320) {
@@ -3236,6 +3340,8 @@ class AudioPlayerService {
           return;
         }
       }
+
+      final wantsJioSaavn = qualityAllowsSaavn;
 
       // Check if URL is already cached (should be instant if prefetched)
       final hasCached = _ytPlayerUtils.hasCachedData(trackId);
@@ -3585,6 +3691,10 @@ class AudioPlayerService {
               _audioQuality == AudioQuality.max ||
               _audioQuality == AudioQuality.auto)) {
         unawaited(JioSaavnService.instance.getBestStreamForTrack(nextTrack));
+        if (_currentIndex < _queue.length - 2) {
+          final subsequentTrack = _queue[_currentIndex + 2];
+          unawaited(JioSaavnService.instance.getBestStreamForTrack(subsequentTrack));
+        }
       }
 
       // Pre-extract colors for upcoming tracks so song change is instant 0ms
@@ -3626,8 +3736,12 @@ class AudioPlayerService {
           ? await inFlightStream
           : null;
 
-      if (saavnStream == null && track.duration > Duration.zero) {
-        saavnStream = await JioSaavnService.instance.getBestStreamForTrack(track);
+      if (saavnStream == null) {
+        final current = _currentTrack;
+        final candidate =
+            (current != null && current.id == track.id) ? current : track;
+        saavnStream =
+            await JioSaavnService.instance.getBestStreamForTrack(candidate);
       }
 
       // User changed track or queue in the meantime

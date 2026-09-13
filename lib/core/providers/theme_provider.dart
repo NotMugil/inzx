@@ -348,6 +348,7 @@ enum NowPlayingStyle {
   defaultStyle, // Standard YouTube Music style
   ripple, // Wavy 8-petal artwork with circular seek ring & minimalist layout
   edge, // Full-bleed edge-to-edge artwork spanning the top half
+  og, // Classic Inzx layout with left-aligned title & quick action buttons
 }
 
 String getNowPlayingStyleName(NowPlayingStyle style) {
@@ -358,6 +359,8 @@ String getNowPlayingStyleName(NowPlayingStyle style) {
       return 'Ripple';
     case NowPlayingStyle.edge:
       return 'Cinematic';
+    case NowPlayingStyle.og:
+      return 'OG';
   }
 }
 
@@ -369,6 +372,8 @@ String getNowPlayingStyleDescription(NowPlayingStyle style) {
       return 'Fluid 8-petal wavy cover art with circular perimeter scrubber and sleek minimalist layout';
     case NowPlayingStyle.edge:
       return 'Full-width cover art with seamless fade into playback controls';
+    case NowPlayingStyle.og:
+      return 'The original Inzx layout with left-aligned track info, quick actions, and classic controls';
   }
 }
 

@@ -16,6 +16,7 @@ import 'artist_screen.dart';
 import 'podcast_screen.dart' show PodcastScreen;
 import 'ripple_circular_progress_scrubber.dart';
 import 'ripple_flower_clipper.dart';
+import 'jam_indicator_badge.dart';
 
 /// The 'Ripple' minimalist Now Playing screen layout.
 /// Features an 8-petal wavy album art mask, concentric waveform seek ring,
@@ -420,6 +421,8 @@ class _RippleNowPlayingViewState extends ConsumerState<RippleNowPlayingView> {
       onTap: () => widget.onOpenOptions?.call(),
     );
 
+    final isInJam = ref.watch(isInJamSessionProvider);
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
       child: Row(
@@ -447,9 +450,9 @@ class _RippleNowPlayingViewState extends ConsumerState<RippleNowPlayingView> {
                     child: GestureDetector(
                       onTap: () {
                         if (hasQueueTitle && hasStats) {
-                          setState(() {
-                            _showStatsInsteadOfTitle = !_showStatsInsteadOfTitle;
-                          });
+                           setState(() {
+                             _showStatsInsteadOfTitle = !_showStatsInsteadOfTitle;
+                           });
                         }
                       },
                       child: Text(
@@ -472,6 +475,13 @@ class _RippleNowPlayingViewState extends ConsumerState<RippleNowPlayingView> {
               ],
             ),
           ),
+          if (isInJam) ...[
+            JamIndicatorBadge(
+              textColor: widget.textColor,
+              accentColor: widget.accentColor,
+            ),
+            const SizedBox(width: 8),
+          ],
           moreButton,
         ],
       ),

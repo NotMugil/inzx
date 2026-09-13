@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:math' show min;
 import 'package:flutter/foundation.dart' show compute, kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
@@ -8,7 +10,7 @@ import '../models/models.dart';
 import '../core/services/cache/hive_service.dart';
 import '../data/entities/track_entity.dart';
 import '../data/entities/download_entity.dart';
-import 'package:audio_metadata_reader/audio_metadata_reader.dart';
+import 'safe_audio_metadata_reader.dart';
 import 'local_artwork_service.dart';
 
 /// Provider for scanned local music folders
@@ -101,8 +103,24 @@ class LocalMusicFoldersNotifier extends StateNotifier<List<String>> {
 
 /// Local tracks notifier
 class LocalTracksNotifier extends StateNotifier<List<Track>> {
+  StreamSubscription<Track>? _enrichSubscription;
+
   LocalTracksNotifier() : super([]) {
     _loadPersisted();
+    _enrichSubscription = LocalArtworkService.onTrackEnriched.listen((updatedTrack) {
+      final index = state.indexWhere((t) => t.id == updatedTrack.id);
+      if (index != -1) {
+        final updatedList = List<Track>.from(state);
+        updatedList[index] = updatedTrack;
+        state = updatedList;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _enrichSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadPersisted() async {
@@ -219,7 +237,7 @@ class LocalTracksNotifier extends StateNotifier<List<Track>> {
       }
       if (freshTracks.isNotEmpty) {
         final entities = {for (final t in freshTracks) t.id: _trackToEntity(t)};
-        await box.putAll(entities);
+        await _batchPutHiveEntities(box, entities);
       }
     } catch (e) {
       if (kDebugMode) {
@@ -268,11 +286,29 @@ class LocalTracksNotifier extends StateNotifier<List<Track>> {
         final entities = {
           for (final t in allScannedTracks) t.id: _trackToEntity(t),
         };
-        await box.putAll(entities);
+        await _batchPutHiveEntities(box, entities);
       }
     } catch (e) {
       if (kDebugMode) {
         print('LocalTracksNotifier: syncAllFolders error: $e');
+      }
+    }
+  }
+
+  /// Write entities to Hive in small batches yielding to the event loop to prevent UI hangs and GC memory spikes
+  static Future<void> _batchPutHiveEntities(
+    Box<TrackEntity> box,
+    Map<String, TrackEntity> entities,
+  ) async {
+    const batchSize = 100;
+    final entries = entities.entries.toList();
+    for (int i = 0; i < entries.length; i += batchSize) {
+      final chunk = Map.fromEntries(
+        entries.sublist(i, min(i + batchSize, entries.length)),
+      );
+      await box.putAll(chunk);
+      if (i + batchSize < entries.length) {
+        await Future.delayed(Duration.zero);
       }
     }
   }
@@ -282,8 +318,71 @@ class LocalTracksNotifier extends StateNotifier<List<Track>> {
     HiveService.localMusicTracksBox.clear();
   }
 
-  /// Delete a single track: removes from state, removes from Hive, and optionally deletes the file from disk
+  /// Delete a single track: deletes the physical file from disk (if requested),
+  /// and only upon successful disk deletion removes from state and Hive.
   Future<bool> deleteTrack(Track track, {bool deleteFileFromDisk = true}) async {
+    // 1. Delete file from disk if requested
+    if (deleteFileFromDisk &&
+        track.localFilePath != null &&
+        track.localFilePath!.isNotEmpty) {
+      final file = File(track.localFilePath!);
+      bool fileDeleted = false;
+
+      try {
+        if (await file.exists()) {
+          await file.delete();
+          fileDeleted = true;
+        } else {
+          // File does not exist on disk, consider it deleted
+          fileDeleted = true;
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('LocalTracksNotifier: Initial file delete error: $e');
+        }
+
+        // On Android, scoped storage may block direct POSIX deletion with PathNotFoundException
+        // (errno = 2) if MANAGE_EXTERNAL_STORAGE is not granted.
+        // Attempt to request storage deletion permission and retry.
+        if (Platform.isAndroid) {
+          try {
+            final granted = await LocalMusicScanner.requestDeleteStoragePermission();
+            if (granted && await file.exists()) {
+              await file.delete();
+              fileDeleted = true;
+            }
+          } catch (retryError) {
+            if (kDebugMode) {
+              print('LocalTracksNotifier: Retry file delete error: $retryError');
+            }
+          }
+        }
+      }
+
+      // If physical deletion failed and the file still exists, abort to prevent
+      // desynchronization between disk and library state.
+      if (!fileDeleted && await file.exists()) {
+        if (kDebugMode) {
+          print(
+            'LocalTracksNotifier: Could not delete physical file: ${track.localFilePath}',
+          );
+        }
+        return false;
+      }
+
+      // Delete legacy .cover.jpg if present
+      try {
+        final legacyCover = File('${track.localFilePath}.cover.jpg');
+        if (await legacyCover.exists()) {
+          await legacyCover.delete();
+        }
+      } catch (_) {}
+
+      // Evict artwork cache
+      LocalArtworkService.evict(track.localFilePath!);
+    }
+
+    // 2. Only remove from state and Hive once disk deletion has succeeded (or wasn't requested)
     state = state.where((t) => t.id != track.id).toList();
     try {
       await HiveService.localMusicTracksBox.delete(track.id);
@@ -312,27 +411,6 @@ class LocalTracksNotifier extends StateNotifier<List<Track>> {
       }
     } catch (_) {}
 
-    // Delete file from disk if requested
-    if (deleteFileFromDisk && track.localFilePath != null && track.localFilePath!.isNotEmpty) {
-      try {
-        final file = File(track.localFilePath!);
-        if (await file.exists()) {
-          await file.delete();
-        }
-        // Also delete legacy .cover.jpg if present
-        final legacyCover = File('${track.localFilePath}.cover.jpg');
-        if (await legacyCover.exists()) {
-          await legacyCover.delete();
-        }
-        // Evict artwork cache
-        LocalArtworkService.evict(track.localFilePath!);
-      } catch (e) {
-        if (kDebugMode) {
-          print('LocalTracksNotifier: File delete error: $e');
-        }
-        return false;
-      }
-    }
     return true;
   }
 
@@ -444,6 +522,36 @@ class LocalMusicScanner {
     return await openAppSettings();
   }
 
+  /// Check if the app has permission to delete files from external/device storage
+  static Future<bool> hasDeleteStoragePermission() async {
+    if (!Platform.isAndroid) return true;
+
+    // Check manageExternalStorage first (Android 11+ / API 30+)
+    if (await Permission.manageExternalStorage.isGranted) {
+      return true;
+    }
+
+    // Fall back to storage permission for older Android (API <= 29)
+    if (await Permission.storage.isGranted) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /// Request permission to delete files from external/device storage
+  static Future<bool> requestDeleteStoragePermission() async {
+    if (!Platform.isAndroid) return true;
+
+    // Request manageExternalStorage for Android 11+
+    final manageStatus = await Permission.manageExternalStorage.request();
+    if (manageStatus.isGranted) return true;
+
+    // Fall back to storage permission for older Android (API <= 29)
+    final storageStatus = await Permission.storage.request();
+    return storageStatus.isGranted;
+  }
+
   /// Pick a folder to add
   static Future<String?> pickFolder() async {
     try {
@@ -458,7 +566,9 @@ class LocalMusicScanner {
   }
 
   /// Scan a directory for audio files
-  /// File discovery runs in a background isolate to avoid UI jank
+  /// File discovery runs in a background isolate.
+  /// Track metadata parsing runs in chunked background isolates with UI yielding
+  /// so large libraries (1,000+ FLACs) never freeze the UI or trigger ANR/LMK kills.
   static Future<List<Track>> scanDirectory(
     String path, {
     void Function(int scanned, int total, String current)? onProgress,
@@ -481,120 +591,57 @@ class LocalMusicScanner {
     if (filePaths.isEmpty) return [];
 
     final tracks = <Track>[];
+    const batchSize = 50;
 
-    // Process files on main thread (needed for progress callback)
-    for (int i = 0; i < filePaths.length; i++) {
-      final filePath = filePaths[i];
-      onProgress?.call(i + 1, filePaths.length, filePath);
+    for (int i = 0; i < filePaths.length; i += batchSize) {
+      final batch = filePaths.sublist(i, min(i + batchSize, filePaths.length));
+      final batchTracks = await compute(
+        _processBatchIsolate,
+        _BatchScanRequest(
+          filePaths: batch,
+          downloadLookup: downloadLookup,
+        ),
+      );
+      tracks.addAll(batchTracks);
 
-      try {
-        final track = _fileToTrackSync(filePath, downloadLookup);
-        if (track != null) {
-          tracks.add(track);
-        }
-      } catch (e) {
-        if (kDebugMode) {
-          print('Error processing file $filePath: $e');
-        }
-      }
+      final currentFile = batch.isNotEmpty ? batch.last : '';
+      onProgress?.call(
+        min(i + batch.length, filePaths.length),
+        filePaths.length,
+        currentFile,
+      );
+
+      // Yield to the Flutter UI event loop so frame rendering, snackbars,
+      // and Android's main looper stay 100% smooth.
+      await Future.delayed(Duration.zero);
     }
 
     return tracks;
   }
 
   /// Build a lookup map of downloaded tracks by file path
-  static Future<Map<String, DownloadEntity>> _buildDownloadLookup() async {
+  static Future<Map<String, _DownloadLookupItem>> _buildDownloadLookup() async {
     try {
       if (!Hive.isBoxOpen('downloads')) {
         await Hive.openBox<DownloadEntity>('downloads');
       }
       final box = Hive.box<DownloadEntity>('downloads');
-      final map = <String, DownloadEntity>{};
+      final map = <String, _DownloadLookupItem>{};
       for (final e in box.values) {
-        map[e.localPath] = e;
-        map[_normalizePath(e.localPath).toLowerCase()] = e;
+        final item = _DownloadLookupItem(
+          trackId: e.trackId,
+          title: e.title,
+          artist: e.artist,
+          album: e.album,
+          durationMs: e.durationMs,
+          thumbnailUrl: e.thumbnailUrl,
+        );
+        map[e.localPath] = item;
+        map[_normalizePath(e.localPath).toLowerCase()] = item;
       }
       return map;
     } catch (e) {
       return {};
-    }
-  }
-
-  /// Convert a file path to a Track (synchronous, uses pre-built lookup & metadata reading)
-  static Track? _fileToTrackSync(
-    String filePath,
-    Map<String, DownloadEntity> downloadLookup,
-  ) {
-    try {
-      // Check if this file is a known download (by exact path or normalized lowercase)
-      final entity = downloadLookup[filePath] ??
-          downloadLookup[_normalizePath(filePath).toLowerCase()];
-      if (entity != null) {
-        return Track(
-          id: entity.trackId,
-          title: entity.title,
-          artist: entity.artist,
-          album: entity.album,
-          duration: Duration(milliseconds: entity.durationMs),
-          thumbnailUrl: entity.thumbnailUrl,
-          localFilePath: filePath,
-        );
-      }
-
-      // Try reading metadata directly from the audio file
-      String? metaTitle;
-      String? metaArtist;
-      String? metaAlbum;
-      Duration? metaDuration;
-
-      try {
-        final audioFile = File(filePath);
-        final metadata = readMetadata(audioFile, getImage: false);
-        if (metadata.title != null && metadata.title!.trim().isNotEmpty) {
-          metaTitle = metadata.title!.trim();
-        }
-        if (metadata.artist != null && metadata.artist!.trim().isNotEmpty) {
-          metaArtist = metadata.artist!.trim();
-        }
-        if (metadata.album != null && metadata.album!.trim().isNotEmpty) {
-          metaAlbum = metadata.album!.trim();
-        }
-        if (metadata.duration != null && metadata.duration! > Duration.zero) {
-          metaDuration = metadata.duration;
-        }
-      } catch (_) {}
-
-      // Fall back to parsing filename if title/artist not fully extracted
-      final fileName = filePath.split(Platform.pathSeparator).last;
-      final nameWithoutExt = fileName.replaceAll(RegExp(r'\.[^.]+$'), '');
-
-      String title = metaTitle ?? '';
-      String artist = metaArtist ?? '';
-
-      if (title.isEmpty || artist.isEmpty) {
-        if (nameWithoutExt.contains(' - ')) {
-          final parts = nameWithoutExt.split(' - ');
-          if (artist.isEmpty) artist = parts[0].trim();
-          if (title.isEmpty) title = parts.sublist(1).join(' - ').trim();
-        } else {
-          if (title.isEmpty) title = nameWithoutExt;
-          if (artist.isEmpty) artist = 'Unknown Artist';
-        }
-      }
-
-      final id = 'local_${filePath.hashCode}';
-
-      return Track(
-        id: id,
-        title: title,
-        artist: artist,
-        album: metaAlbum,
-        duration: metaDuration ?? const Duration(minutes: 3),
-        thumbnailUrl: null,
-        localFilePath: filePath,
-      );
-    } catch (e) {
-      return null;
     }
   }
 
@@ -680,4 +727,124 @@ List<String> _discoverAudioFilesIsolate(_ScanRequest request) {
   }
 
   return filePaths;
+}
+
+/// Isolate-safe representation of downloaded track metadata
+class _DownloadLookupItem {
+  final String trackId;
+  final String title;
+  final String artist;
+  final String? album;
+  final int durationMs;
+  final String? thumbnailUrl;
+
+  const _DownloadLookupItem({
+    required this.trackId,
+    required this.title,
+    required this.artist,
+    this.album,
+    required this.durationMs,
+    this.thumbnailUrl,
+  });
+}
+
+/// Request data for isolate chunk processing
+class _BatchScanRequest {
+  final List<String> filePaths;
+  final Map<String, _DownloadLookupItem> downloadLookup;
+
+  _BatchScanRequest({
+    required this.filePaths,
+    required this.downloadLookup,
+  });
+}
+
+/// Top-level function for compute() - parses a batch of audio files in a background isolate
+List<Track> _processBatchIsolate(_BatchScanRequest request) {
+  final tracks = <Track>[];
+
+  for (final filePath in request.filePaths) {
+    try {
+      final track = _fileToTrack(filePath, request.downloadLookup);
+      if (track != null) {
+        tracks.add(track);
+      }
+    } catch (e) {
+      // Safe fallback on unexpected error
+      try {
+        final fallback = SafeAudioMetadataReader.parseFilenameFallback(filePath);
+        tracks.add(
+          Track(
+            id: 'local_${filePath.hashCode}',
+            title: fallback.title ?? 'Unknown Track',
+            artist: fallback.artist ?? 'Unknown Artist',
+            album: fallback.album,
+            duration: fallback.duration ?? const Duration(minutes: 3),
+            thumbnailUrl: null,
+            localFilePath: filePath,
+          ),
+        );
+      } catch (_) {}
+    }
+  }
+
+  return tracks;
+}
+
+Track? _fileToTrack(
+  String filePath,
+  Map<String, _DownloadLookupItem> downloadLookup,
+) {
+  try {
+    // Check if this file is a known download (by exact path or normalized lowercase)
+    final entity = downloadLookup[filePath] ??
+        downloadLookup[_normalizePath(filePath).toLowerCase()];
+    if (entity != null) {
+      return Track(
+        id: entity.trackId,
+        title: entity.title,
+        artist: entity.artist,
+        album: entity.album,
+        duration: Duration(milliseconds: entity.durationMs),
+        thumbnailUrl: entity.thumbnailUrl,
+        localFilePath: filePath,
+      );
+    }
+
+    // Try reading metadata safely
+    final audioFile = File(filePath);
+    final meta = SafeAudioMetadataReader.readMetadata(audioFile, extractPicture: false);
+
+    String title = meta.title ?? '';
+    String artist = meta.artist ?? '';
+
+    if (title.isEmpty || artist.isEmpty) {
+      final fallback = SafeAudioMetadataReader.parseFilenameFallback(filePath);
+      if (title.isEmpty) title = fallback.title ?? 'Unknown Track';
+      if (artist.isEmpty) artist = fallback.artist ?? 'Unknown Artist';
+    }
+
+    final id = 'local_${filePath.hashCode}';
+
+    return Track(
+      id: id,
+      title: title,
+      artist: artist,
+      album: meta.album,
+      duration: meta.duration ?? const Duration(minutes: 3),
+      thumbnailUrl: null,
+      localFilePath: filePath,
+    );
+  } catch (_) {
+    final fallback = SafeAudioMetadataReader.parseFilenameFallback(filePath);
+    return Track(
+      id: 'local_${filePath.hashCode}',
+      title: fallback.title ?? 'Unknown Track',
+      artist: fallback.artist ?? 'Unknown Artist',
+      album: fallback.album,
+      duration: fallback.duration ?? const Duration(minutes: 3),
+      thumbnailUrl: null,
+      localFilePath: filePath,
+    );
+  }
 }

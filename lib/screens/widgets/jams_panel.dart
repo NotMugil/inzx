@@ -61,8 +61,10 @@ class _JamsPanelState extends ConsumerState<JamsPanel> {
     final session = ref.watch(currentJamSessionProvider).valueOrNull;
     final jamsState = ref.watch(jamsNotifierProvider);
 
+    final effectiveBg = widget.backgroundColor.withValues(alpha: 1.0);
+
     return Material(
-      color: widget.backgroundColor,
+      color: effectiveBg,
       borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       clipBehavior: Clip.antiAlias,
       child: Container(
@@ -688,31 +690,62 @@ class _JamsPanelState extends ConsumerState<JamsPanel> {
 
   Widget _buildCurrentTrackCard(JamTrack track) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: widget.textColor.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
+        color: widget.textColor.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: widget.accentColor.withValues(alpha: 0.22),
+          width: 1.0,
+        ),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            widget.accentColor.withValues(alpha: 0.10),
+            widget.textColor.withValues(alpha: 0.03),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Row(
         children: [
           // Thumbnail
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: track.thumbnailUrl != null
-                ? CachedNetworkImage(
-                    imageUrl: track.thumbnailUrl!,
-                    width: 48,
-                    height: 48,
-                    fit: BoxFit.cover,
-                  )
-                : Container(
-                    width: 48,
-                    height: 48,
-                    color: widget.accentColor.withValues(alpha: 0.3),
-                    child: Icon(Iconsax.music, color: widget.accentColor),
-                  ),
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: track.thumbnailUrl != null
+                  ? CachedNetworkImage(
+                      imageUrl: track.thumbnailUrl!,
+                      width: 52,
+                      height: 52,
+                      fit: BoxFit.cover,
+                    )
+                  : Container(
+                      width: 52,
+                      height: 52,
+                      color: widget.accentColor.withValues(alpha: 0.25),
+                      child: Icon(Iconsax.music, color: widget.accentColor, size: 24),
+                    ),
+            ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           // Track info with marquee for long text
           Expanded(
             child: Column(
@@ -721,15 +754,16 @@ class _JamsPanelState extends ConsumerState<JamsPanel> {
               children: [
                 // Title with marquee
                 SizedBox(
-                  height: 18,
+                  height: 20,
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       final textPainter = TextPainter(
                         text: TextSpan(
                           text: track.title,
                           style: TextStyle(
-                            fontWeight: FontWeight.w500,
-                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14.5,
+                            letterSpacing: -0.2,
                             color: widget.textColor,
                           ),
                         ),
@@ -741,8 +775,9 @@ class _JamsPanelState extends ConsumerState<JamsPanel> {
                         return Marquee(
                           text: track.title,
                           style: TextStyle(
-                            fontWeight: FontWeight.w500,
-                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14.5,
+                            letterSpacing: -0.2,
                             color: widget.textColor,
                           ),
                           scrollAxis: Axis.horizontal,
@@ -756,8 +791,9 @@ class _JamsPanelState extends ConsumerState<JamsPanel> {
                       return Text(
                         track.title,
                         style: TextStyle(
-                          fontWeight: FontWeight.w500,
-                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14.5,
+                          letterSpacing: -0.2,
                           color: widget.textColor,
                         ),
                         maxLines: 1,
@@ -766,7 +802,7 @@ class _JamsPanelState extends ConsumerState<JamsPanel> {
                     },
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 // Artist with marquee
                 SizedBox(
                   height: 16,
@@ -776,8 +812,8 @@ class _JamsPanelState extends ConsumerState<JamsPanel> {
                         text: TextSpan(
                           text: track.artist,
                           style: TextStyle(
-                            fontSize: 12,
-                            color: widget.textColor.withValues(alpha: 0.6),
+                            fontSize: 12.5,
+                            color: widget.textColor.withValues(alpha: 0.60),
                           ),
                         ),
                         maxLines: 1,
@@ -788,8 +824,8 @@ class _JamsPanelState extends ConsumerState<JamsPanel> {
                         return Marquee(
                           text: track.artist,
                           style: TextStyle(
-                            fontSize: 12,
-                            color: widget.textColor.withValues(alpha: 0.6),
+                            fontSize: 12.5,
+                            color: widget.textColor.withValues(alpha: 0.60),
                           ),
                           scrollAxis: Axis.horizontal,
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -802,8 +838,8 @@ class _JamsPanelState extends ConsumerState<JamsPanel> {
                       return Text(
                         track.artist,
                         style: TextStyle(
-                          fontSize: 12,
-                          color: widget.textColor.withValues(alpha: 0.6),
+                          fontSize: 12.5,
+                          color: widget.textColor.withValues(alpha: 0.60),
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -814,36 +850,10 @@ class _JamsPanelState extends ConsumerState<JamsPanel> {
               ],
             ),
           ),
-          // Playing animation
-          _buildPlayingAnimation(),
+          const SizedBox(width: 12),
+          // Animated equalizer badge
+          _JamCardEqualizerBadge(color: widget.accentColor),
         ],
-      ),
-    );
-  }
-
-  Widget _buildPlayingAnimation() {
-    return SizedBox(
-      width: 20,
-      height: 16,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: List.generate(3, (i) {
-          return TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0.3, end: 1.0),
-            duration: Duration(milliseconds: 300 + i * 100),
-            curve: Curves.easeInOut,
-            builder: (context, value, child) {
-              return Container(
-                width: 4,
-                height: 16 * value,
-                decoration: BoxDecoration(
-                  color: widget.accentColor,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              );
-            },
-          );
-        }),
       ),
     );
   }
@@ -871,5 +881,80 @@ class _JamsPanelState extends ConsumerState<JamsPanel> {
     if (success) {
       _codeController.clear();
     }
+  }
+}
+
+/// Animated 4-bar soundwave equalizer badge for Now Playing card in Jam sheet
+class _JamCardEqualizerBadge extends StatefulWidget {
+  final Color color;
+
+  const _JamCardEqualizerBadge({required this.color});
+
+  @override
+  State<_JamCardEqualizerBadge> createState() => _JamCardEqualizerBadgeState();
+}
+
+class _JamCardEqualizerBadgeState extends State<_JamCardEqualizerBadge>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 850),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: widget.color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: widget.color.withValues(alpha: 0.35),
+          width: 1.0,
+        ),
+      ),
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          final t = _controller.value;
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _buildBar(5.0 + (t * 11.0)),
+              const SizedBox(width: 2.5),
+              _buildBar(16.0 - (t * 10.0)),
+              const SizedBox(width: 2.5),
+              _buildBar(7.0 + (t * 11.0)),
+              const SizedBox(width: 2.5),
+              _buildBar(14.0 - (t * 8.0)),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildBar(double height) {
+    return Container(
+      width: 2.5,
+      height: height.clamp(4.0, 18.0),
+      decoration: BoxDecoration(
+        color: widget.color,
+        borderRadius: BorderRadius.circular(2),
+      ),
+    );
   }
 }

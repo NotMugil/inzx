@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,7 @@ import 'core/l10n/app_localizations_x.dart';
 import 'core/providers/locale_provider.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/services/cache/hive_service.dart';
+import 'core/utils/app_logger.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'services/audio_handler.dart';
 import 'services/github_release_update_service.dart';
@@ -33,6 +35,26 @@ VoidCallback? requestAppRestart;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize rolling application logger and crash tracing
+  await AppLogger.init();
+
+  // Global Flutter UI crash interceptor
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    AppLogger.e(
+      'FlutterError',
+      details.exceptionAsString(),
+      details.exception,
+      details.stack,
+    );
+  };
+
+  // Global asynchronous & platform error interceptor
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    AppLogger.e('PlatformError', error.toString(), error, stack);
+    return true;
+  };
 
   // Initialize environment variables
   try {

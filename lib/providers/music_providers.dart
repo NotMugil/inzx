@@ -182,7 +182,10 @@ class AlbumColorsNotifier extends StateNotifier<AlbumColors> {
         state = fastColors;
         return;
       }
-      final artBytes = await LocalArtworkService.getArtworkBytes(localPath);
+      final artBytes = await LocalArtworkService.getArtworkBytes(
+        localPath,
+        track: track,
+      );
       if (artBytes != null && artBytes.isNotEmpty) {
         final colors = await AlbumColorExtractor.extractFromBytes(
           artBytes,
