@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show compute, kDebugMode;
+import 'package:image/image.dart' as img;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:inzx/core/services/cache/hive_service.dart';
@@ -1345,9 +1347,11 @@ class YTMusicPlaylistAction {
   }
 
   /// Upload a custom cover image for an owned playlist.
+  /// Automatically ensures the image is a 1:1 square before uploading to YouTube Music.
   Future<bool> uploadImage(String playlistId, Uint8List imageBytes) async {
     if (!_isLoggedIn) return false;
-    return _innerTube.uploadPlaylistImage(playlistId, imageBytes);
+    final prepared = await compute(_ensureSquarePlaylistCover, imageBytes);
+    return _innerTube.uploadPlaylistImage(playlistId, prepared);
   }
 }
 
@@ -1403,4 +1407,38 @@ Album _parseAlbumIsolate(String json) {
 /// Top-level function for isolate - parses artist JSON
 Artist _parseArtistIsolate(String json) {
   return Artist.fromJson(jsonDecode(json));
+}
+
+/// Top-level function for isolate - ensures custom playlist cover is a 1:1 square
+Uint8List _ensureSquarePlaylistCover(Uint8List rawBytes) {
+  try {
+    final decoded = img.decodeImage(rawBytes);
+    if (decoded == null) return rawBytes;
+
+    final isSquare = (decoded.width - decoded.height).abs() <= 2;
+    if (isSquare && decoded.width <= 1024 && decoded.height <= 1024) {
+      return rawBytes;
+    }
+
+    img.Image processed = decoded;
+    if (!isSquare) {
+      final side = min(decoded.width, decoded.height);
+      final cropX = (decoded.width - side) ~/ 2;
+      final cropY = (decoded.height - side) ~/ 2;
+      processed = img.copyCrop(decoded, x: cropX, y: cropY, width: side, height: side);
+    }
+
+    if (processed.width > 1024 || processed.height > 1024) {
+      processed = img.copyResize(
+        processed,
+        width: 1024,
+        height: 1024,
+        interpolation: img.Interpolation.cubic,
+      );
+    }
+
+    return Uint8List.fromList(img.encodeJpg(processed, quality: 90));
+  } catch (_) {
+    return rawBytes;
+  }
 }

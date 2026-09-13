@@ -815,7 +815,8 @@ class _SpectrumBarPainter extends CustomPainter {
 /// Isolated lyrics container that watches [positionStreamProvider] without
 /// causing the parent NowPlayingScreen widget tree to rebuild on audio ticks.
 class _IsolatedLyricsView extends ConsumerWidget {
-  const _IsolatedLyricsView();
+  final bool isActive;
+  const _IsolatedLyricsView({this.isActive = true});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -835,7 +836,7 @@ class _IsolatedLyricsView extends ConsumerWidget {
     final position =
         ref.watch(positionStreamProvider).valueOrNull ?? Duration.zero;
     return RepaintBoundary(
-      child: LyricsView(currentPosition: position),
+      child: LyricsView(currentPosition: position, isActive: isActive),
     );
   }
 }
@@ -4397,8 +4398,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     );
   }
 
-  Widget _buildLyricsView() {
-    return const _IsolatedLyricsView();
+  Widget _buildLyricsView({bool? isActive}) {
+    return _IsolatedLyricsView(isActive: isActive ?? _showLyrics);
   }
 
   Widget _buildAlbumArtContent(

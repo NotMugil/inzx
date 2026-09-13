@@ -19,8 +19,13 @@ const _lyricsAnchorRatio = 0.35; // 35% from the top of the viewport (Metrolist 
 /// Lyrics view widget for Now Playing screen with Metrolist-style animations
 class LyricsView extends ConsumerStatefulWidget {
   final Duration currentPosition;
+  final bool isActive;
 
-  const LyricsView({super.key, required this.currentPosition});
+  const LyricsView({
+    super.key,
+    required this.currentPosition,
+    this.isActive = true,
+  });
 
   @override
   ConsumerState<LyricsView> createState() => _LyricsViewState();
@@ -86,9 +91,9 @@ class _LyricsViewState extends ConsumerState<LyricsView>
       setState(() {
         _currentLineIndex = newIdx;
       });
-      if (_isAutoScrollEnabled) {
+      if (_isAutoScrollEnabled && widget.isActive) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && _isAutoScrollEnabled) {
+          if (mounted && _isAutoScrollEnabled && widget.isActive) {
             _scrollToCurrentLine(immediate: false);
           }
         });
@@ -99,6 +104,15 @@ class _LyricsViewState extends ConsumerState<LyricsView>
   @override
   void didUpdateWidget(covariant LyricsView oldWidget) {
     super.didUpdateWidget(oldWidget);
+
+    if (!oldWidget.isActive && widget.isActive) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _isAutoScrollEnabled && widget.isActive) {
+          _scrollToCurrentLine(immediate: true);
+        }
+      });
+    }
+
     final newMs = widget.currentPosition.inMilliseconds;
     final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -147,11 +161,14 @@ class _LyricsViewState extends ConsumerState<LyricsView>
       setState(() {
         _isAutoScrollEnabled = true;
       });
-      _scrollToCurrentLine(immediate: false);
+      if (widget.isActive) {
+        _scrollToCurrentLine(immediate: false);
+      }
     }
   }
 
   void _scrollToCurrentLine({bool immediate = false}) {
+    if (!widget.isActive) return;
     if (!_scrollController.hasClients ||
         _currentLineIndex < 0 ||
         _currentLineIndex >= _lineKeys.length) {
@@ -160,12 +177,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
 
     final keyContext = _lineKeys[_currentLineIndex].currentContext;
     if (keyContext != null) {
-      Scrollable.ensureVisible(
-        keyContext,
-        alignment: _lyricsAnchorRatio,
-        duration: Duration(milliseconds: immediate ? 0 : 450),
-        curve: Curves.easeOutCubic,
-      );
+      _ensureLineVisible(keyContext, immediate: immediate);
     } else {
       final approxOffset = (_currentLineIndex * 60.0).clamp(
         0.0,
@@ -183,20 +195,38 @@ class _LyricsViewState extends ConsumerState<LyricsView>
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted &&
+            widget.isActive &&
             _scrollController.hasClients &&
             _currentLineIndex < _lineKeys.length) {
           final newContext = _lineKeys[_currentLineIndex].currentContext;
           if (newContext != null) {
-            Scrollable.ensureVisible(
-              newContext,
-              alignment: _lyricsAnchorRatio,
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOutCubic,
-            );
+            _ensureLineVisible(newContext, immediate: false);
           }
         }
       });
     }
+  }
+
+  void _ensureLineVisible(BuildContext keyContext, {bool immediate = false}) {
+    if (!widget.isActive) return;
+    final renderObject = keyContext.findRenderObject();
+    if (renderObject == null || !renderObject.attached) return;
+
+    if (!_scrollController.hasClients ||
+        !_scrollController.position.hasContentDimensions) {
+      return;
+    }
+
+    // Scroll ONLY the lyrics ScrollController position.
+    // Never call Scrollable.ensureVisible(keyContext) because that bubbles up all
+    // ancestor Scrollables including the parent horizontal PageView in NowPlayingScreen,
+    // halting PageView transitions and forcefully switching tabs.
+    _scrollController.position.ensureVisible(
+      renderObject,
+      alignment: _lyricsAnchorRatio,
+      duration: Duration(milliseconds: immediate ? 0 : 450),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   /// Seek to a specific position when a lyric line is tapped

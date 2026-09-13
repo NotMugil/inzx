@@ -2,14 +2,28 @@ import 'dart:typed_data';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image/image.dart' as img;
 
 import '../../core/l10n/app_localizations_x.dart';
 import '../../core/services/cache/hive_service.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
 import 'playlist_screen.dart' show PlaylistTrackSort;
+import 'square_image_cropper.dart';
+
+/// Top-level isolate function for inspecting image dimensions
+(int, int)? _decodeImageDimensions(Uint8List bytes) {
+  try {
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) return null;
+    return (decoded.width, decoded.height);
+  } catch (_) {
+    return null;
+  }
+}
 
 /// Full-screen editor for an owned YouTube Music playlist: cover, title,
 /// description, privacy, and an inline drag-to-reorder song list with a sort
@@ -28,6 +42,7 @@ class _PlaylistEditScreenState extends ConsumerState<PlaylistEditScreen> {
   late final TextEditingController _titleController;
   late final TextEditingController _descController;
   late String _privacy;
+  Uint8List? _rawPickedImage;
   Uint8List? _pickedImage;
   late List<Track> _tracks;
   PlaylistTrackSort _sort = PlaylistTrackSort.defaultOrder;
@@ -117,13 +132,38 @@ class _PlaylistEditScreenState extends ConsumerState<PlaylistEditScreen> {
     });
   }
 
+  Future<void> _openCropper(Uint8List bytes) async {
+    final cropped = await Navigator.push<Uint8List>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SquareImageCropper(imageBytes: bytes),
+      ),
+    );
+    if (cropped != null && mounted) {
+      setState(() => _pickedImage = cropped);
+    }
+  }
+
   Future<void> _pickImage() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
       withData: true,
     );
     final bytes = result?.files.single.bytes;
-    if (bytes != null) setState(() => _pickedImage = bytes);
+    if (bytes == null || bytes.isEmpty) return;
+
+    final dims = await compute(_decodeImageDimensions, bytes);
+    if (!mounted) return;
+
+    _rawPickedImage = bytes;
+
+    if (dims != null && (dims.$1 - dims.$2).abs() > 2) {
+      // Non-square image -> open interactive 1:1 cropper with centered framing
+      await _openCropper(bytes);
+    } else {
+      // Already square
+      setState(() => _pickedImage = bytes);
+    }
   }
 
   Future<void> _save() async {
@@ -348,10 +388,54 @@ class _PlaylistEditScreenState extends ConsumerState<PlaylistEditScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 8),
                   Center(
-                    child: Text('Tap to change cover',
-                        style: TextStyle(color: secondary, fontSize: 12)),
+                    child: _pickedImage != null
+                        ? Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              GestureDetector(
+                                onTap: _saving ? null : _pickImage,
+                                child: Text('Change image',
+                                    style: TextStyle(
+                                        color: accent,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600)),
+                              ),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 8),
+                                child: Text('•',
+                                    style: TextStyle(
+                                        color: secondary, fontSize: 12)),
+                              ),
+                              GestureDetector(
+                                onTap: _saving
+                                    ? null
+                                    : () => _openCropper(
+                                        _rawPickedImage ?? _pickedImage!),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.crop_rounded,
+                                        size: 13, color: accent),
+                                    const SizedBox(width: 4),
+                                    Text('Adjust crop',
+                                        style: TextStyle(
+                                            color: accent,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          )
+                        : GestureDetector(
+                            onTap: _saving ? null : _pickImage,
+                            child: Text('Tap to change cover',
+                                style:
+                                    TextStyle(color: secondary, fontSize: 12)),
+                          ),
                   ),
                   const SizedBox(height: 18),
                   _field(
