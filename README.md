@@ -155,7 +155,9 @@ English, Turkish, Russian, Hindi, Malayalam, Tamil, Kannada, Telugu, Spanish, Po
 - [ ] **Chromecast support** — Cast playback to external speakers
 - [ ] **Desktop support** — Windows, macOS, Linux desktop targets
 
----
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) to see how you can help out!
 
 ## Acknowledgments
 
@@ -165,7 +167,6 @@ English, Turkish, Russian, Hindi, Malayalam, Tamil, Kannada, Telugu, Spanish, Po
 - [Supabase](https://supabase.com) — Real-time infrastructure
 - [BetterLyrics](https://github.com/nirmaleeswar30/Inzx) — Word-level synced lyrics API
 
----
 
 ## Star History
 
@@ -176,8 +177,6 @@ English, Turkish, Russian, Hindi, Malayalam, Tamil, Kannada, Telugu, Spanish, Po
    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=nirmaleeswar30/inzx&type=date&legend=top-left" />
  </picture>
 </a>
-
----
 
 ## License
 
